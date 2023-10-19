@@ -818,6 +818,8 @@ class ElfBuilder final {
         return InstructionSet::kX86;
       case EM_X86_64:
         return InstructionSet::kX86_64;
+      case EM_LOONGARCH:
+        return InstructionSet::kLoongarch64;
     }
     LOG(FATAL) << "Unknown architecture: " << header.e_machine;
     UNREACHABLE();
@@ -846,6 +848,11 @@ class ElfBuilder final {
       }
       case InstructionSet::kX86_64: {
         elf_header.e_machine = EM_X86_64;
+        elf_header.e_flags = 0;
+        break;
+      }
+      case InstructionSet::kLoongarch64: {
+        elf_header.e_machine = EM_LOONGARCH;
         elf_header.e_flags = 0;
         break;
       }

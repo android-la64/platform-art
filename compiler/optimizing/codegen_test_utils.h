@@ -35,6 +35,10 @@
 #include "code_generator_arm64.h"
 #endif
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+#include "code_generator_loongarch64.h"
+#endif
+
 #ifdef ART_ENABLE_CODEGEN_x86
 #include "code_generator_x86.h"
 #endif
@@ -330,6 +334,10 @@ inline CodeGenerator* create_codegen_arm_vixl32(HGraph* graph, const CompilerOpt
 inline CodeGenerator* create_codegen_arm64(HGraph* graph, const CompilerOptions& compiler_options) {
   return new (graph->GetAllocator()) TestCodeGeneratorARM64(graph, compiler_options);
 }
+#endif
+
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+inline CodeGenerator* create_codegen_loongarch64(HGraph*, const CompilerOptions&) { return nullptr; }
 #endif
 
 #ifdef ART_ENABLE_CODEGEN_x86

@@ -34,6 +34,9 @@
 #elif defined(__x86_64__)
 #include "x86_64/context_x86_64.h"
 #define RUNTIME_CONTEXT_TYPE x86_64::X86_64Context
+#elif defined(__loongarch__) && (__loongarch_grlen == 64)
+#include "loongarch64/context_loongarch64.h"
+#define RUNTIME_CONTEXT_TYPE loongarch64::Loongarch64Context
 #else
 #error unimplemented
 #endif

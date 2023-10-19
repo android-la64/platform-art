@@ -72,6 +72,9 @@ art_module_cc_defaults {
         android_arm64: {
             relative_install_path: "art/arm64",
         },
+        android_loongarch64: {
+            relative_install_path: "art/loongarch64",
+        },
         android_x86: {
             relative_install_path: "art/x86",
         },
@@ -101,6 +104,9 @@ art_cc_defaults {
             relative_install_path: "com.android.art/lib",
         },
         android_arm64: {
+            relative_install_path: "com.android.art/lib64",
+        },
+        android_loongarch64: {
             relative_install_path: "com.android.art/lib64",
         },
         android_x86: {

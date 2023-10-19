@@ -237,6 +237,9 @@ art_module_art_global_defaults {
         x86_64: {
             cflags: ["-DART_ENABLE_CODEGEN_x86_64"],
         },
+        loongarch64: {
+            cflags: ["-DART_ENABLE_CODEGEN_loongarch64"],
+        },
     },
 
     tidy_checks: art_clang_tidy_errors + art_clang_tidy_disabled,
@@ -270,6 +273,9 @@ cc_defaults {
         x86_64: {
             ldflags: ["-z max-page-size=0x200000"],
         },
+        loongarch64: {
+            ldflags: ["-z max-page-size=0x200000"],
+        },
     },
 }
 
@@ -298,6 +304,12 @@ cc_defaults {
         android_x86: {
             pgo: {
                 profile_file: "art/art_x86_x86_64.profdata",
+            },
+        },
+        android_loongarch64: {
+            pgo: {
+                enable_profile_use: false,
+                profile_file: "art/art_loongarch_loongarch64.profdata",
             },
         },
     },

@@ -74,6 +74,10 @@ std::unique_ptr<ManagedRuntimeCallingConvention> ManagedRuntimeCallingConvention
               is_static, is_synchronized, shorty));
 #endif
     default:
+      UNUSED(allocator);
+      UNUSED(is_static);
+      UNUSED(is_synchronized);
+      UNUSED(shorty);
       LOG(FATAL) << "Unknown InstructionSet: " << instruction_set;
       UNREACHABLE();
   }
@@ -164,6 +168,12 @@ std::unique_ptr<JniCallingConvention> JniCallingConvention::Create(ArenaAllocato
               is_static, is_synchronized, is_critical_native, shorty));
 #endif
     default:
+      UNUSED(allocator);
+      UNUSED(is_static);
+      UNUSED(is_synchronized);
+      UNUSED(is_fast_native);
+      UNUSED(is_critical_native);
+      UNUSED(shorty);
       LOG(FATAL) << "Unknown InstructionSet: " << instruction_set;
       UNREACHABLE();
   }
