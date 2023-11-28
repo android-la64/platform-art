@@ -44,7 +44,8 @@
 
 .macro UNDEFINED name
     ENTRY \name
-        unimp
+        //unimp
+        break
     END \name
 .endm
 

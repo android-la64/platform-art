@@ -56,9 +56,12 @@ func globalFlags(ctx android.LoadHookContext) ([]string, []string) {
 		cflags = append(cflags, "-DART_HEAP_POISONING=1")
 		asflags = append(asflags, "-DART_HEAP_POISONING=1")
 	}
-	if ctx.Config().IsEnvTrue("ART_USE_CXX_INTERPRETER") {
-		cflags = append(cflags, "-DART_USE_CXX_INTERPRETER=1")
-	}
+	//if ctx.Config().IsEnvTrue("ART_USE_CXX_INTERPRETER") {
+	//	cflags = append(cflags, "-DART_USE_CXX_INTERPRETER=1")
+	//}
+  // XC-TODO force USE_CXX_INTERPRETER
+  cflags = append(cflags, "-DART_USE_CXX_INTERPRETER=1")
+  //cflags = append(cflags, "-Wno-frame-larger-than")
 
 	if !ctx.Config().IsEnvFalse("ART_USE_READ_BARRIER") && ctx.Config().ArtUseReadBarrier() {
 		// Used to change the read barrier type. Valid values are BAKER, BROOKS,
@@ -124,7 +127,7 @@ func debugFlags(ctx android.LoadHookContext) []string {
 
 func deviceFlags(ctx android.LoadHookContext) []string {
 	var cflags []string
-	deviceFrameSizeLimit := 1736
+	deviceFrameSizeLimit := 7400  // XC-TODO workaround for frame size limit error
 	if len(ctx.Config().SanitizeDevice()) > 0 {
 		deviceFrameSizeLimit = 7400
 	}
@@ -144,7 +147,7 @@ func deviceFlags(ctx android.LoadHookContext) []string {
 
 func hostFlags(ctx android.LoadHookContext) []string {
 	var cflags []string
-	hostFrameSizeLimit := 1736
+	hostFrameSizeLimit := 6400  // XC-TODO workaround for frame size limit error
 	if len(ctx.Config().SanitizeHost()) > 0 {
 		// art/test/137-cfi/cfi.cc
 		// error: stack frame size of 1944 bytes in function 'Java_Main_unwindInProcess'

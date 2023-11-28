@@ -37,6 +37,10 @@
 #include "jni/quick/x86_64/calling_convention_x86_64.h"
 #endif
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64_unimp  // XC-TODO unimplmented 
+#include "jni/quick/loongarch64/calling_convention_loongarch64.h"
+#endif
+
 namespace art {
 
 // Managed runtime calling convention
@@ -71,6 +75,11 @@ std::unique_ptr<ManagedRuntimeCallingConvention> ManagedRuntimeCallingConvention
     case InstructionSet::kX86_64:
       return std::unique_ptr<ManagedRuntimeCallingConvention>(
           new (allocator) x86_64::X86_64ManagedRuntimeCallingConvention(
+              is_static, is_synchronized, shorty));
+#ifdef ART_ENABLE_CODEGEN_loongarch64_unimp   // XC-TODO unimplmented 
+    case InstructionSet::kLoongarch64:
+      return std::unique_ptr<ManagedRuntimeCallingConvention>(
+          new (allocator) loongarch64::Loongarch64ManagedRuntimeCallingConvention(
               is_static, is_synchronized, shorty));
 #endif
     default:
@@ -167,11 +176,16 @@ std::unique_ptr<JniCallingConvention> JniCallingConvention::Create(ArenaAllocato
           new (allocator) x86_64::X86_64JniCallingConvention(
               is_static, is_synchronized, is_critical_native, shorty));
 #endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64_unimp   // XC-TODO unimplmented
+    case InstructionSet::kLoongarch64:
+      return std::unique_ptr<JniCallingConvention>(
+          new (allocator) loongarch64::Loongarch64JniCallingConvention(
+              is_static, is_synchronized, is_critical_native, shorty));
+#endif
     default:
       UNUSED(allocator);
       UNUSED(is_static);
       UNUSED(is_synchronized);
-      UNUSED(is_fast_native);
       UNUSED(is_critical_native);
       UNUSED(shorty);
       LOG(FATAL) << "Unknown InstructionSet: " << instruction_set;

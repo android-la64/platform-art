@@ -30,9 +30,24 @@ void CheckMterpAsmConstants() {
 }
 
 void InitMterpTls(Thread* self) {
-  self->SetMterpDefaultIBase(nullptr);
   self->SetMterpCurrentIBase(nullptr);
-  self->SetMterpAltIBase(nullptr);
+}
+
+bool CanUseMterp()
+    REQUIRES_SHARED(Locks::mutator_lock_) {
+  const Runtime* const runtime = Runtime::Current();
+  return
+      kRuntimeISA != InstructionSet::kLoongarch64 &&
+      !runtime->IsAotCompiler() &&
+      !runtime->GetInstrumentation()->IsActive() &&
+      // mterp only knows how to deal with the normal exits. It cannot handle any of the
+      // non-standard force-returns.
+      !runtime->AreNonStandardExitsEnabled() &&
+      // An async exception has been thrown. We need to go to the switch interpreter. MTerp doesn't
+      // know how to deal with these so we could end up never dealing with it if we are in an
+      // infinite loop.
+      !runtime->AreAsyncExceptionsThrown() &&
+      (runtime->GetJit() == nullptr || !runtime->GetJit()->JitAtFirstUse());
 }
 
 /*
@@ -43,8 +58,8 @@ extern "C" bool ExecuteMterpImpl(Thread* self,
                                  ShadowFrame* shadow_frame,
                                  JValue* result_register)
     REQUIRES_SHARED(Locks::mutator_lock_) {
-  UNUSED(self); UNUSED(shadow_frame); UNUSED(code_item); UNUSED(result_register);
-  UNIMPLEMENTED(art::FATAL);
+  UNUSED(self); UNUSED(dex_instructions); UNUSED(shadow_frame); UNUSED(result_register);
+  UNIMPLEMENTED(FATAL) << "unimplement ExecuteMterpImpl";
   return false;
 }
 

@@ -26,7 +26,7 @@ namespace art {
 
 // Basic feature set is rv64g, XC-TODO
 constexpr uint32_t BasicFeatures() {
-  return Loongarch64InstructionSetFeatures::kExtGeneric | Loongarch64InstructionSetFeatures::kExtCompressed;
+  return Loongarch64InstructionSetFeatures::kExtGeneric;
 }
 
 Loongarch64FeaturesUniquePtr Loongarch64InstructionSetFeatures::FromVariant(
