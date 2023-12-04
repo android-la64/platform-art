@@ -76,6 +76,7 @@ std::unique_ptr<ManagedRuntimeCallingConvention> ManagedRuntimeCallingConvention
       return std::unique_ptr<ManagedRuntimeCallingConvention>(
           new (allocator) x86_64::X86_64ManagedRuntimeCallingConvention(
               is_static, is_synchronized, shorty));
+#endif
 #ifdef ART_ENABLE_CODEGEN_loongarch64_unimp   // XC-TODO unimplmented 
     case InstructionSet::kLoongarch64:
       return std::unique_ptr<ManagedRuntimeCallingConvention>(

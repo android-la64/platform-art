@@ -35,15 +35,38 @@ soong_config_module_type_import {
 // Properties common to `art_test_defaults` and `art_standalone_test_defaults`.
 art_module_cc_defaults {
     name: "art_test_common_defaults",
+
+    // Override flags from art_defaults:
+    cflags: [
+        // gmock.h has incorrect unused markers.
+        "-Wno-used-but-marked-unused",
+        // gtest.h compares signed and unsigned.
+        "-Wno-sign-compare",
+        // gtest.h includes cxxabi.h which fails on this check.
+        "-Wno-deprecated-dynamic-exception-spec",
+    ],
+
     target: {
         darwin: {
             enabled: false,
         },
+        // This has to be duplicated for android and host to make sure it
+        // comes after the -Wframe-larger-than warnings inserted by art.go
+        // target-specific properties
+        android: {
+            cflags: ["-Wno-frame-larger-than="],
+        },
+        host: {
+            cflags: [
+                "-Wno-frame-larger-than=",
+                "-fsanitize-address-use-after-return=never",
+                "-Wno-unused-command-line-argument",
+            ],
+        },
     },
-    cflags: [
-        "-Wno-frame-larger-than=",
-    ],
 }
+
+
 
 art_module_cc_defaults {
     name: "art_test_defaults",
@@ -597,7 +620,7 @@ art_cc_defaults {
         "ti-agent/exceptions_helper.cc",
         // This is the list of non-special OnLoad things and excludes BCI and anything that depends
         // on ART internals.
-        //"903-hello-tagging/tagging.cc",  // XC-TODO workaround for frame size limit error
+        "903-hello-tagging/tagging.cc",
         "904-object-allocation/tracking.cc",
         "905-object-free/tracking_free.cc",
         "906-iterate-heap/iterate_heap.cc",
