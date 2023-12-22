@@ -332,7 +332,7 @@ void DumpNativeStack(std::ostream& os,
   }
   std::unique_ptr<Backtrace> backtrace(Backtrace::Create(BACKTRACE_CURRENT_PROCESS, tid, map));
   backtrace->SetSkipFrames(skip_frames);
-  if (!backtrace->Unwind(0, reinterpret_cast<ucontext*>(ucontext_ptr))) {
+  if (!backtrace->Unwind(0, reinterpret_cast<ucontext_t*>(ucontext_ptr))) {
     os << prefix << "(backtrace::Unwind failed for thread " << tid
        << ": " <<  backtrace->GetErrorString(backtrace->GetError()) << ")" << std::endl;
     return;
