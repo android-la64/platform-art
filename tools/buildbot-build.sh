@@ -112,7 +112,8 @@ if [[ $build_target == "yes" ]]; then
   make_command+=" debuggerd su"  # XC-TODO workaround: remove gdbserver from commands
   # vogar requires the class files for conscrypt and ICU.
   make_command+=" conscrypt core-icu4j"
-  make_command+=" ${ANDROID_PRODUCT_OUT#"${ANDROID_BUILD_TOP}/"}/system/etc/public.libraries.txt"
+  # XC-TODO workaround: remove public.libraries.txt
+  #make_command+=" ${ANDROID_PRODUCT_OUT#"${ANDROID_BUILD_TOP}/"}/system/etc/public.libraries.txt"
   # Targets required to generate a linker configuration for device within the
   # chroot environment. The *.libraries.txt targets are required by
   # the source linkerconfig but not included in the prebuilt one.
@@ -171,6 +172,8 @@ if [[ $build_target == "yes" ]]; then
     if [[ $TARGET_ARCH = arm* ]]; then
       arch32=arm
       arch64=arm64
+    elif [[ $TARGET_ARCH = loongarch* ]]; then
+      arch64=loongarch64
     else
       arch32=x86
       arch64=x86_64
