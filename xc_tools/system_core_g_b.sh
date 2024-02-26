@@ -1,0 +1,4 @@
+# Build all system core gtest unittests.
+
+m KernelLibcutilsTest libcutils_test_static init_kill_services_test libcutils_test libcutils_sockets_test libstatspull_lazy_test libstatspush_compat_test libstatssocket_lazy_test bootstat_tests charger_test libhealthd_charger_test libutils_test storaged-unit-tests sync-unit-tests libkeyutils-tests libpackagelistparser_test libstatspush_compat_test libappfuse_test secure-storage-unit-test
+
