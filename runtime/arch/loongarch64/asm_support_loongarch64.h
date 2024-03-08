@@ -19,12 +19,14 @@
 
 #include "asm_support.h"
 
-// XC-TODO verify frame size
-// FS0 - FS11, S0, S2 - S11, RA, ArtMethod*, padding total 8*(12 + 11 + 1 + 1 + 1) = 208
-#define FRAME_SIZE_SAVE_ALL_CALLEE_SAVES 208
-// FA0 - FA7, A1 - A7, S0, S2 - S11, RA and ArtMethod* total 8*(8 + 7 + 11 + 1 + 1) = 224
+// FS0 - FS7, S0, S2 - S9(FP), RA, ArtMethod* and padding total 8*(8 + 9 + 1 + 1 + 1) = 160
+#define FRAME_SIZE_SAVE_ALL_CALLEE_SAVES 160
+
+// FA0 - FA7, A1 - A7, S0, S2 - S9(FP) RA and ArtMethod* total 8*(1 + 8 + 7 + 9 + 1) = 208
 // A0 is excluded as the ArtMethod*, and S1 is excluded as the ART thread register TR.
-#define FRAME_SIZE_SAVE_REFS_AND_ARGS    224
+#define FRAME_SIZE_SAVE_REFS_AND_ARGS    208
+
+// XC-TODO verify me
 // All 32 FPRs, 28 GPRs (no SP, Zero, TP, GP), ArtMethod*, padding, total 8*(32 + 28 + 1 + 1) = 496
 #define FRAME_SIZE_SAVE_EVERYTHING       496
 

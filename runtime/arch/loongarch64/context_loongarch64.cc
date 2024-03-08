@@ -130,8 +130,8 @@ void Loongarch64Context::DoLongJump() {
   uint64_t gprs[arraysize(gprs_)];
   uint64_t fprs[kNumberOfFRegisters];
 
-  // The long jump routine called below expects to find the value for SP at index 2.
-  DCHECK_EQ(SP, 2);
+  // The long jump routine called below expects to find the value for SP at index 3.
+  DCHECK_EQ(SP, 3);
 
   for (size_t i = 0; i < arraysize(gprs_); ++i) {
     gprs[i] = gprs_[i] != nullptr ? *gprs_[i] : Loongarch64Context::kBadGprBase + i;

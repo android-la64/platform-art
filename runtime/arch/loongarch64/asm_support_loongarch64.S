@@ -38,9 +38,11 @@
     .cfi_startproc
 .endm
 
+
 .macro END name
     .cfi_endproc
 .endm
+
 
 .macro UNDEFINED name
     ENTRY \name
@@ -48,5 +50,296 @@
         break
     END \name
 .endm
+
+
+.macro CFI_REMEMBER_STATE
+    .cfi_remember_state
+.endm
+
+
+// The spec is not clear whether the CFA is part of the saved state and tools differ in the
+// behaviour, so explicitly set the CFA to avoid any ambiguity.
+// The restored CFA state should match the CFA state during CFI_REMEMBER_STATE.
+.macro CFI_RESTORE_STATE_AND_DEF_CFA reg, offset
+    .cfi_restore_state
+    .cfi_def_cfa \reg, \offset
+.endm
+
+
+.macro INCREASE_FRAME frame_adjustment
+    addi.d $sp, $sp, -(\frame_adjustment)
+    .cfi_adjust_cfa_offset (\frame_adjustment)
+.endm
+
+
+.macro DECREASE_FRAME frame_adjustment
+    addi.d $sp, $sp, (\frame_adjustment)
+    .cfi_adjust_cfa_offset -(\frame_adjustment)
+.endm
+
+
+.macro SAVE_GPR_BASE base, reg, offset
+    st.d \reg, \base, \offset
+    .cfi_rel_offset \reg, (\offset)
+.endm
+
+
+.macro SAVE_GPR reg, offset
+    SAVE_GPR_BASE $sp, \reg, \offset
+.endm
+
+
+.macro RESTORE_GPR_BASE base, reg, offset
+    ld.d \reg, \base, \offset
+    .cfi_restore \reg
+.endm
+
+
+.macro RESTORE_GPR reg, offset
+    RESTORE_GPR_BASE $sp, \reg, \offset
+.endm
+
+
+.macro SAVE_FPR reg, offset
+    fst.d \reg, $sp, \offset
+    .cfi_rel_offset \reg, (\offset)
+.endm
+
+
+.macro RESTORE_FPR reg, offset
+    fld.d \reg, $sp, \offset
+    .cfi_restore \reg
+.endm
+
+
+.macro LOAD_RUNTIME_INSTANCE reg
+#if __has_feature(hwaddress_sanitizer)
+#error "ART does not support HWASAN on LOONGARCH yet"
+#else
+    la \reg, _ZN3art7Runtime9instance_E
+#endif
+    ld.d \reg, \reg, 0
+.endm
+
+
+// We need to save callee-save GPRs on the stack as they may contain references, and must be
+// visible to GC (unless the called method holds mutator lock and prevents GC from happening).
+// FP callee-saves shall be preserved by whatever runtime function we call, so they do not need
+// to be saved.
+.macro SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL
+#if (FRAME_SIZE_SAVE_REFS_AND_ARGS != 8*(1 + 8 + 7 + 9 + 1))
+#error "FRAME_SIZE_SAVE_REFS_AND_ARGS(RISCV64) size not as expected."
+#endif
+    // stack slot (0*8)(sp) is for ArtMethod*
+
+    SAVE_FPR $fa0, (1*8)
+    SAVE_FPR $fa1, (2*8)
+    SAVE_FPR $fa2, (3*8)
+    SAVE_FPR $fa3, (4*8)
+    SAVE_FPR $fa4, (5*8)
+    SAVE_FPR $fa5, (6*8)
+    SAVE_FPR $fa6, (7*8)
+    SAVE_FPR $fa7, (8*8)
+
+    // a0 (x10) is the method pointer
+    SAVE_GPR $a1,  (9*8)   // x11
+    SAVE_GPR $a2,  (10*8)  // x12
+    SAVE_GPR $a3,  (11*8)  // x13
+    SAVE_GPR $a4,  (12*8)  // x14
+    SAVE_GPR $a5,  (13*8)  // x15
+    SAVE_GPR $a6,  (14*8)  // x16
+    SAVE_GPR $a7,  (15*8)  // x17
+
+    SAVE_GPR $fp,  (16*8)  // x22, s9, frame pointer
+
+    SAVE_GPR $s0,  (17*8)  // x23
+    // s1 (x24) is the ART thread register
+    SAVE_GPR $s2,  (18*8)  // x25
+    SAVE_GPR $s3,  (19*8)  // x26
+    SAVE_GPR $s4,  (20*8)  // x27
+    SAVE_GPR $s5,  (21*8)  // x28
+    SAVE_GPR $s6,  (22*8)  // x29
+    SAVE_GPR $s7,  (23*8)  // x30
+    SAVE_GPR $s8,  (24*8)  // x31
+
+    SAVE_GPR $ra,  (25*8)  // x1, return address
+.endm
+
+
+.macro RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL
+    // stack slot (0*8)(sp) is for ArtMethod*
+
+    RESTORE_FPR $fa0, (1*8)
+    RESTORE_FPR $fa1, (2*8)
+    RESTORE_FPR $fa2, (3*8)
+    RESTORE_FPR $fa3, (4*8)
+    RESTORE_FPR $fa4, (5*8)
+    RESTORE_FPR $fa5, (6*8)
+    RESTORE_FPR $fa6, (7*8)
+    RESTORE_FPR $fa7, (8*8)
+
+    // a0 (x10) is the method pointer
+    RESTORE_GPR $a1,  (9*8)   // x11
+    RESTORE_GPR $a2,  (10*8)  // x12
+    RESTORE_GPR $a3,  (11*8)  // x13
+    RESTORE_GPR $a4,  (12*8)  // x14
+    RESTORE_GPR $a5,  (13*8)  // x15
+    RESTORE_GPR $a6,  (14*8)  // x16
+    RESTORE_GPR $a7,  (15*8)  // x17
+
+    RESTORE_GPR $fp,  (16*8)  // x22, s9, frame pointer
+
+    RESTORE_GPR $s0,  (17*8)  // x23
+    // s1 (x24) is the ART thread register
+    RESTORE_GPR $s2,  (18*8)  // x25
+    RESTORE_GPR $s3,  (19*8)  // x26
+    RESTORE_GPR $s4,  (20*8)  // x27
+    RESTORE_GPR $s5,  (21*8)  // x28
+    RESTORE_GPR $s6,  (22*8)  // x29
+    RESTORE_GPR $s7,  (23*8)  // x30
+    RESTORE_GPR $s8,  (24*8)  // x31
+
+    RESTORE_GPR $ra,  (25*8)  // x1, return address
+.endm
+
+
+.macro SETUP_CALLEE_SAVE_FRAME_COMMON_INTERNAL reg
+    // ArtMethod* is in reg, store it at the bottom of the stack.
+    st.d \reg, $sp, 0
+
+    // Place sp in Thread::Current()->top_quick_frame.
+    st.d $sp, $xSELF, THREAD_TOP_QUICK_FRAME_OFFSET
+.endm
+
+
+.macro SETUP_CALLEE_SAVE_FRAME_COMMON tmpreg, runtime_method_offset
+    // art::Runtime* tmpreg = art::Runtime::instance_;
+    LOAD_RUNTIME_INSTANCE \tmpreg
+
+    // ArtMethod* tmpreg = Runtime::instance_->callee_save_methods_[<callee-save-frame-type>];
+    ld.d  \tmpreg, \tmpreg, \runtime_method_offset
+
+    SETUP_CALLEE_SAVE_FRAME_COMMON_INTERNAL \tmpreg
+.endm
+
+
+.macro SETUP_SAVE_REFS_AND_ARGS_FRAME
+    INCREASE_FRAME FRAME_SIZE_SAVE_REFS_AND_ARGS
+    SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL
+    SETUP_CALLEE_SAVE_FRAME_COMMON $t0, RUNTIME_SAVE_REFS_AND_ARGS_METHOD_OFFSET
+.endm
+
+
+.macro SETUP_SAVE_REFS_AND_ARGS_FRAME_WITH_METHOD_IN_A0
+    INCREASE_FRAME FRAME_SIZE_SAVE_REFS_AND_ARGS
+    SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL
+    SETUP_CALLEE_SAVE_FRAME_COMMON_INTERNAL $a0
+.endm
+
+
+.macro RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL
+    DECREASE_FRAME FRAME_SIZE_SAVE_REFS_AND_ARGS
+.endm
+
+
+.macro SAVE_ALL_CALLEE_SAVES
+#if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVES != 8*(1 + 1 + 8 + 9 + 1))
+#error "FRAME_SIZE_SAVE_ALL_CALLEE_SAVES(RISCV64) size not as expected."
+#endif
+    // stack slot (0*8)(sp) is for ArtMethod*
+    // stack slot (1*8)(sp) is for padding
+
+    // FP callee-saves.
+    SAVE_FPR $fs0,  (8*2)  // f23
+    SAVE_FPR $fs1,  (8*3)  // f24
+    SAVE_FPR $fs2,  (8*4)  // f25
+    SAVE_FPR $fs3,  (8*5)  // f26
+    SAVE_FPR $fs4,  (8*6)  // f27
+    SAVE_FPR $fs5,  (8*7)  // f28
+    SAVE_FPR $fs6,  (8*8)  // f29
+    SAVE_FPR $fs7,  (8*9)  // f30
+
+    // GP callee-saves
+    SAVE_GPR $fp,  (8*10)  // x22/s9, frame pointer
+    SAVE_GPR $s0,  (8*11)  // x23
+    // s1 (x24) is the ART thread register
+    SAVE_GPR $s2,  (8*12)  // x25
+    SAVE_GPR $s3,  (8*13)  // x26
+    SAVE_GPR $s4,  (8*14)  // x27
+    SAVE_GPR $s5,  (8*15)  // x28
+    SAVE_GPR $s6,  (8*16)  // x29
+    SAVE_GPR $s7,  (8*17)  // x30
+    SAVE_GPR $s8,  (8*18)  // x31
+
+    SAVE_GPR $ra,  (8*19)  // x1, return address
+.endm
+
+
+.macro RESTORE_ALL_CALLEE_SAVES
+#if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVES != 8*(1 + 1 + 8 + 9 + 1))
+#error "FRAME_SIZE_SAVE_ALL_CALLEE_SAVES(RISCV64) size not as expected."
+#endif
+    // stack slot (0*8)(sp) is for ArtMethod*
+    // stack slot (1*8)(sp) is for padding
+
+    // FP callee-saves.
+    RESTORE_FPR $fs0,  (8*2)  // f23
+    RESTORE_FPR $fs1,  (8*3)  // f24
+    RESTORE_FPR $fs2,  (8*4)  // f25
+    RESTORE_FPR $fs3,  (8*5)  // f26
+    RESTORE_FPR $fs4,  (8*6)  // f27
+    RESTORE_FPR $fs5,  (8*7)  // f28
+    RESTORE_FPR $fs6,  (8*8)  // f29
+    RESTORE_FPR $fs7,  (8*9)  // f30
+
+    // GP callee-saves
+    RESTORE_GPR $fp,  (8*10)  // x22/s9, frame pointer
+    RESTORE_GPR $s0,  (8*11)  // x23
+    // s1 (x24) is the ART thread register
+    RESTORE_GPR $s2,  (8*12)  // x25
+    RESTORE_GPR $s3,  (8*13)  // x26
+    RESTORE_GPR $s4,  (8*14)  // x27
+    RESTORE_GPR $s5,  (8*15)  // x28
+    RESTORE_GPR $s6,  (8*16)  // x29
+    RESTORE_GPR $s7,  (8*17)  // x30
+    RESTORE_GPR $s8,  (8*18)  // x31
+
+    RESTORE_GPR $ra,  (8*19)  // x1, return address
+.endm
+
+
+.macro SETUP_SAVE_ALL_CALLEE_SAVES_FRAME
+    INCREASE_FRAME FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
+    SAVE_ALL_CALLEE_SAVES
+    SETUP_CALLEE_SAVE_FRAME_COMMON $t0, RUNTIME_SAVE_ALL_CALLEE_SAVES_METHOD_OFFSET
+.endm
+
+
+// Macro that calls through to artDeliverPendingExceptionFromCode, where the pending exception is
+// Thread::Current()->exception_ when the runtime method frame is ready.
+.macro DELIVER_PENDING_EXCEPTION_FRAME_READY
+    move $a0, $xSELF
+    bl artDeliverPendingExceptionFromCode  // Point of no return.
+    break                                  // Unreachable.
+.endm
+
+
+// Macro that calls through to artDeliverPendingExceptionFromCode, where the pending exception is
+// Thread::Current()->exception_.
+.macro DELIVER_PENDING_EXCEPTION
+    SETUP_SAVE_ALL_CALLEE_SAVES_FRAME
+    DELIVER_PENDING_EXCEPTION_FRAME_READY
+.endm
+
+
+.macro RETURN_OR_DELIVER_PENDING_EXCEPTION_REG reg
+    ld.d \reg, $xSELF, THREAD_EXCEPTION_OFFSET
+    bnez \reg, 1f
+    jirl $zero, $ra, 0
+1:
+    DELIVER_PENDING_EXCEPTION
+.endm
+
 
 #endif  // ART_RUNTIME_ARCH_LOONGARCH64_ASM_SUPPORT_LOONGARCH64_S_
