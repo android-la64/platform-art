@@ -56,9 +56,10 @@ func globalFlags(ctx android.LoadHookContext) ([]string, []string) {
 		cflags = append(cflags, "-DART_HEAP_POISONING=1")
 		asflags = append(asflags, "-DART_HEAP_POISONING=1")
 	}
-	if ctx.Config().IsEnvTrue("ART_USE_CXX_INTERPRETER") {
+  // XC-TODO force USE_CXX_INTERPRETER
+	//if ctx.Config().IsEnvTrue("ART_USE_CXX_INTERPRETER") {
 		cflags = append(cflags, "-DART_USE_CXX_INTERPRETER=1")
-	}
+	//}
 
 	if !ctx.Config().IsEnvFalse("ART_USE_READ_BARRIER") && ctx.Config().ArtUseReadBarrier() {
 		// Used to change the read barrier type. Valid values are BAKER, BROOKS,
