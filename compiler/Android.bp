@@ -271,6 +271,11 @@ art_cc_defaults {
                 "utils/x86_64/managed_register_x86_64.cc",
             ],
         },
+        loongarch64: {
+            srcs: [
+                "utils/loongarch64/managed_register_loongarch64.cc",
+            ],
+        },
     },
     generated_sources: ["art_compiler_operator_srcs"],
     header_libs: [
@@ -526,6 +531,11 @@ art_cc_defaults {
             srcs: [
                 // Is this test a bit-rotten copy of the x86 test? b/77951326
                 // "utils/x86_64/managed_register_x86_64_test.cc",
+            ],
+        },
+        loongarch64: {
+            srcs: [
+                "utils/loongarch64/managed_register_loongarch64_test.cc",
             ],
         },
     },

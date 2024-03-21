@@ -63,7 +63,7 @@ enum XRegister {
   S8 = 31,  // X31, callee-saved 8
 
   kNumberOfXRegisters = 32,
-  kNoRegister = -1,  // Signals an illegal register.
+  kNoXRegister = -1,  // Signals an illegal X register.
 
   // Aliases.
   TR = S1,  // ART Thread Register - managed runtime
@@ -108,6 +108,7 @@ enum FRegister {
   FS7 = 31,  // F31, callee-saved 7
 
   kNumberOfFRegisters = 32,
+  kNoFRegister = -1,  // Signals an illegal F register.
 };
 
 std::ostream& operator<<(std::ostream& os, const FRegister& rhs);
