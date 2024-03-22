@@ -51,6 +51,8 @@ void LivenessTest::TestCode(const std::vector<uint16_t>& data, const char* expec
       CommonCompilerTest::CreateCompilerOptions(kRuntimeISA, "default");
   PrepareForRegisterAllocation(graph, *compiler_options).Run();
   std::unique_ptr<CodeGenerator> codegen = CodeGenerator::Create(graph, *compiler_options);
+  ASSERT_TRUE(codegen);  // Check if the code generator has been implemented
+
   SsaLivenessAnalysis liveness(graph, codegen.get(), GetScopedAllocator());
   liveness.Analyze();
 

@@ -65,6 +65,8 @@ TEST_F(LiveRangesTest, CFG1) {
   HGraph* graph = BuildGraph(data);
 
   std::unique_ptr<CodeGenerator> codegen = CodeGenerator::Create(graph, *compiler_options_);
+  ASSERT_TRUE(codegen);  // Check if the code generator has been implemented
+
   SsaLivenessAnalysis liveness(graph, codegen.get(), GetScopedAllocator());
   liveness.Analyze();
 

@@ -266,6 +266,7 @@ void CommonCompilerTestImpl::CompileMethod(ArtMethod* method) {
     compiler_options_->verification_results_ = nullptr;
   }
   CHECK(method != nullptr);
+  CHECK(compiled_method != nullptr);
   {
     TimingLogger::ScopedTiming t2("MakeExecutable", &timings);
     MakeExecutable(method, compiled_method);
