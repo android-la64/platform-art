@@ -48,9 +48,9 @@ enum XRegister {
   T6 = 18,  // X18, temporary 6
   T7 = 19,  // X19, temporary 7
   T8 = 20,  // X20, temporary 8
-  T9 = 21,  // X21, Reserved
+  R21 = 21, // X21, Reserved
 
-  S9 = 22,  // X22/FP, callee-saved 9, frame pointer
+  FP = 22,  // X22/FP, callee-saved 9, frame pointer
 
   S0 = 23,  // X23, callee-saved 0
   S1 = 24,  // X24, callee-saved 1

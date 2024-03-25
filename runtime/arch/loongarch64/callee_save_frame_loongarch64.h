@@ -35,7 +35,7 @@ static constexpr uint32_t kLoongarch64CalleeSaveAlwaysSpills =
 static constexpr uint32_t kLoongarch64CalleeSaveRefSpills =
     (1 << art::loongarch64::S0) | (1 << art::loongarch64::S2) | (1 << art::loongarch64::S3) |
     (1 << art::loongarch64::S4) | (1 << art::loongarch64::S5) | (1 << art::loongarch64::S6) |
-    (1 << art::loongarch64::S7) | (1 << art::loongarch64::S8) | (1 << art::loongarch64::S9);
+    (1 << art::loongarch64::S7) | (1 << art::loongarch64::S8) | (1 << art::loongarch64::FP);
 // Stack pointer SP is excluded (although it is callee-saved by calling convention) because it is
 // restored by the code logic and not from a stack frame.
 static constexpr uint32_t kLoongarch64CalleeSaveAllSpills = 0;
@@ -49,10 +49,9 @@ static constexpr uint32_t kLoongarch64CalleeSaveEverythingSpills =
     (1 << art::loongarch64::TR) | (1 << art::loongarch64::T0) | (1 << art::loongarch64::T1) |
     (1 << art::loongarch64::T2) | (1 << art::loongarch64::T3) | (1 << art::loongarch64::T4) |
     (1 << art::loongarch64::T5) | (1 << art::loongarch64::T6) | (1 << art::loongarch64::T7) |
-    (1 << art::loongarch64::T8) | (1 << art::loongarch64::T9) | (1 << art::loongarch64::A0) |
-    (1 << art::loongarch64::A1) | (1 << art::loongarch64::A2) | (1 << art::loongarch64::A3) |
-    (1 << art::loongarch64::A4) | (1 << art::loongarch64::A5) | (1 << art::loongarch64::A6) |
-    (1 << art::loongarch64::A7);
+    (1 << art::loongarch64::T8) | (1 << art::loongarch64::A0) | (1 << art::loongarch64::A1) |
+    (1 << art::loongarch64::A2) | (1 << art::loongarch64::A3) | (1 << art::loongarch64::A4) |
+    (1 << art::loongarch64::A5) | (1 << art::loongarch64::A6) | (1 << art::loongarch64::A7);
 
 // No references in floating-point registers.
 static constexpr uint32_t kLoongarch64CalleeSaveFpSpills = 0;
@@ -130,10 +129,9 @@ class Loongarch64CalleeSaveFrame {
 };
 
 // Assembly entrypoints rely on these constants.
-// XC-TODO: fix frame size
 static_assert(Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveRefsAndArgs) == 208);
 static_assert(Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveAllCalleeSaves) == 160);
-//static_assert(Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveEverything) == 496);
+static_assert(Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveEverything) == 496);
 
 }  // namespace loongarch64
 }  // namespace art

@@ -176,7 +176,7 @@ END art_deliver_pending_exception
     .equ NUM_FPRS_TO_FILL, 8
 
     // Load addresses for routines that load argument GPRs and FPRs.
-#    lla  t4, .Lreg_handlers_start\sfx  // First handler for non-FP args. XC-TODO: verify
+    //lla  t4, .Lreg_handlers_start\sfx  // First handler for non-FP args. XC-TODO: verify
     la $t4, .Lreg_handlers_start\sfx
     addi.d $t5, $t4, (3 * NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)  // First handler for FP args.
 
@@ -293,7 +293,6 @@ END art_deliver_pending_exception
 //                            JValue*    result,   // a4
 //                            char*      shorty)   // a5
 ENTRY art_quick_invoke_stub
-    //break
     INVOKE_STUB_CREATE_FRAME
 
     // Load args into registers.
@@ -328,7 +327,7 @@ ENTRY art_quick_generic_jni_trampoline
     move   $fp, $sp
     .cfi_def_cfa_register $fp
 
-    //li.d   $t0, GENERIC_JNI_TRAMPOLINE_RESERVED_AREA
+    //li.d   $t0, GENERIC_JNI_TRAMPOLINE_RESERVED_AREA  //XC-TODO why not compile faield?
     li.d   $t0, 5120
     sub.d  $sp, $sp, $t0
 
@@ -421,15 +420,136 @@ END art_quick_to_interpreter_bridge
 
 
 UNDEFINED art_quick_imt_conflict_trampoline
-UNDEFINED art_invoke_obsolete_method_stub
 UNDEFINED art_quick_method_exit_hook
-UNDEFINED art_quick_proxy_invoke_handler
-UNDEFINED art_quick_resolution_trampoline
+
+
+// Called by managed code that is attempting to call a method on a proxy class. On entry a0 holds
+// the proxy method and a1 holds the receiver. The frame size of the invoked proxy method agrees
+// with kSaveRefsAndArgs frame.
+.extern artQuickProxyInvokeHandler
+ENTRY art_quick_proxy_invoke_handler
+    SETUP_SAVE_REFS_AND_ARGS_FRAME_WITH_METHOD_IN_A0
+
+    // uint64_t artQuickProxyInvokeHandler(ArtMethod* proxy_method,   // a0
+    //                                     mirror::Object* receiver,  // a1
+    //                                     Thread* self,              // a2
+    //                                     ArtMethod** sp)            // a3
+    move    $a2, $xSELF                 // pass Thread::Current
+    move    $a3, $sp                    // pass sp
+    bl  artQuickProxyInvokeHandler      // (Method* proxy method, receiver, Thread*, sp)
+
+    ld.d    $a2, $xSELF, THREAD_EXCEPTION_OFFSET
+    bnez    $a2, .Lexception_in_proxy   // success if no exception is pending
+    CFI_REMEMBER_STATE
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME    // Restore frame
+    movgr2fr.d  $fa0, $a0               // Store result in fa0 in case it was float or double
+    jirl $zero, $ra, 0                  // return on success
+
+.Lexception_in_proxy:
+    CFI_RESTORE_STATE_AND_DEF_CFA $sp, FRAME_SIZE_SAVE_REFS_AND_ARGS
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    DELIVER_PENDING_EXCEPTION
+END art_quick_proxy_invoke_handler
+
+
+ENTRY art_quick_resolution_trampoline
+    SETUP_SAVE_REFS_AND_ARGS_FRAME
+
+    // const void* artQuickResolutionTrampoline(ArtMethod* called,         // a0
+    //                                          mirror::Object* receiver,  // a1
+    //                                          Thread* self,              // a2
+    //                                          ArtMethod** sp)            // a3
+    move   $a2, $xSELF
+    move   $a3, $sp
+    bl artQuickResolutionTrampoline
+    CFI_REMEMBER_STATE
+    beqz $a0, 1f
+    move   $t0, $a0     // Remember returned code pointer in t0.
+    ld.d   $a0, $sp, 0  // artQuickResolutionTrampoline puts called method in *sp.
+
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    jr   $t0
+1:
+    CFI_RESTORE_STATE_AND_DEF_CFA $sp, FRAME_SIZE_SAVE_REFS_AND_ARGS
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    DELIVER_PENDING_EXCEPTION
+END art_quick_resolution_trampoline
+
+
 UNDEFINED art_quick_deoptimize_from_compiled_code
 UNDEFINED art_quick_string_builder_append
 UNDEFINED art_quick_compile_optimized
 UNDEFINED art_quick_method_entry_hook
 UNDEFINED art_quick_check_instance_of
+
+
+.macro N_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING n, c_name, cxx_name
+.extern \cxx_name
+ENTRY \c_name
+    SETUP_SAVE_EVERYTHING_FRAME       // save all registers as basis for long jump context.
+    move    $a\n, $xSELF              // pass Thread::Current.
+    bl      \cxx_name                 // \cxx_name(args..., Thread*).
+    break
+END \c_name
+.endm
+
+
+.macro NO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING c_name, cxx_name
+    N_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING 0, \c_name, \cxx_name
+.endm
+
+
+.macro TWO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING c_name, cxx_name
+    N_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING 2, \c_name, \cxx_name
+.endm
+
+
+.macro N_ARG_RUNTIME_EXCEPTION n, c_name, cxx_name
+.extern \cxx_name
+ENTRY \c_name
+    SETUP_SAVE_ALL_CALLEE_SAVES_FRAME // save all registers as basis for long jump context.
+    move    $a\n, $xSELF              // pass Thread::Current.
+    bl      \cxx_name                 // \cxx_name(args..., Thread*).
+    break
+END \c_name
+.endm
+
+.macro NO_ARG_RUNTIME_EXCEPTION c_name, cxx_name
+    N_ARG_RUNTIME_EXCEPTION 0, \c_name, \cxx_name
+.endm
+
+
+.macro ONE_ARG_RUNTIME_EXCEPTION c_name, cxx_name
+    N_ARG_RUNTIME_EXCEPTION 1, \c_name, \cxx_name
+.endm
+
+
+// Called by managed code to create and deliver a NullPointerException.
+NO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING \
+        art_quick_throw_null_pointer_exception, artThrowNullPointerExceptionFromCode
+
+
+// Call installed by a signal handler to create and deliver a NullPointerException.
+.extern artThrowNullPointerExceptionFromSignal
+ENTRY art_quick_throw_null_pointer_exception_from_signal
+    // The fault handler pushes the gc map address, i.e. "return address", to stack
+    // and passes the fault address in RA. So we need to set up the CFI info accordingly.
+    .cfi_def_cfa_offset __SIZEOF_POINTER__
+    .cfi_rel_offset $ra, 0
+   // Save all registers as basis for long jump context.
+    INCREASE_FRAME (FRAME_SIZE_SAVE_EVERYTHING - __SIZEOF_POINTER__)
+    SETUP_SAVE_EVERYTHING_FRAME_DECREMENTED_SP_SKIP_RA
+    move    $a0, $ra                      // pass the fault address stored in RA by the fault handler.
+    move    $a1, $xSELF                   // pass Thread::Current.
+    bl  artThrowNullPointerExceptionFromSignal  // (arg, Thread*).
+    break
+END art_quick_throw_null_pointer_exception_from_signal
+
+
+/*
+ * Called to attempt to execute an obsolete method.
+ */
+ONE_ARG_RUNTIME_EXCEPTION art_invoke_obsolete_method_stub, artInvokeObsoleteMethod
 
 
 // On entry a0 is uintptr_t* gprs_ and a1 is uint64_t* fprs_.
@@ -712,14 +832,61 @@ UNDEFINED art_quick_test_suspend
 UNDEFINED art_quick_deliver_exception
 UNDEFINED art_quick_throw_array_bounds
 UNDEFINED art_quick_throw_div_zero
-UNDEFINED art_quick_throw_null_pointer_exception
 UNDEFINED art_quick_throw_stack_overflow
 UNDEFINED art_quick_throw_string_bounds
 UNDEFINED art_quick_update_inline_cache
 UNDEFINED art_jni_monitored_method_start
 UNDEFINED art_jni_monitored_method_end
 UNDEFINED art_quick_indexof
-UNDEFINED art_quick_throw_null_pointer_exception_from_signal
-UNDEFINED art_quick_instrumentation_entry
-UNDEFINED art_quick_instrumentation_exit
+
+
+ENTRY art_quick_instrumentation_entry
+    SETUP_SAVE_REFS_AND_ARGS_FRAME
+    // Preserve $a0 knowing there is a spare slot in kSaveRefsAndArgs.
+    st.d    $a0, $sp, 8     // Save arg0.
+    move    $a2, $xSELF     // pass Thread::Current
+    move    $a3, $sp        // Pass $sp.
+    bl  artInstrumentationMethodEntryFromCode  // (Method*, Object*, Thread*, SP)
+    beq     $a0, $zero, .Ldeliver_instrumentation_entry_exception
+                            // Deliver exception if we got nullptr as function.
+    move    $t6, $a0        // $t6 holds reference to code
+    ld.d    $a0, $sp, 8     // Restore arg0.
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    la      $ra, art_quick_instrumentation_exit
+    jirl    $zero, $t6, 0   // call method, returning to art_quick_instrumentation_exit
+.Ldeliver_instrumentation_entry_exception:
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    DELIVER_PENDING_EXCEPTION
+END art_quick_instrumentation_entry
+
+
+ENTRY art_quick_instrumentation_exit
+    move    $ra, $zero      // RA points here, so clobber with 0 for later checks.
+    SETUP_SAVE_EVERYTHING_FRAME
+
+    addi.d    $a3, $sp, SAVE_EVERYTHING_FRAME_OFFSET_FA0    // offset Pass fpr_res pointer ($fa0 in SAVE_EVERYTHING_FRAME).
+    addi.d    $a2, $sp, SAVE_EVERYTHING_FRAME_OFFSET_A0     // offset Pass gpr_res pointer ($a0 in SAVE_EVERYTHING_FRAME).
+    move      $a1, $sp      // Pass $sp.
+    move      $a0, $xSELF   // pass Thread::Current
+    bl     artInstrumentationMethodExitFromCode  // (Thread*, SP, gpr_res*, fpr_res*)
+
+    beq     $a0, $zero, .Ldo_deliver_instrumentation_exception
+                            // Deliver exception if we got nullptr as function.
+    bne     $a1, $zero, .Ldeoptimize
+
+    // Normal return.
+    st.d    $a0, $sp, (FRAME_SIZE_SAVE_EVERYTHING-8)  // Set return pc.
+    RESTORE_SAVE_EVERYTHING_FRAME
+    jirl    $zero, $ra, 0
+.Ldo_deliver_instrumentation_exception:
+    DELIVER_PENDING_EXCEPTION_FRAME_READY
+.Ldeoptimize:
+    st.d    $a1, $sp, (FRAME_SIZE_SAVE_EVERYTHING-8)
+                            // Fake a call from instrumentation return pc.
+    RESTORE_SAVE_EVERYTHING_FRAME
+    la      $t6, art_quick_deoptimize
+    jirl    $zero, $t6, 0
+END art_quick_instrumentation_exit
+
+
 UNDEFINED art_quick_deoptimize

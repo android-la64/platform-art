@@ -66,6 +66,34 @@
 .endm
 
 
+.macro CFI_EXPRESSION_BREG n, b, offset
+   .if (-0x40 <= (\offset)) && ((\offset) < 0x40)
+        CFI_EXPRESSION_BREG_1(\n, \b, \offset)
+    .elseif (-0x2000 <= (\offset)) && ((\offset) < 0x2000)
+        CFI_EXPRESSION_BREG_2(\n, \b, \offset)
+    .else
+        .error "Unsupported offset"
+    .endif
+.endm
+
+
+.macro CFI_DEF_CFA_BREG_PLUS_UCONST reg, offset, size
+    .if (((\offset) < -0x40) || ((\offset) >= 0x40))
+        .error "Unsupported offset"
+    .endif
+
+    .if ((\size) < 0)
+        .error "Unsupported size, negative"
+    .elseif ((\size) < 0x80)
+        CFI_DEF_CFA_BREG_PLUS_UCONST_1_1(\reg, \offset, \size)
+    .elseif ((\size) < 0x4000)
+        CFI_DEF_CFA_BREG_PLUS_UCONST_1_2(\reg, \offset, \size)
+    .else
+        .error "Unsupported size, too large"
+    .endif
+.endm
+
+
 .macro INCREASE_FRAME frame_adjustment
     addi.d $sp, $sp, -(\frame_adjustment)
     .cfi_adjust_cfa_offset (\frame_adjustment)
@@ -306,6 +334,178 @@
     RESTORE_GPR $s8,  (8*18)  // x31
 
     RESTORE_GPR $ra,  (8*19)  // x1, return address
+.endm
+
+
+.macro SETUP_SAVE_EVERYTHING_FRAME_DECREMENTED_SP_SKIP_RA \
+        runtime_method_offset = RUNTIME_SAVE_EVERYTHING_METHOD_OFFSET
+#if (FRAME_SIZE_SAVE_EVERYTHING != 8*(2 + 32 + 28))
+#error "FRAME_SIZE_SAVE_EVERYTHING(LOONGARCH64) size not as expected."
+#endif
+    // stack slot (8*0)(sp) is for ArtMethod*
+    // stack slot (8*1)(sp) is for padding
+
+    // 32 slots for FPRs
+#define SAVE_EVERYTHING_FRAME_OFFSET_FA0 (8*2)
+    SAVE_FPR $fa0,  8*2   // f0, its offset must equal SAVE_EVERYTHING_FRAME_OFFSET_FA0
+    SAVE_FPR $fa1,  8*3   // f1
+    SAVE_FPR $fa2,  8*4   // f2
+    SAVE_FPR $fa3,  8*5   // f3
+    SAVE_FPR $fa4,  8*6   // f4
+    SAVE_FPR $fa5,  8*7   // f5
+    SAVE_FPR $fa6,  8*8   // f6
+    SAVE_FPR $fa7,  8*9   // f7
+    SAVE_FPR $ft0,  8*10  // f8
+    SAVE_FPR $ft1,  8*11  // f9
+    SAVE_FPR $ft2,  8*12  // f10
+    SAVE_FPR $ft3,  8*13  // f11
+    SAVE_FPR $ft4,  8*14  // f12
+    SAVE_FPR $ft5,  8*15  // f13
+    SAVE_FPR $ft6,  8*16  // f14
+    SAVE_FPR $ft7,  8*17  // f15
+    SAVE_FPR $ft8,  8*18  // f16
+    SAVE_FPR $ft9,  8*19  // f17
+    SAVE_FPR $ft10, 8*20  // f18
+    SAVE_FPR $ft11, 8*21  // f19
+    SAVE_FPR $ft12, 8*22  // f20
+    SAVE_FPR $ft13, 8*23  // f21
+    SAVE_FPR $ft14, 8*24  // f22
+    SAVE_FPR $ft15, 8*25  // f23
+    SAVE_FPR $fs0,  8*26  // f24
+    SAVE_FPR $fs1,  8*27  // f25
+    SAVE_FPR $fs2,  8*28  // f26
+    SAVE_FPR $fs3,  8*29  // f27
+    SAVE_FPR $fs4,  8*30  // f28
+    SAVE_FPR $fs5,  8*31  // f29
+    SAVE_FPR $fs6,  8*32  // f30
+    SAVE_FPR $fs7,  8*33  // f31
+
+    // 27 slots for GPRs (excluded: zero/x0, sp/x2, gp/x3, tp/x4, s1/x9 -- the ART thread register)
+#define SAVE_EVERYTHING_FRAME_OFFSET_A0 (8*34)
+    SAVE_GPR $a0,  8*34  // x4, its offset must equal SAVE_EVERYTHING_FRAME_OFFSET_A0
+    SAVE_GPR $a1,  8*35  // x5
+    SAVE_GPR $a2,  8*36  // x6
+    SAVE_GPR $a3,  8*37  // x7
+    SAVE_GPR $a4,  8*38  // x8
+    SAVE_GPR $a5,  8*39  // x9
+    SAVE_GPR $a6,  8*40  // x10
+    SAVE_GPR $a7,  8*41  // x11
+    SAVE_GPR $t0,  8*42  // x12
+    SAVE_GPR $t1,  8*43  // x13
+    SAVE_GPR $t2,  8*44  // x14
+    SAVE_GPR $t3,  8*45  // x15
+    SAVE_GPR $t4,  8*46  // x16
+    SAVE_GPR $t5,  8*47  // x17
+    SAVE_GPR $t6,  8*48  // x18
+    SAVE_GPR $t7,  8*49  // x19
+    SAVE_GPR $t8,  8*50  // x20
+    // Skip reserved register x21
+    SAVE_GPR $fp,  8*51  // x22
+    SAVE_GPR $s0,  8*52  // x23
+    SAVE_GPR $s1,  8*53  // x24
+    SAVE_GPR $s2,  8*54  // x25
+    SAVE_GPR $s3,  8*55  // x26
+    SAVE_GPR $s4,  8*56  // x27
+    SAVE_GPR $s5,  8*57  // x28
+    SAVE_GPR $s6,  8*58  // x29
+    SAVE_GPR $s7,  8*59  // x30
+    SAVE_GPR $s8,  8*60  // x31
+
+    // RA already saved by the user of this macro.
+
+    SETUP_CALLEE_SAVE_FRAME_COMMON $t0, \runtime_method_offset
+.endm
+
+
+.macro SETUP_SAVE_EVERYTHING_FRAME runtime_method_offset = RUNTIME_SAVE_EVERYTHING_METHOD_OFFSET
+#if (FRAME_SIZE_SAVE_EVERYTHING != 8*(2 + 32 + 28))
+#error "FRAME_SIZE_SAVE_EVERYTHING(LOONGARCH64) size not as expected."
+#endif
+    INCREASE_FRAME FRAME_SIZE_SAVE_EVERYTHING
+    SAVE_GPR $ra,  8*61  // x1, return address
+    SETUP_SAVE_EVERYTHING_FRAME_DECREMENTED_SP_SKIP_RA \runtime_method_offset
+.endm
+
+
+.macro RESTORE_SAVE_EVERYTHING_FRAME load_a0 = 1
+    // stack slot (8*0)(sp) is for ArtMethod*
+    // stack slot (8*1)(sp) is for padding
+
+    // 32 slots for FPRs
+#if SAVE_EVERYTHING_FRAME_OFFSET_FA0 != (8*2)
+#error "unexpected SAVE_EVERYTHING_FRAME_OFFSET_FA0"
+#endif
+    RESTORE_FPR $fa0,  8*2   // f0, its offset must equal SAVE_EVERYTHING_FRAME_OFFSET_FA0
+    RESTORE_FPR $fa1,  8*3   // f1
+    RESTORE_FPR $fa2,  8*4   // f2
+    RESTORE_FPR $fa3,  8*5   // f3
+    RESTORE_FPR $fa4,  8*6   // f4
+    RESTORE_FPR $fa5,  8*7   // f5
+    RESTORE_FPR $fa6,  8*8   // f6
+    RESTORE_FPR $fa7,  8*9   // f7
+    RESTORE_FPR $ft0,  8*10  // f8
+    RESTORE_FPR $ft1,  8*11  // f9
+    RESTORE_FPR $ft2,  8*12  // f10
+    RESTORE_FPR $ft3,  8*13  // f11
+    RESTORE_FPR $ft4,  8*14  // f12
+    RESTORE_FPR $ft5,  8*15  // f13
+    RESTORE_FPR $ft6,  8*16  // f14
+    RESTORE_FPR $ft7,  8*17  // f15
+    RESTORE_FPR $ft8,  8*18  // f16
+    RESTORE_FPR $ft9,  8*19  // f17
+    RESTORE_FPR $ft10, 8*20  // f18
+    RESTORE_FPR $ft11, 8*21  // f19
+    RESTORE_FPR $ft12, 8*22  // f20
+    RESTORE_FPR $ft13, 8*23  // f21
+    RESTORE_FPR $ft14, 8*24  // f22
+    RESTORE_FPR $ft15, 8*25  // f23
+    RESTORE_FPR $fs0,  8*26  // f24
+    RESTORE_FPR $fs1,  8*27  // f25
+    RESTORE_FPR $fs2,  8*28  // f26
+    RESTORE_FPR $fs3,  8*29  // f27
+    RESTORE_FPR $fs4,  8*30  // f28
+    RESTORE_FPR $fs5,  8*31  // f29
+    RESTORE_FPR $fs6,  8*32  // f30
+    RESTORE_FPR $fs7,  8*33  // f31
+
+    // 26 slots for GPRs (excluded: zero/x0, sp/x2, gp/x3, tp/x4, s1/x9 -- the ART thread register)
+#if SAVE_EVERYTHING_FRAME_OFFSET_A0 != (8*34)
+#error "unexpected SAVE_EVERYTHING_FRAME_OFFSET_A0"
+#endif
+    .if \load_a0
+    RESTORE_GPR $a0,  8*34  // x4, offset must equal SAVE_EVERYTHING_FRAME_OFFSET_A0
+    .endif
+    RESTORE_GPR $a1,  8*35  // x5
+    RESTORE_GPR $a2,  8*36  // x6
+    RESTORE_GPR $a3,  8*37  // x7
+    RESTORE_GPR $a4,  8*38  // x8
+    RESTORE_GPR $a5,  8*39  // x9
+    RESTORE_GPR $a6,  8*40  // x10
+    RESTORE_GPR $a7,  8*41  // x11
+    RESTORE_GPR $t0,  8*42  // x12
+    RESTORE_GPR $t1,  8*43  // x13
+    RESTORE_GPR $t2,  8*44  // x14
+    RESTORE_GPR $t3,  8*45  // x15
+    RESTORE_GPR $t4,  8*46  // x16
+    RESTORE_GPR $t5,  8*47  // x17
+    RESTORE_GPR $t6,  8*48  // x18
+    RESTORE_GPR $t7,  8*49  // x19
+    RESTORE_GPR $t8,  8*50  // x20
+     // Skip reserved register x21
+    RESTORE_GPR $fp,  8*51  // x22
+    RESTORE_GPR $s0,  8*52  // x23
+    RESTORE_GPR $s1,  8*53  // x24
+    RESTORE_GPR $s2,  8*54  // x25
+    RESTORE_GPR $s3,  8*55  // x26
+    RESTORE_GPR $s4,  8*56  // x27
+    RESTORE_GPR $s5,  8*57  // x28
+    RESTORE_GPR $s6,  8*58  // x29
+    RESTORE_GPR $s7,  8*59  // x30
+    RESTORE_GPR $s8,  8*60  // x31
+
+    RESTORE_GPR $ra,  (8*61)  // x1, return address
+
+    DECREASE_FRAME FRAME_SIZE_SAVE_EVERYTHING
 .endm
 
 
