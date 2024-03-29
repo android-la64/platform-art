@@ -273,6 +273,7 @@ art_cc_defaults {
         },
         loongarch64: {
             srcs: [
+                "utils/loongarch64/assembler_loongarch64.cc",
                 "utils/loongarch64/managed_register_loongarch64.cc",
             ],
         },
@@ -596,25 +597,30 @@ art_cc_test {
         "utils/x86_64/assembler_x86_64_test.cc",
     ],
     codegen: {
-        arm: {
+        // arm: {
+        //     srcs: [
+        //         "utils/assembler_thumb_test.cc",
+        //     ],
+        // },
+        // riscv64: {
+        //     srcs: [
+        //         "utils/riscv64/assembler_riscv64_test.cc",
+        //         "utils/riscv64/jni_macro_assembler_riscv64_test.cc",
+        //     ],
+        // },
+        // x86: {
+        //     srcs: [
+        //         "utils/x86/assembler_x86_test.cc",
+        //     ],
+        // },
+        // x86_64: {
+        //     srcs: [
+        //         "utils/x86_64/assembler_x86_64_test.cc",
+        //     ],
+        // },
+        loongarch64: {
             srcs: [
-                "utils/assembler_thumb_test.cc",
-            ],
-        },
-        riscv64: {
-            srcs: [
-                "utils/riscv64/assembler_riscv64_test.cc",
-                "utils/riscv64/jni_macro_assembler_riscv64_test.cc",
-            ],
-        },
-        x86: {
-            srcs: [
-                "utils/x86/assembler_x86_test.cc",
-            ],
-        },
-        x86_64: {
-            srcs: [
-                "utils/x86_64/assembler_x86_64_test.cc",
+                "utils/loongarch64/assembler_loongarch64_test.cc",
             ],
         },
     },

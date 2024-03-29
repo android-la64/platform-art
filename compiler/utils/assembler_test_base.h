@@ -158,6 +158,8 @@ class AssemblerTestBase : public testing::Test {
         return {FindTool("clang"), "--compile", "-target", "i386-linux-gnu"};
       case InstructionSet::kX86_64:
         return {FindTool("clang"), "--compile", "-target", "x86_64-linux-gnu"};
+      case InstructionSet::kLoongarch64:
+        return {FindTool("clang"), "--compile", "-target", "loongarch64-linux-gnu", "-march=la464"};
       default:
         LOG(FATAL) << "Unknown instruction set: " << isa;
         UNREACHABLE();
@@ -181,6 +183,12 @@ class AssemblerTestBase : public testing::Test {
                 "--mattr=+F,+D,+A,+C,+V,+Zba,+Zbb,+Zca,+Zcd,+Zcb",
                 "-M",
                 "no-aliases"};
+      // ZQZTODO: is this disassemble command right?
+      case InstructionSet::kLoongarch64:
+        return {FindTool("llvm-objdump"),
+          "--disassemble",
+          "--no-print-imm-hex",
+          "--no-show-raw-insn"};
       default:
         return {
             FindTool("llvm-objdump"), "--disassemble", "--no-print-imm-hex", "--no-show-raw-insn"};
