@@ -198,6 +198,41 @@ class AssemblerTest : public AssemblerTestBase {
     return RepeatRegisterImm<RegisterView::kUseQuaternaryName>(f, imm_bytes, fmt);
   }
 
+  template <typename ImmType>
+  std::string RepeatTemplatedRegistersImmBits(void (Ass::*f)(ImmType),
+                                              int imm_bits,
+                                              int shift,
+                                              const std::string& fmt,
+                                              int bias = 0,
+                                              int multiplier = 1) {
+    std::string str;
+    std::vector<int64_t> imms = CreateImmediateValuesBits(abs(imm_bits), (imm_bits > 0), shift);
+
+        for (int64_t imm : imms) {
+          ImmType new_imm = CreateImmediate(imm);
+          if (f != nullptr) {
+            (assembler_.get()->*f)(new_imm * multiplier + bias);
+          }
+          std::string base = fmt;
+
+          size_t imm_index = base.find(IMM_TOKEN);
+          if (imm_index != std::string::npos) {
+            std::ostringstream sreg;
+            sreg << imm * multiplier + bias;
+            std::string imm_string = sreg.str();
+            base.replace(imm_index, ConstexprStrLen(IMM_TOKEN), imm_string);
+          }
+
+          if (str.size() > 0) {
+            str += "\n";
+          }
+          str += base;
+        }
+    // Add a newline at the end.
+    str += "\n";
+    return str;
+  }
+
   template <typename Reg1, typename Reg2, typename ImmType>
   std::string RepeatTemplatedRegistersImmBits(void (Ass::*f)(Reg1, Reg2, ImmType),
                                               int imm_bits,
@@ -455,6 +490,20 @@ class AssemblerTest : public AssemblerTestBase {
         GetRegisters(),
         &AssemblerTest::GetRegName<RegisterView::kUsePrimaryName>,
         &AssemblerTest::GetRegName<RegisterView::kUsePrimaryName>,
+        fmt,
+        bias);
+  }
+
+
+  template <typename ImmType>
+  std::string RepeatIb(void (Ass::*f)(ImmType),
+                         int imm_bits,
+                         int shift,
+                         const std::string& fmt,
+                         int bias = 0) {
+    return RepeatTemplatedRegistersImmBits<ImmType>(f,
+        imm_bits,
+        shift,
         fmt,
         bias);
   }

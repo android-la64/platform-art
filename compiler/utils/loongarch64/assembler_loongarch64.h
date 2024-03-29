@@ -149,9 +149,28 @@ class Loongarch64Assembler final : public Assembler {
   void Div_du(XRegister rd, XRegister rs1, XRegister rs2);
   void Mod_du(XRegister rd, XRegister rs1, XRegister rs2);
 
-  // 1RI21-Type
-  // transfer instruction
-  void Beqz(XRegister rs, int32_t offset);
+  // transfer instruction, opcode from 01 0000
+  //                                 ~ 01 1011
+  void Beqz(XRegister rs, int32_t offset21);
+  void Bnez(XRegister rs, int32_t offset21);
+  // float branch
+  // void Bceqz(XRegister rs, int32_t offset);
+  // void Bcnez(XRegister rs, int32_t offset);
+  void Jirl(XRegister rd, XRegister rs1, int32_t offset16);
+  void B(int32_t offset26);
+  void Bl(int32_t offset26);
+  void Beq(XRegister rd, XRegister rs1, int32_t offset16);
+  void Bne(XRegister rd, XRegister rs1, int32_t offset16);
+  void Blt(XRegister rd, XRegister rs1, int32_t offset16);
+  void Bge(XRegister rd, XRegister rs1, int32_t offset16);
+  void Bltu(XRegister rd, XRegister rs1, int32_t offset16);
+  void Bgeu(XRegister rd, XRegister rs1, int32_t offset16);
+
+  // Branch pseudo instructions
+  void Bgt(XRegister );
+  // Jump pseudo instructions
+  void Jr(XRegister rs);
+
 
 
 
@@ -484,7 +503,25 @@ class Loongarch64Assembler final : public Assembler {
     DCHECK(IsInt<16>(imm16)) << imm16; // Operators overloading when trigger assertion
     DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
-    uint32_t encoding = opcode << 26 | static_cast<uint32_t>(imm16 & 0xffff) << 10 |
+    uint32_t encoding = opcode << 26 | ((imm16 ) & 0xffff) << 10 |
+                        static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
+    Emit(encoding);
+  }
+
+  // 2RI16-Type instruction:
+  //
+  //   31                              26 25        10  9     5  4        0
+  //   --------------------------------------------------------------------
+  //   [ . . . . . . . . . . . . . . . . | . . . . . .| . . . .| . . . . .]
+  //   [            opcode 31:26         |    I16     | rj/rs1 |   rd     ]
+  //   --------------------------------------------------------------------
+  template <typename Reg2, typename Reg1>
+  void Emit2RI16_B(uint32_t opcode, int32_t imm16, Reg2 rj, Reg1 rd) {
+    DCHECK(IsUint<6>(opcode));
+    DCHECK(IsInt<16>(imm16)) << imm16; // Operators overloading when trigger assertion
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
+    uint32_t encoding = opcode << 26 | ((imm16 >> 2 ) & 0xffff) << 10 |
                         static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
     Emit(encoding);
   }
@@ -499,10 +536,11 @@ class Loongarch64Assembler final : public Assembler {
   template <typename Reg1>
   void Emit1RI21(uint32_t opcode, int32_t imm21, Reg1 rd) {
     DCHECK(IsUint<6>(opcode));
-    DCHECK(IsInt<21>(imm21)) << imm21; // Operators overloading when trigger assertion
+    DCHECK(IsInt<21>(imm21)) << imm21;
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
-    uint32_t encoding = opcode << 26 | (static_cast<uint32_t>(imm21) & 0xFFFF) << 10 |
-                        static_cast<uint32_t>(rd) << 5 | (static_cast<uint32_t>(imm21) & 0x1F0000);
+    // imm will be aligned in assembly, so here use >> 2 to get larger range
+    uint32_t encoding = opcode << 26 | ((imm21 >> 2) & 0xFFFF) << 10 |
+                        static_cast<uint32_t>(rd) << 5 | (((imm21 >> 2) & 0x1F0000) >> 16);
     Emit(encoding);
   }
 
@@ -513,11 +551,11 @@ class Loongarch64Assembler final : public Assembler {
   //   [ . . . . . . . . . . . . . . . . | . . . . . .| . . . .| . . . . .]
   //   [            opcode 31:26         | I26[15:0]  |     I26[25:16]    ]
   //   --------------------------------------------------------------------
-  void Emit1RI21(uint32_t opcode, int32_t imm26) {
+  void EmitI26(uint32_t opcode, int32_t imm26) {
     DCHECK(IsUint<6>(opcode));
-    DCHECK(IsInt<26>(imm26)) << imm26; // Operators overloading when trigger assertion
-    uint32_t encoding = opcode << 26 | (static_cast<uint32_t>(imm26) & 0xFFFF) << 10 |
-                        (static_cast<uint32_t>(imm26) & 0x3FF0000);
+    DCHECK(IsInt<26>(imm26)) << imm26;
+    uint32_t encoding = opcode << 26 | ((imm26 >> 2) & 0xFFFF) << 10 |
+                        (((imm26 >> 2) & 0x3FF0000) >> 16);
     Emit(encoding);
   }
 

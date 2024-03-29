@@ -42,6 +42,57 @@ void Loongarch64Assembler::Emit(uint32_t value) {
 /////////////////////////////// LOONGARCH64 VARIANTS extension ///////////////////////////////
 
 
+/////////////////////////////// LOONGARCH64 Transfer Instructions ///////////////////////////////
+
+void Loongarch64Assembler::Beqz(XRegister rs, int32_t offset21) {
+  Emit1RI21(0x10, offset21, rs);
+}
+
+void Loongarch64Assembler::Bnez(XRegister rs, int32_t offset21) {
+  Emit1RI21(0x11, offset21, rs);
+}
+
+void Loongarch64Assembler::Jirl(XRegister rd, XRegister rs1, int32_t offset16) {
+  Emit2RI16(0x13, offset16, rs1, rd);
+}
+
+void Loongarch64Assembler::B(int32_t offset26) {
+  EmitI26(0x14, offset26);
+}
+
+void Loongarch64Assembler::Bl(int32_t offset26) {
+  EmitI26(0x15, offset26);
+}
+
+void Loongarch64Assembler::Beq(XRegister rs1, XRegister rd, int32_t offset16) {
+  Emit2RI16_B(0x16, offset16, rs1, rd);
+}
+
+void Loongarch64Assembler::Bne(XRegister rs1, XRegister rd, int32_t offset16) {
+  Emit2RI16_B(0x17, offset16, rs1, rd);
+}
+
+void Loongarch64Assembler::Blt(XRegister rs1, XRegister rd, int32_t offset16) {
+  Emit2RI16_B(0x18, offset16, rs1, rd);
+}
+
+void Loongarch64Assembler::Bge(XRegister rs1, XRegister rd, int32_t offset16) {
+  Emit2RI16_B(0x19, offset16, rs1, rd);
+}
+
+void Loongarch64Assembler::Bltu(XRegister rs1, XRegister rd, int32_t offset16) {
+  Emit2RI16_B(0x1a, offset16, rs1, rd);
+}
+
+void Loongarch64Assembler::Bgeu(XRegister rs1, XRegister rd, int32_t offset16) {
+  Emit2RI16_B(0x1b, offset16, rs1, rd);
+}
+
+
+
+
+
+
 /////////////////////////////// LOONGARCH64 "2R-Type" Instructions ///////////////////////////////
 
 
@@ -330,11 +381,6 @@ void Loongarch64Assembler::Xori(XRegister rd, XRegister rs1, uint32_t imm12) {
 /////////////////////////////// LOONGARCH64 "2RI16-Type" Instructions ///////////////////////////////
 
 
-/////////////////////////////// LOONGARCH64 "1RI21-Type" Instructions ///////////////////////////////
-
-void Loongarch64Assembler::Beqz(XRegister rs, int32_t offset) {
-  Emit1RI21(0x10, rs, offset);
-}
 
 
 /////////////////////////////// LOONGARCH64 "I26-Type" Instructions ///////////////////////////////

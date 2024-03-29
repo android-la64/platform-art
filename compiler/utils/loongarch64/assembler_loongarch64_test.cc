@@ -189,6 +189,53 @@ class AssemblerLOONGARCH64Test : public AssemblerTest<Loongarch64Assembler,
 TEST_F(AssemblerLOONGARCH64Test, Toolchain) { EXPECT_TRUE(CheckTools()); }
 
 
+///////////////////////////// LOONGARCH64 Transfer Instructions ///////////////////////////////
+TEST_F(AssemblerLOONGARCH64Test, Beqz) {
+  DriverStr(RepeatRIbS(&Loongarch64Assembler::Beqz, -19, 2,"beqz {reg}, {imm}"), "Beqz");// 19 for address aligned
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Bnez) {
+  DriverStr(RepeatRIbS(&Loongarch64Assembler::Bnez, -19, 2,"bnez {reg}, {imm}"), "Bnez");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Jirl) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Jirl, -14, 2, "jirl {reg1}, {reg2}, {imm}"), "Jirl");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, B) {
+  DriverStr(RepeatIb(&Loongarch64Assembler::B, -5, 2, "b {imm}"), "B");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Bl) {
+  DriverStr(RepeatIb(&Loongarch64Assembler::Bl, -5, 2, "bl {imm}"), "Bl");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Beq) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Beq, -14, 2, "beq {reg1}, {reg2}, {imm}"), "Beq");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Bne) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Bne, -14, 2, "bne {reg1}, {reg2}, {imm}"), "Bne");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Blt) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Blt, -14, 2, "blt {reg1}, {reg2}, {imm}"), "Blt");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Bge) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Bge, -14, 2, "bge {reg1}, {reg2}, {imm}"), "Bge");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Bltu) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Bltu, -14, 2, "bltu {reg1}, {reg2}, {imm}"), "Bltu");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, Bgeu) {
+  DriverStr(RepeatRRIbS(&Loongarch64Assembler::Bgeu, -14, 2, "bgeu {reg1}, {reg2}, {imm}"), "Bgeu");
+}
+
+
+
 
 /////////////////////////////// LOONGARCH64 "2R1I-Type" Instructions ///////////////////////////////
 
@@ -413,7 +460,6 @@ TEST_F(AssemblerLOONGARCH64Test, Mod_du) {
 }
 
 
-/////////////////////////////// LOONGARCH64 "1RI21-Type" Instructions ///////////////////////////////
 
 
 
