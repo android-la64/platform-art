@@ -127,6 +127,51 @@ static std::unique_ptr<const std::vector<uint8_t>> CreateTrampoline(
 }  // namespace arm64
 #endif  // ART_ENABLE_CODEGEN_arm64
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+namespace loongarch64 {
+static std::unique_ptr<const std::vector<uint8_t>> CreateTrampoline(
+    ArenaAllocator* /*allocator*/, EntryPointCallingConvention abi, ThreadOffset64 offset) {
+
+  // TODO(loongarch64): reimplement once we have macro-assembler for LOONGARCH.
+  // do not use the t0 register as it has already been assigned as a hidden register.
+  if (abi == kJniAbi) {
+    // Load via Thread* held in JNIEnv* in first argument (A0).
+    std::unique_ptr<std::vector<uint8_t>> entry_stub(new std::vector<uint8_t>(12));
+    uint8_t* bytes = entry_stub->data();
+
+    // xxxxxxxx     ld.d $t1, $a0, xxx
+    *reinterpret_cast<uint32_t*>(bytes) = 0x28c0008d | ((JNIEnvExt::SelfOffset(8).Int32Value() & 0xfff) << 10);
+    // xxxxxxxx     ld.d $t1, $t1, xxx
+    *reinterpret_cast<uint32_t*>(&bytes[4]) = 0x28c001ad | ((offset.Int32Value() & 0xfff) << 10);
+    // xxxxxxxx     jr $t1
+    *reinterpret_cast<uint32_t*>(&bytes[8]) = 0x4c0001a0;
+
+    return std::move(entry_stub);
+  } else {
+    CHECK_LE(offset.Int32Value(), 0x7ff);
+
+    std::unique_ptr<std::vector<uint8_t>> entry_stub(new std::vector<uint8_t>(8));
+    uint8_t* bytes = entry_stub->data();
+
+    if (abi == kInterpreterAbi) {
+      // Thread* is first argument (A0) in interpreter ABI.
+      // xxxxxxxx     ld.d $t1, $a0, xxx
+      *reinterpret_cast<uint32_t*>(bytes) = 0x28c0008d | ((offset.Int32Value() & 0xfff) << 10);
+    } else {
+      // abi == kQuickAbi: TR holds Thread*.
+      // xxxxxxxx     ld.d $t1, $s1, xxx
+      *reinterpret_cast<uint32_t*>(bytes) = 0x28c0030d  | ((offset.Int32Value() & 0xfff) << 10);
+    }
+
+    // xxxxxxxx    jr $t1
+    *reinterpret_cast<uint32_t*>(&bytes[4]) = 0x4c0001a0;
+
+    return std::move(entry_stub);
+  }
+}
+}  // namespace loongarch64
+#endif  // ART_ENABLE_CODEGEN_loongarch64
+
 #ifdef ART_ENABLE_CODEGEN_x86
 namespace x86 {
 static std::unique_ptr<const std::vector<uint8_t>> CreateTrampoline(ArenaAllocator* allocator,
@@ -178,6 +223,10 @@ std::unique_ptr<const std::vector<uint8_t>> CreateTrampoline64(InstructionSet is
 #ifdef ART_ENABLE_CODEGEN_arm64
     case InstructionSet::kArm64:
       return arm64::CreateTrampoline(&allocator, abi, offset);
+#endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+    case InstructionSet::kLoongarch64:
+      return loongarch64::CreateTrampoline(&allocator, abi, offset);
 #endif
 #ifdef ART_ENABLE_CODEGEN_x86_64
     case InstructionSet::kX86_64:

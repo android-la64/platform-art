@@ -62,6 +62,7 @@ size_t CompiledCode::CodeDelta(InstructionSet instruction_set) {
   switch (instruction_set) {
     case InstructionSet::kArm:
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
       return 0;
@@ -79,6 +80,7 @@ const void* CompiledCode::CodePointer(const void* code_pointer, InstructionSet i
   switch (instruction_set) {
     case InstructionSet::kArm:
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
       return code_pointer;
