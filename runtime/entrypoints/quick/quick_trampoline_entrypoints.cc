@@ -354,18 +354,6 @@ class QuickArgumentVisitor {
   }
 
   uint8_t* GetParamAddress() const {
-    #if defined(__loongarch__) && (__loongarch_grlen == 64)
-    Primitive::Type type = GetParamPrimitiveType();
-    if (UNLIKELY((type == Primitive::kPrimDouble) || (type == Primitive::kPrimFloat))) {
-      if (fpr_index_ + 1 < kNumQuickFprArgs + 1) {
-        return fpr_args_ + (fpr_index_ * GetBytesPerFprSpillLocation(kRuntimeISA));
-      }
-
-      // The optimizing compiler and runtime code can guarantee the >8 float/double values
-      //            stored on its stack slot. it's safe to get them on stack.
-      return stack_args_ + (stack_index_ * kBytesStackArgLocation);
-    }
-    #else
     if (!kQuickSoftFloatAbi) {
       Primitive::Type type = GetParamPrimitiveType();
       if (UNLIKELY((type == Primitive::kPrimDouble) || (type == Primitive::kPrimFloat))) {
@@ -379,7 +367,6 @@ class QuickArgumentVisitor {
         return stack_args_ + (stack_index_ * kBytesStackArgLocation);
       }
     }
-    #endif
     if (gpr_index_ < kNumQuickGprArgs) {
       return gpr_args_ + GprIndexToGprOffset(gpr_index_);
     }
@@ -481,14 +468,7 @@ class QuickArgumentVisitor {
               } else if (kQuickSkipOddFpRegisters) {
                 IncFprIndex();
               }
-            #if defined(__loongarch__) && (__loongarch_grlen == 64)
-            // XC-TODO: Loongarch64 will try GPR when out of FPR. Need update Gpr index here.
-            } else if (gpr_index_ < kNumQuickGprArgs) {
-              IncGprIndex();
             }
-            #else
-            }
-            #endif
           }
           break;
         case Primitive::kPrimDouble:
@@ -548,14 +528,7 @@ class QuickArgumentVisitor {
                   IncFprIndex();
                 }
               }
-            #if defined(__loongarch__) && (__loongarch_grlen == 64)
-            // XC-TODO: Loongarch64 will try GPR when out of FPR. Need update Gpr index here.
-            } else if (gpr_index_ < kNumQuickGprArgs) {
-              IncGprIndex();
             }
-            #else
-            }
-            #endif
           }
           break;
         default:
@@ -1577,7 +1550,7 @@ template<class T> class BuildNativeCallFrameStateMachine {
   static constexpr size_t kRegistersNeededForDouble = 1;
   static constexpr bool kMultiRegistersAligned = false;
   static constexpr bool kMultiFPRegistersWidened = false;
-  static constexpr bool kMultiGPRegistersWidened = false;
+  static constexpr bool kMultiGPRegistersWidened = true;
   static constexpr bool kAlignLongOnStack = false;
   static constexpr bool kAlignDoubleOnStack = false;
 #else
@@ -1758,10 +1731,6 @@ template<class T> class BuildNativeCallFrameStateMachine {
         PushFpr8(val);
         fpr_index_ -= kRegistersNeededForDouble;
       } else {
-        // XC-TODO: Loongarch64 will try GPR
-        #if defined(__loongarch__) && (__loongarch_grlen == 64)
-          AdvanceLong(val);
-        #else
         if (DoubleStackNeedsPadding()) {
           PushStack(0);
           stack_entries_++;
@@ -1774,7 +1743,6 @@ template<class T> class BuildNativeCallFrameStateMachine {
           PushStack(static_cast<uintptr_t>((val >> 32) & 0xFFFFFFFF));
           stack_entries_ += 2;
         }
-        #endif
         fpr_index_ = 0;
       }
     }
@@ -2149,15 +2117,7 @@ void BuildGenericJniFrameVisitor::Visit() {
     case Primitive::kPrimChar:     // Fall-through.
     case Primitive::kPrimShort:    // Fall-through.
     case Primitive::kPrimInt:      // Fall-through.
-      // XC-TODO: Loongarch64 will sign-extend to 64 bits.
-      #if defined(__loongarch__) && (__loongarch_grlen == 64)
-      {
-        int64_t val = *reinterpret_cast<jint*>(GetParamAddress());
-        sm_.AdvanceLong(val);
-      }
-      #else
       sm_.AdvanceInt(*reinterpret_cast<jint*>(GetParamAddress()));
-      #endif
       current_vreg_ += 1u;
       break;
     case Primitive::kPrimVoid:
