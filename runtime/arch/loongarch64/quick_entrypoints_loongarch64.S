@@ -177,7 +177,7 @@ END art_deliver_pending_exception
 
     // Load addresses for routines that load argument GPRs and FPRs.
     //lla  t4, .Lreg_handlers_start\sfx  // First handler for non-FP args. XC-TODO: verify
-    la $t4, .Lreg_handlers_start\sfx
+    la.local $t4, .Lreg_handlers_start\sfx
     addi.d $t5, $t4, (3 * NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)  // First handler for FP args.
 
     // Loop to fill registers.

@@ -356,6 +356,7 @@ static bool InstructionSetHasGenericJniStub(InstructionSet isa) {
   switch (isa) {
     case InstructionSet::kArm:
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kThumb2:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64: return true;

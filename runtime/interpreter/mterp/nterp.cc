@@ -33,7 +33,8 @@ namespace art {
 namespace interpreter {
 
 bool IsNterpSupported() {
-  return !kPoisonHeapReferences && kUseReadBarrier;
+  return !kPoisonHeapReferences && kUseReadBarrier &&
+         kRuntimeISA != InstructionSet::kLoongarch64;
 }
 
 bool CanRuntimeUseNterp() REQUIRES_SHARED(Locks::mutator_lock_) {
