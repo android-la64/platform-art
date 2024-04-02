@@ -1495,6 +1495,7 @@ template<class T> class BuildNativeCallFrameStateMachine {
  public:
 #if defined(__arm__)
   static constexpr bool kNativeSoftFloatAbi = true;
+  static constexpr bool kNativeSoftFloatAfterHardFloat = false;
   static constexpr size_t kNumNativeGprArgs = 4;  // 4 arguments passed in GPRs, r0-r3
   static constexpr size_t kNumNativeFprArgs = 0;  // 0 arguments passed in FPRs.
 
@@ -1507,6 +1508,7 @@ template<class T> class BuildNativeCallFrameStateMachine {
   static constexpr bool kAlignDoubleOnStack = true;
 #elif defined(__aarch64__)
   static constexpr bool kNativeSoftFloatAbi = false;  // This is a hard float ABI.
+  static constexpr bool kNativeSoftFloatAfterHardFloat = false;
   static constexpr size_t kNumNativeGprArgs = 8;  // 8 arguments passed in GPRs.
   static constexpr size_t kNumNativeFprArgs = 8;  // 8 arguments passed in FPRs.
 
@@ -1519,6 +1521,7 @@ template<class T> class BuildNativeCallFrameStateMachine {
   static constexpr bool kAlignDoubleOnStack = false;
 #elif defined(__i386__)
   static constexpr bool kNativeSoftFloatAbi = false;  // Not using int registers for fp
+  static constexpr bool kNativeSoftFloatAfterHardFloat = false;
   static constexpr size_t kNumNativeGprArgs = 0;  // 0 arguments passed in GPRs.
   static constexpr size_t kNumNativeFprArgs = 0;  // 0 arguments passed in FPRs.
 
@@ -1531,6 +1534,7 @@ template<class T> class BuildNativeCallFrameStateMachine {
   static constexpr bool kAlignDoubleOnStack = false;
 #elif defined(__x86_64__)
   static constexpr bool kNativeSoftFloatAbi = false;  // This is a hard float ABI.
+  static constexpr bool kNativeSoftFloatAfterHardFloat = false;
   static constexpr size_t kNumNativeGprArgs = 6;  // 6 arguments passed in GPRs.
   static constexpr size_t kNumNativeFprArgs = 8;  // 8 arguments passed in FPRs.
 
@@ -1543,6 +1547,7 @@ template<class T> class BuildNativeCallFrameStateMachine {
   static constexpr bool kAlignDoubleOnStack = false;
 #elif defined(__loongarch__) && (__loongarch_grlen == 64)
   static constexpr bool kNativeSoftFloatAbi = false;
+  static constexpr bool kNativeSoftFloatAfterHardFloat = true;
   static constexpr size_t kNumNativeGprArgs = 8;
   static constexpr size_t kNumNativeFprArgs = 8;
 
@@ -1682,12 +1687,10 @@ template<class T> class BuildNativeCallFrameStateMachine {
         } else {
           PushFpr4(val);
         }
-      } else {
-        // XC-TODO: Loongarch64 will try GPR
-        #if defined(__loongarch__) && (__loongarch_grlen == 64)
-        // Loongarch64 need NaN-Boxing
+      } else if (kNativeSoftFloatAfterHardFloat) {
+        // After using FP arg registers, pass FP args in general purpose registers or on the stack.
         AdvanceLong(((bit_cast<uint32_t, float>(val)) | (0xffffffff00000000)));
-        #else
+      } else {
         stack_entries_++;
         if (kRegistersNeededForDouble == 1 && kMultiFPRegistersWidened) {
           // Need to widen before storing: Note the "double" in the template instantiation.
@@ -1697,7 +1700,6 @@ template<class T> class BuildNativeCallFrameStateMachine {
         } else {
           PushStack(static_cast<uintptr_t>(bit_cast<uint32_t, float>(val)));
         }
-        #endif
         fpr_index_ = 0;
       }
     }
@@ -1730,6 +1732,9 @@ template<class T> class BuildNativeCallFrameStateMachine {
         }
         PushFpr8(val);
         fpr_index_ -= kRegistersNeededForDouble;
+      } else if (kNativeSoftFloatAfterHardFloat) {
+        // After using FP arg registers, pass FP args in general purpose registers or on the stack.
+        AdvanceLong(val);
       } else {
         if (DoubleStackNeedsPadding()) {
           PushStack(0);
