@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ART_COMPILER_UTILS_RISCV64_ASSEMBLER_RISCV64_H_
-#define ART_COMPILER_UTILS_RISCV64_ASSEMBLER_RISCV64_H_
+#ifndef ART_COMPILER_UTILS_LOONGARCH64_ASSEMBLER_LOONGARCH64_H_
+#define ART_COMPILER_UTILS_LOONGARCH64_ASSEMBLER_LOONGARCH64_H_
 
 #include <cstdint>
 #include <string>
@@ -50,22 +50,104 @@ static constexpr size_t kLoongarch64WordSize = 4;
 static constexpr size_t kLoongarch64DoublewordSize = 8;
 
 class Loongarch64Label : public Label {
+  public:
+  Loongarch64Label() : prev_branch_id_(kNoPrevBranchId) {}
+
+  Loongarch64Label(Loongarch64Label&& src)
+      : Label(std::move(src)), prev_branch_id_(src.prev_branch_id_) {}
+
+ private:
+  static constexpr uint32_t kNoPrevBranchId = std::numeric_limits<uint32_t>::max();
+
+  uint32_t prev_branch_id_;  // To get distance from preceding branch, if any.
+
+  friend class Loongarch64Assembler;
+  DISALLOW_COPY_AND_ASSIGN(Loongarch64Label);
 };
+
+// Assembler literal is a value embedded in code, retrieved using a PC-relative load.
+class Literal {
+ public:
+  static constexpr size_t kMaxSize = 8;
+
+  Literal(uint32_t size, const uint8_t* data) : label_(), size_(size) {
+    DCHECK_LE(size, Literal::kMaxSize);
+    memcpy(data_, data, size);
+  }
+
+  template <typename T>
+  T GetValue() const {
+    DCHECK_EQ(size_, sizeof(T));
+    T value;
+    memcpy(&value, data_, sizeof(T));
+    return value;
+  }
+
+  uint32_t GetSize() const { return size_; }
+
+  const uint8_t* GetData() const { return data_; }
+
+  Loongarch64Label* GetLabel() { return &label_; }
+
+  const Loongarch64Label* GetLabel() const { return &label_; }
+
+ private:
+  Loongarch64Label label_;
+  const uint32_t size_;
+  uint8_t data_[kMaxSize];
+
+  DISALLOW_COPY_AND_ASSIGN(Literal);
+};
+
+// Jump table: table of labels emitted after the code and before the literals. Similar to literals.
+class JumpTable {
+ public:
+  explicit JumpTable(ArenaVector<Loongarch64Label*>&& labels) : label_(), labels_(std::move(labels)) {}
+
+  size_t GetSize() const { return labels_.size() * sizeof(int32_t); }
+
+  const ArenaVector<Loongarch64Label*>& GetData() const { return labels_; }
+
+  Loongarch64Label* GetLabel() { return &label_; }
+
+  const Loongarch64Label* GetLabel() const { return &label_; }
+
+ private:
+  Loongarch64Label label_;
+  ArenaVector<Loongarch64Label*> labels_;
+
+  DISALLOW_COPY_AND_ASSIGN(JumpTable);
+};
+
 
 class Loongarch64Assembler final : public Assembler {
  public:
   explicit Loongarch64Assembler(ArenaAllocator* allocator,
                             const Loongarch64InstructionSetFeatures* instruction_set_features = nullptr)
-      : Assembler(allocator) {
+      : Assembler(allocator),
+        branches_(allocator->Adapter(kArenaAllocAssembler)),
+        overwriting_(false),
+        overwrite_location_(0),
+        literals_(allocator->Adapter(kArenaAllocAssembler)),
+        long_literals_(allocator->Adapter(kArenaAllocAssembler)),
+        jump_tables_(allocator->Adapter(kArenaAllocAssembler)),
+        last_position_adjustment_(0),
+        last_old_position_(0),
+        last_branch_id_(0)  {
     UNUSED(instruction_set_features);
+    cfi().DelayEmittingAdvancePCs();
   }
 
   virtual ~Loongarch64Assembler() {
+     for (auto& branch : branches_) {
+      CHECK(branch.IsResolved());
+    }
   }
 
   size_t CodeSize() const override { return Assembler::CodeSize(); }
   DebugFrameOpCodeWriterForAssembler& cfi() { return Assembler::cfi(); }
 
+  ////////////////////////////// LOONGARCH64 MACRO Instructions END ///////////////////////////////
   // 2RI12-Type
   // Load signed instructions : opcode from 00 1010 0000 
   //                                      ~ 00 1010 0011
@@ -123,6 +205,15 @@ class Loongarch64Assembler final : public Assembler {
   void Srl_d(XRegister rd, XRegister rs1, XRegister rs2);
   void Sra_d(XRegister rd, XRegister rs1, XRegister rs2);
 
+  // PC-relative instructions : opcode from 0 0010 10
+  //                                      ~ 0 0011 11
+  void Lu21i_W(XRegister rd, uint32_t imm20);
+  void Lu32i_D(XRegister rd, uint32_t imm20);
+  void Pcaddi(XRegister rd, uint32_t imm20);
+  void Pcalau12i(XRegister rd, uint32_t imm20);
+  void Pcaddu12i(XRegister rd, uint32_t imm20);
+  void Pcaddu18i(XRegister rd, uint32_t imm20);
+
   // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100 
   //                                             ~ 0 0000 0000 0101 0110
   // void Break();
@@ -170,185 +261,64 @@ class Loongarch64Assembler final : public Assembler {
   void Bgt(XRegister );
   // Jump pseudo instructions
   void Jr(XRegister rs);
+  // pseudo instructions
+  void Nop();
+
+
+  // Jumps and branches to a label.
+  void Beqz(XRegister rs, Loongarch64Label* label, bool is_bare = false);
+  void Bnez(XRegister rs, Loongarch64Label* label, bool is_bare = false);
+  void Jirl(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+  void B(Loongarch64Label* label, bool is_bare = false);
+  void Bl(Loongarch64Label* label, bool is_bare = false);
+  void Beq(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+  void Bne(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+  void Blt(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+  void Bge(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+  void Bltu(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+  void Bgeu(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
+
+  // Literal load.
+  void Ld_W(XRegister rd, Literal* literal);
+  void Ld_WU(XRegister rd, Literal* literal);
+  void Ld_D(XRegister rd, Literal* literal);
 
 
 
 
 
 
-  // 2RI12-Type
-  //  FP load/store instructions, opcode from 00 1010 1100 
-  //                                        ~ 00 1010 1111
-  void Fld_s(FRegister rd, XRegister rs1, int32_t offset);
-  void Fst_s(FRegister rd, XRegister rs1, int32_t offset);
-  void Fld_d(FRegister rd, XRegister rs1, int32_t offset);
-  void Fst_d(FRegister rd, XRegister rs1, int32_t offset);
 
-  // 4R-Type
-  // FP FM(ultiply)A instructions : opcode from 0000 1000 0001 
-  //                                          ~ 0000 1000 1110
-  void FMAdd_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FMAdd_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FMSub_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FMSub_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FNMAdd_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FNMAdd_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FNMSub_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
-  void FNMSub_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3, FPRoundingMode frm);
 
-  // FP FMA instruction helpers passing the default rounding mode.
-  void FMAdd_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-    FMAdd_S(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FMAdd_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-    FMAdd_D(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FMSub_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-    FMSub_S(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FMSub_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-    FMSub_D(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FNMAdd_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-    FNMAdd_S(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FNMAdd_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-     FNMAdd_D(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FNMSub_S(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-     FNMSub_S(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
-  void FNMSub_D(FRegister rd, FRegister rs1, FRegister rs2, FRegister rs3) {
-    FNMSub_D(rd, rs1, rs2, rs3, FPRoundingMode::kDefault);
-  }
+  ////////////////////////////// LOONGARCH64 MACRO Instructions END ///////////////////////////////
 
-  // FCMP instructions
-  // FCMP_cond_S
-  // FCMP_cond_D
+  void Bind(Label* label) override { Bind(down_cast<Loongarch64Label*>(label)); }
 
-  // 3R-Type
-  // Simple FP instructions : opcode from 0 0000 0010 0000 0001 
-  //                                    ~ 0 0000 0010 0001 1110
-  // void FAdd_S(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FAdd_D(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FSub_S(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FSub_D(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FMul_S(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FMul_D(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FDiv_S(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FDiv_D(FRegister rd, FRegister rs1, FRegister rs2, FPRoundingMode frm);
-  // void FMax_S(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMax_D(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMin_S(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMin_D(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMaxA_S(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMaxA_D(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMinA_S(FRegister rd, FRegister rs1, FRegister rs2);
-  // void FMinA_D(FRegister rd, FRegister rs1, FRegister rs2);
-
-  // // Simple FP instruction helpers passing the default rounding mode.
-  // void FAdd_S(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FAdd_S(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FAdd_D(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FAdd_D(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FSub_S(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FSub_S(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FSub_D(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FSub_D(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FMul_S(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FMul_S(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FMul_D(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FMul_D(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FDiv_S(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FDiv_S(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-  // void FDiv_D(FRegister rd, FRegister rs1, FRegister rs2) {
-  //   FDiv_D(rd, rs1, rs2, FPRoundingMode::kDefault);
-  // }
-
-  // // FP conversion instructions, opcode from 00 0000 0100 0110 0100 0110
-  // //                                       ~ 00 0000 0100 0111 1001 0010
-  // void FCVT_S_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FCVT_D_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRM_W_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRM_W_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRM_L_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRM_L_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRP_W_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRP_W_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRZ_L_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRZ_L_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRNE_W_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRNE_W_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRNE_L_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINTRNE_L_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINT_W_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINT_W_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINT_L_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FTINT_L_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FFINT_S_W(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FFINT_S_L(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FFINT_D_W(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FFINT_D_L(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FRINT_S(FRegister rd, FRegister rs1, FPRoundingMode frm);
-  // void FRINT_D(FRegister rd, FRegister rs1, FPRoundingMode frm);
-
-  // // FP conversion instruction helpers passing the default rounding mode.
-  // void FCVT_S_D(FRegister rd, FRegister rs1) {  FCVT_S_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FCVT_D_S(FRegister rd, FRegister rs1) { FCVT_D_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRM_W_S(FRegister rd, FRegister rs1) { FTINTRM_W_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRM_W_D(FRegister rd, FRegister rs1) { FTINTRM_W_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRM_L_S(FRegister rd, FRegister rs1) { FTINTRM_L_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRM_L_D(FRegister rd, FRegister rs1) { FTINTRM_L_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRP_W_S(FRegister rd, FRegister rs1) { FTINTRP_W_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRP_W_D(FRegister rd, FRegister rs1) { FTINTRP_W_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRZ_L_S(FRegister rd, FRegister rs1) { FTINTRZ_L_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRZ_L_D(FRegister rd, FRegister rs1) { FTINTRZ_L_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRNE_W_S(FRegister rd, FRegister rs1) { FTINTRNE_W_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRNE_W_D(FRegister rd, FRegister rs1) { FTINTRNE_W_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRNE_L_S(FRegister rd, FRegister rs1) { FTINTRNE_L_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINTRNE_L_D(FRegister rd, FRegister rs1) { FTINTRNE_L_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINT_W_S(FRegister rd, FRegister rs1) { FTINT_W_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINT_W_D(FRegister rd, FRegister rs1) { FTINT_W_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINT_L_S(FRegister rd, FRegister rs1) { FTINT_L_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FTINT_L_D(FRegister rd, FRegister rs1) { FTINT_L_D(rd, rs1, FPRoundingMode::kDefault); }
-  // void FFINT_S_W(FRegister rd, FRegister rs1) { FFINT_S_W(rd, rs1, FPRoundingMode::kDefault); }
-  // void FFINT_S_L(FRegister rd, FRegister rs1) { FFINT_S_L(rd, rs1, FPRoundingMode::kDefault); }
-  // void FFINT_D_W(FRegister rd, FRegister rs1) { FFINT_D_W(rd, rs1, FPRoundingMode::kDefault); }
-  // void FFINT_D_L(FRegister rd, FRegister rs1) { FFINT_D_L(rd, rs1, FPRoundingMode::kDefault); }
-  // void FRINT_S(FRegister rd, FRegister rs1) {  FRINT_S(rd, rs1, FPRoundingMode::kDefault); }
-  // void FRINT_D(FRegister rd, FRegister rs1) {  FRINT_D(rd, rs1, FPRoundingMode::kDefault); }
-
-  // // FR register-internal move instructions, opcode from 00 0000 0100 0101 0010 0101
-  // //                                                   ~ 00 0000 0100 0101 0010 0110
-  // void FMOV_S(FRegister rd, FRegister rs1);
-  // void FMOV_D(FRegister rd, FRegister rs1);
-
-  // // FR-GR register-between move instructions, opcode from 00 0000 0100 0101 0010 1001
-  // //                                                     ~ 00 0000 0100 0101 0010 1111
-  // void MOVGR2FR_W(FRegister rd, XRegister rs1);
-  // void MOVGR2FR_D(FRegister rd, XRegister rs1);
-  // void MOVGR2FRH_W(FRegister rd, XRegister rs1);
-  // void MOVFR2GR_S(XRegister rd, FRegister rs1);
-  // void MOVFR2GR_D(XRegister rd, FRegister rs1);
-  // void MOVFRH2GR_S(XRegister rd, FRegister rs1);
-
-  ////////////////////////////// LOONGARCH64 MACRO Instructions START ///////////////////////////////
-  // These pseudo instructions are from "la-asm-manual".
-  // :TODO
-
-  void Bind(Label* label ATTRIBUTE_UNUSED) override {
-    UNIMPLEMENTED(FATAL) << "TODO: Support branches.";
-  }
   void Jump(Label* label ATTRIBUTE_UNUSED) override {
     UNIMPLEMENTED(FATAL) << "Do not use Jump for LOONGARCH64";
   }
+
+  void Bind(Loongarch64Label* label);
+
+  // Load label address using PC-relative loads.
+  void LoadLabelAddress(XRegister rd, Loongarch64Label* label);
+
+  // Create a new literal with a given value.
+  // NOTE:Use `Identity<>` to force the template parameter to be explicitly specified.
+  template <typename T>
+  Literal* NewLiteral(typename Identity<T>::type value) {
+    static_assert(std::is_integral<T>::value, "T must be an integral type.");
+    return NewLiteral(sizeof(value), reinterpret_cast<const uint8_t*>(&value));
+  }
+
+  // Create a new literal with the given data.
+  Literal* NewLiteral(size_t size, const uint8_t* data);
+
+  // Create a jump table for the given labels that will be emitted when finalizing.
+  // When the table is emitted, offsets will be relative to the location of the table.
+  // The table location is determined by the location of its label (the label precedes
+  // the table data) and should be loaded using LoadLabelAddress().
+  JumpTable* CreateJumpTable(ArenaVector<Loongarch64Label*>&& labels);
 
  public:
   // Emit data (e.g. encoded instruction or immediate) to the instruction stream.
@@ -360,7 +330,190 @@ class Loongarch64Assembler final : public Assembler {
   // Emit branches and finalize all instructions.
   void FinalizeInstructions(const MemoryRegion& region) override;
 
+  // Returns the current location of a label.
+  //
+  // This function must be used instead of `Loongarch64Label::GetPosition()`
+  // which returns assembler's internal data instead of an actual location.
+  //
+  // The location can change during branch fixup in `FinalizeCode()`. Before that,
+  // the location is not final and therefore not very useful to external users,
+  // so they should preferably retrieve the location only after `FinalizeCode()`.
+  uint32_t GetLabelLocation(const Loongarch64Label* label) const;
+
+  // Get the final position of a label after local fixup based on the old position
+  // recorded before FinalizeCode().
+  uint32_t GetAdjustedPosition(uint32_t old_position);
+
  private:
+  enum BranchCondition : uint8_t {
+    kCondEQ,
+    kCondNE,
+    kCondLT,
+    kCondGE,
+    kCondLTU,
+    kCondGEU,
+    kCondEQZ,
+    kCondNEZ,
+    kUncond,
+  };
+
+  // Note that PC-relative literal loads are handled as pseudo branches because they need
+  // to be emitted after branch relocation to use correct offsets.
+  class Branch {
+   public:
+    enum Type : uint8_t {
+      // Short branches (can be promoted to longer).
+      kCondBranch,
+      kUncondBranch,
+      kCall,
+      // Short branches (can't be promoted to longer).
+      // TODO(loongarch64): Do we need these (untested) bare branches, or can we remove them?
+      kBareCondBranch,
+      kBareUncondBranch,
+      kBareCall,
+
+      // Medium branch (can be promoted to long).
+      kCondBranch23,
+
+      // Long branches.
+      kLongCondBranch,
+      kLongUncondBranch,
+      kLongCall,
+
+      // Label.
+      kLabel,
+
+      // Literals.
+      kLiteral,
+      kLiteralUnsigned,
+      kLiteralLong,
+    };
+
+    // Bit sizes of offsets defined as enums to minimize chance of typos.
+    enum OffsetBits {
+      kOffset18 = 18, // offs16 + 2 shift = 18 = +/- 128 * KB
+      kOffset23 = 23, // +/- 4 * MB offs26 + 2 shift = 28 = +/- 128 * MB
+      kOffset32 = 32, // ZQZ-TODO
+    };
+
+    static constexpr uint32_t kUnresolved = 0xffffffff;  // Unresolved target_
+    static constexpr uint32_t kMaxBranchLength = 12;  // In bytes.
+
+    struct BranchInfo {
+      // Branch length in bytes.
+      uint32_t length;
+      // The offset in bytes of the PC used in the (only) PC-relative instruction from
+      // the start of the branch sequence. LOONGARCH always uses the address of the PC-relative
+      // instruction as the PC, so this is essentially the offset of that instruction.
+      uint32_t pc_offset;
+      // How large (in bits) a PC-relative offset can be for a given type of branch.
+      OffsetBits offset_size;
+    };
+    static const BranchInfo branch_info_[/* Type */];
+
+    // Unconditional branch or call.
+    Branch(uint32_t location, uint32_t target, XRegister rd, bool is_bare);
+    // Conditional branch.
+    Branch(uint32_t location,
+           uint32_t target,
+           BranchCondition condition,
+           XRegister lhs_reg,
+           XRegister rhs_reg,
+           bool is_bare);
+    // Label address (in literal area) or literal.
+    Branch(uint32_t location, uint32_t target, XRegister rd, Type label_or_literal_type);
+
+    // Some conditional branches with lhs = rhs are effectively NOPs, while some
+    // others are effectively unconditional.
+    static bool IsNop(BranchCondition condition, XRegister lhs, XRegister rhs);
+    static bool IsUncond(BranchCondition condition, XRegister lhs, XRegister rhs);
+
+    static BranchCondition OppositeCondition(BranchCondition cond);
+
+    Type GetType() const;
+    BranchCondition GetCondition() const;
+    XRegister GetLeftRegister() const;
+    XRegister GetRightRegister() const;
+    uint32_t GetTarget() const;
+    uint32_t GetLocation() const;
+    uint32_t GetOldLocation() const;
+    uint32_t GetLength() const;
+    uint32_t GetOldLength() const;
+    uint32_t GetEndLocation() const;
+    uint32_t GetOldEndLocation() const;
+    bool IsBare() const;
+    bool IsResolved() const;
+
+    // Returns the bit size of the signed offset that the branch instruction can handle.
+    OffsetBits GetOffsetSize() const;
+
+    // Calculates the distance between two byte locations in the assembler buffer and
+    // returns the number of bits needed to represent the distance as a signed integer.
+    static OffsetBits GetOffsetSizeNeeded(uint32_t location, uint32_t target);
+
+    // Resolve a branch when the target is known.
+    void Resolve(uint32_t target);
+
+    // Relocate a branch by a given delta if needed due to expansion of this or another
+    // branch at a given location by this delta (just changes location_ and target_).
+    void Relocate(uint32_t expand_location, uint32_t delta);
+
+    // If necessary, updates the type by promoting a short branch to a longer branch
+    // based on the branch location and target. Returns the amount (in bytes) by
+    // which the branch size has increased.
+    uint32_t PromoteIfNeeded();
+
+    // Returns the offset into assembler buffer that shall be used as the base PC for
+    // offset calculation. RISC-V always uses the address of the PC-relative instruction
+    // as the PC, so this is essentially the location of that instruction.
+    uint32_t GetOffsetLocation() const;
+
+    // Calculates and returns the offset ready for encoding in the branch instruction(s).
+    int32_t GetOffset() const;
+
+   private:
+    // Completes branch construction by determining and recording its type.
+    void InitializeType(Type initial_type);
+    // Helper for the above.
+    void InitShortOrLong(OffsetBits ofs_size, Type short_type, Type long_type, Type longest_type);
+
+    uint32_t old_location_;  // Offset into assembler buffer in bytes.
+    uint32_t location_;      // Offset into assembler buffer in bytes.
+    uint32_t target_;        // Offset into assembler buffer in bytes.
+
+    XRegister lhs_reg_;          // Left-hand side register in conditional branches or
+                                 // destination register in calls or literals.
+    XRegister rhs_reg_;          // Right-hand side register in conditional branches.
+    BranchCondition condition_;  // Condition for conditional branches.
+
+    Type type_;      // Current type of the branch.
+    Type old_type_;  // Initial type of the branch.
+  };
+
+  // Branch and literal fixup.
+
+  void EmitBcond(BranchCondition cond, XRegister rs, XRegister rt, int32_t offset);
+  void EmitBranch(Branch* branch);
+  void EmitBranches();
+  void EmitJumpTables();
+  void EmitLiterals();
+
+  void FinalizeLabeledBranch(Loongarch64Label* label);
+  void Bcond(Loongarch64Label* label,
+             bool is_bare,
+             BranchCondition condition,
+             XRegister lhs,
+             XRegister rhs);
+  void Buncond(Loongarch64Label* label, XRegister rd, bool is_bare);
+  void LoadLiteral(Literal* literal, XRegister rd, Branch::Type literal_type);
+
+  Branch* GetBranch(uint32_t branch_id);
+  const Branch* GetBranch(uint32_t branch_id) const;
+
+  void ReserveJumpTableSpace();
+  void PromoteBranches();
+  void PatchCFI();
+
 
   // Emit helpers.
 
@@ -518,7 +671,7 @@ class Loongarch64Assembler final : public Assembler {
   template <typename Reg2, typename Reg1>
   void Emit2RI16_B(uint32_t opcode, int32_t imm16, Reg2 rj, Reg1 rd) {
     DCHECK(IsUint<6>(opcode));
-    DCHECK(IsInt<16>(imm16)) << imm16; // Operators overloading when trigger assertion
+    DCHECK(IsInt<16>(imm16 >> 2)) << (imm16 >> 2); // Operators overloading when trigger assertion
     DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
     uint32_t encoding = opcode << 26 | ((imm16 >> 2 ) & 0xffff) << 10 |
@@ -536,7 +689,7 @@ class Loongarch64Assembler final : public Assembler {
   template <typename Reg1>
   void Emit1RI21(uint32_t opcode, int32_t imm21, Reg1 rd) {
     DCHECK(IsUint<6>(opcode));
-    DCHECK(IsInt<21>(imm21)) << imm21;
+    DCHECK(IsInt<21>(imm21 >> 2)) << (imm21 >> 2);
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
     // imm will be aligned in assembly, so here use >> 2 to get larger range
     uint32_t encoding = opcode << 26 | ((imm21 >> 2) & 0xFFFF) << 10 |
@@ -558,6 +711,44 @@ class Loongarch64Assembler final : public Assembler {
                         (((imm26 >> 2) & 0x3FF0000) >> 16);
     Emit(encoding);
   }
+
+  // I26-Type instruction:
+  //
+  //   31                              25 24                 5  4        0
+  //   --------------------------------------------------------------------
+  //   [ . . . . . . . . . . . . . . . . | . . . . . .  . . . .| . . . . .]
+  //   [            opcode 31:25         |       I20[19:0]     |    rd    ]
+  //   --------------------------------------------------------------------
+  template <typename Reg1>
+  void EmitPC_rel(uint32_t opcode, uint32_t imm20, Reg1 rd) {
+    DCHECK(IsUint<7>(opcode));
+    DCHECK(IsUint<20>(imm20)) << imm20;
+    uint32_t encoding = opcode << 25 | imm20 << 5 |
+                        static_cast<uint32_t>(rd);
+    Emit(encoding);
+  }
+
+
+  ArenaVector<Branch> branches_;
+
+  // Whether appending instructions at the end of the buffer or overwriting the existing ones.
+  bool overwriting_;
+  // The current overwrite location.
+  uint32_t overwrite_location_;
+
+  // Use `std::deque<>` for literal labels to allow insertions at the end
+  // without invalidating pointers and references to existing elements.
+  ArenaDeque<Literal> literals_;
+  ArenaDeque<Literal> long_literals_;  // 64-bit literals separated for alignment reasons.
+
+  // Jump table list.
+  ArenaDeque<JumpTable> jump_tables_;
+
+  // Data for `GetAdjustedPosition()`, see the description there.
+  uint32_t last_position_adjustment_;
+  uint32_t last_old_position_;
+  uint32_t last_branch_id_;
+
 
   static constexpr uint32_t kXlen = 64;
 

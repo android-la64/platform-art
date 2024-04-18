@@ -43,6 +43,10 @@ namespace x86_64 {
 class X86_64Assembler;
 class NearLabel;
 }  // namespace x86_64
+namespace loongarch64 {
+class Loongarch64Assembler;
+class NearLabel;
+}  // namespace loongarch64
 
 class ExternalLabel {
  public:
@@ -119,6 +123,8 @@ class Label {
   friend class x86::NearLabel;
   friend class x86_64::X86_64Assembler;
   friend class x86_64::NearLabel;
+  friend class loongarch64::Loongarch64Assembler;
+  friend class loongarch64::NearLabel;
 
   DISALLOW_COPY_AND_ASSIGN(Label);
 };
