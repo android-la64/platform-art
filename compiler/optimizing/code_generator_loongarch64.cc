@@ -680,23 +680,19 @@ void InstructionCodeGeneratorLOONGARCH64::VisitEqual(HEqual* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitExit(HExit* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  instruction->SetLocations(nullptr);
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitExit(HExit* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
+void InstructionCodeGeneratorLOONGARCH64::VisitExit([[maybe_unused]] HExit* instruction) {}
 
 void LocationsBuilderLOONGARCH64::VisitFloatConstant(HFloatConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  locations->SetOut(Location::ConstantLocation(instruction));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitFloatConstant(HFloatConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitFloatConstant([[maybe_unused]] HFloatConstant* instruction) {
+  // Will be generated at use site.
 }
 
 void LocationsBuilderLOONGARCH64::VisitGoto(HGoto* instruction) {
@@ -1804,17 +1800,11 @@ size_t CodeGeneratorLOONGARCH64::RestoreFloatingPointRegister(size_t stack_index
 }
 
 void CodeGeneratorLOONGARCH64::DumpCoreRegister(std::ostream& stream, int reg) const {
-  UNUSED(stream);
-  UNUSED(reg);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  stream << XRegister(reg);
 }
 
 void CodeGeneratorLOONGARCH64::DumpFloatingPointRegister(std::ostream& stream, int reg) const {
-  UNUSED(stream);
-  UNUSED(reg);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  stream << FRegister(reg);
 }
 
 void CodeGeneratorLOONGARCH64::Finalize(CodeAllocator* allocator) {
