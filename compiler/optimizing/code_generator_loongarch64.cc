@@ -1745,15 +1745,34 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location dst, Location src, DataType
   UNREACHABLE();
 }
 void CodeGeneratorLOONGARCH64::AddLocationAsTemp(Location location, LocationSummary* locations) {
-  UNUSED(location);
-  UNUSED(locations);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  if (location.IsRegister()) {
+    locations->AddTemp(location);
+  } else {
+    UNIMPLEMENTED(FATAL) << "AddLocationAsTemp not implemented for location " << location;
+  }
 }
 
 void CodeGeneratorLOONGARCH64::SetupBlockedRegisters() const {
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  // ZERO, SP, RA, TP and TR(S1) are reserved and can't be allocated.
+  blocked_core_registers_[Zero] = true;
+  blocked_core_registers_[SP] = true;
+  blocked_core_registers_[RA] = true;
+  blocked_core_registers_[TP] = true;
+  blocked_core_registers_[TR] = true;  // ART Thread register.
+
+  // TMP(R21), TMP2(T8) and FTMP(FT15) are used as temporary/scratch registers.
+  blocked_core_registers_[TMP] = true;
+  blocked_core_registers_[TMP2] = true;
+  blocked_fpu_registers_[FTMP] = true;
+
+  if (GetGraph()->IsDebuggable()) {
+    // Stubs do not save callee-save floating point registers. If the graph
+    // is debuggable, we need to deal with these registers differently. For
+    // now, just block them.
+    for (size_t i = 0; i < arraysize(kFpuCalleeSaves); ++i) {
+      blocked_fpu_registers_[kFpuCalleeSaves[i]] = true;
+    }
+  }
 }
 
 size_t CodeGeneratorLOONGARCH64::SaveCoreRegister(size_t stack_index, uint32_t reg_id) {

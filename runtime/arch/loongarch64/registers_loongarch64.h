@@ -68,6 +68,7 @@ enum XRegister {
   // Aliases.
   TR = S1,  // ART Thread Register - managed runtime
   TMP = R21, // Reserved for special uses, such as assembler macro instructions.
+  TMP2 = T8, // Reserved for special uses, such as assembler macro instructions.
 };
 
 std::ostream& operator<<(std::ostream& os, const XRegister& rhs);
@@ -110,6 +111,7 @@ enum FRegister {
 
   kNumberOfFRegisters = 32,
   kNoFRegister = -1,  // Signals an illegal F register.
+  FTMP = FT15,  // Reserved for special uses, such as assembler macro instructions.
 };
 
 std::ostream& operator<<(std::ostream& os, const FRegister& rhs);
