@@ -1667,6 +1667,8 @@ class HLoopInformationOutwardIterator : public ValueObject {
 
 #define FOR_EACH_CONCRETE_INSTRUCTION_ARM64(M)
 
+#define FOR_EACH_CONCRETE_INSTRUCTION_LOONGARCH64(M)
+
 #if defined(ART_ENABLE_CODEGEN_riscv64)
 #define FOR_EACH_CONCRETE_INSTRUCTION_RISCV64(M) M(Riscv64ShiftAdd, Instruction)
 #else
@@ -6699,6 +6701,29 @@ class HSuspendCheck final : public HExpression<0> {
   // Only used for code generation, in order to share the same slow path between back edges
   // of a same loop.
   SlowPathCode* slow_path_;
+};
+
+// Pseudo-instruction which doesn't generate any code.
+// If `emit_environment` is true, it can be used to generate an environment. It is used, for
+// example, to provide the native debugger with mapping information. It ensures that we can generate
+// line number and local variables at this point.
+class HNop : public HExpression<0> {
+ public:
+  explicit HNop(uint32_t dex_pc, bool needs_environment)
+      : HExpression<0>(kNop, SideEffects::None(), dex_pc), needs_environment_(needs_environment) {
+  }
+
+  bool NeedsEnvironment() const override {
+    return needs_environment_;
+  }
+
+  DECLARE_INSTRUCTION(Nop);
+
+ protected:
+  DEFAULT_COPY_CONSTRUCTOR(Nop);
+
+ private:
+  bool needs_environment_;
 };
 
 // Pseudo-instruction which doesn't generate any code.

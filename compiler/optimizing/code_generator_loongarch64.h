@@ -23,6 +23,7 @@
 #include "code_generator.h"
 #include "driver/compiler_options.h"
 #include "optimizing/locations.h"
+#include "optimizing/nodes.h"
 #include "utils/loongarch64/assembler_loongarch64.h"
 
 namespace art {
@@ -49,7 +50,225 @@ static constexpr size_t kRuntimeParameterFpuRegistersLength =
 
 #define UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(V) INTRINSICS_LIST(V)
 
+// Method register on invoke.
+static const XRegister kArtMethodRegister = A0;
+
 class CodeGeneratorLOONGARCH64;
+
+class InvokeDexCallingConvention : public CallingConvention<XRegister, FRegister> {
+ public:
+  InvokeDexCallingConvention()
+      : CallingConvention(kParameterCoreRegisters,
+                          kParameterCoreRegistersLength,
+                          kParameterFpuRegisters,
+                          kParameterFpuRegistersLength,
+                          kLoongarch64PointerSize) {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeDexCallingConvention);
+};
+
+class InvokeDexCallingConventionVisitorLOONGARCH64 : public InvokeDexCallingConventionVisitor {
+ public:
+  InvokeDexCallingConventionVisitorLOONGARCH64() {}
+  virtual ~InvokeDexCallingConventionVisitorLOONGARCH64() {}
+
+  Location GetNextLocation(DataType::Type type) override;
+  Location GetReturnLocation(DataType::Type type) const override;
+  Location GetMethodLocation() const override;
+
+ private:
+  InvokeDexCallingConvention calling_convention;
+
+  DISALLOW_COPY_AND_ASSIGN(InvokeDexCallingConventionVisitorLOONGARCH64);
+};
+
+class SlowPathCodeLOONGARCH64 : public SlowPathCode {
+ public:
+  explicit SlowPathCodeLOONGARCH64(HInstruction* instruction)
+      : SlowPathCode(instruction), entry_label_(), exit_label_() {}
+
+  Loongarch64Label* GetEntryLabel() { return &entry_label_; }
+  Loongarch64Label* GetExitLabel() { return &exit_label_; }
+
+ private:
+  Loongarch64Label entry_label_;
+  Loongarch64Label exit_label_;
+
+  DISALLOW_COPY_AND_ASSIGN(SlowPathCodeLOONGARCH64);
+};
+
+class LocationsBuilderLOONGARCH64 : public HGraphVisitor {
+ public:
+  LocationsBuilderLOONGARCH64(HGraph* graph, CodeGeneratorLOONGARCH64* codegen)
+      : HGraphVisitor(graph), codegen_(codegen) {}
+
+#define DECLARE_VISIT_INSTRUCTION(name, super) void Visit##name(H##name* instr) override;
+
+  FOR_EACH_CONCRETE_INSTRUCTION_COMMON(DECLARE_VISIT_INSTRUCTION)
+  FOR_EACH_CONCRETE_INSTRUCTION_LOONGARCH64(DECLARE_VISIT_INSTRUCTION)
+
+#undef DECLARE_VISIT_INSTRUCTION
+
+  void VisitInstruction(HInstruction* instruction) override {
+    LOG(FATAL) << "Unreachable instruction " << instruction->DebugName() << " (id "
+               << instruction->GetId() << ")";
+  }
+
+ protected:
+  void HandleInvoke(HInvoke* invoke);
+  void HandleBinaryOp(HBinaryOperation* operation);
+  void HandleCondition(HCondition* instruction);
+  void HandleShift(HBinaryOperation* operation);
+  void HandleFieldSet(HInstruction* instruction, const FieldInfo& field_info);
+  void HandleFieldGet(HInstruction* instruction, const FieldInfo& field_info);
+  Location RegisterOrZeroConstant(HInstruction* instruction);
+  Location FpuRegisterOrConstantForStore(HInstruction* instruction);
+
+  InvokeDexCallingConventionVisitorLOONGARCH64 parameter_visitor_;
+
+  CodeGeneratorLOONGARCH64* const codegen_;
+
+  DISALLOW_COPY_AND_ASSIGN(LocationsBuilderLOONGARCH64);
+};
+
+class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
+ public:
+  InstructionCodeGeneratorLOONGARCH64(HGraph* graph, CodeGeneratorLOONGARCH64* codegen);
+
+#define DECLARE_VISIT_INSTRUCTION(name, super) void Visit##name(H##name* instr) override;
+
+  FOR_EACH_CONCRETE_INSTRUCTION_COMMON(DECLARE_VISIT_INSTRUCTION)
+  FOR_EACH_CONCRETE_INSTRUCTION_LOONGARCH64(DECLARE_VISIT_INSTRUCTION)
+
+#undef DECLARE_VISIT_INSTRUCTION
+
+  void VisitInstruction(HInstruction* instruction) override {
+    LOG(FATAL) << "Unreachable instruction " << instruction->DebugName() << " (id "
+               << instruction->GetId() << ")";
+  }
+
+  Loongarch64Assembler* GetAssembler() const { return assembler_; }
+
+  void GenerateMemoryBarrier(MemBarrierKind kind);
+
+ protected:
+  void GenerateClassInitializationCheck(SlowPathCodeLOONGARCH64* slow_path, XRegister class_reg);
+  void GenerateBitstringTypeCheckCompare(HTypeCheckInstruction* check, XRegister temp);
+  void GenerateSuspendCheck(HSuspendCheck* check, HBasicBlock* successor);
+  void HandleBinaryOp(HBinaryOperation* operation);
+  void HandleCondition(HCondition* instruction);
+  void HandleShift(HBinaryOperation* operation);
+  void HandleFieldSet(HInstruction* instruction,
+                      const FieldInfo& field_info,
+                      bool value_can_be_null);
+  void HandleFieldGet(HInstruction* instruction, const FieldInfo& field_info);
+
+  void GenerateMinMaxInt(LocationSummary* locations, bool is_min);
+  void GenerateMinMaxFP(LocationSummary* locations, bool is_min, DataType::Type type);
+  void GenerateMinMax(HBinaryOperation* minmax, bool is_min);
+
+  // Generate a heap reference load using one register `out`:
+  //
+  //   out <- *(out + offset)
+  //
+  // while honoring heap poisoning and/or read barriers (if any).
+  //
+  // Location `maybe_temp` is used when generating a read barrier and
+  // shall be a register in that case; it may be an invalid location
+  // otherwise.
+  void GenerateReferenceLoadOneRegister(HInstruction* instruction,
+                                        Location out,
+                                        uint32_t offset,
+                                        Location maybe_temp,
+                                        ReadBarrierOption read_barrier_option);
+  // Generate a heap reference load using two different registers
+  // `out` and `obj`:
+  //
+  //   out <- *(obj + offset)
+  //
+  // while honoring heap poisoning and/or read barriers (if any).
+  //
+  // Location `maybe_temp` is used when generating a Baker's (fast
+  // path) read barrier and shall be a register in that case; it may
+  // be an invalid location otherwise.
+  void GenerateReferenceLoadTwoRegisters(HInstruction* instruction,
+                                         Location out,
+                                         Location obj,
+                                         uint32_t offset,
+                                         Location maybe_temp,
+                                         ReadBarrierOption read_barrier_option);
+
+  // Generate a GC root reference load:
+  //
+  //   root <- *(obj + offset)
+  //
+  // while honoring read barriers (if any).
+  void GenerateGcRootFieldLoad(HInstruction* instruction,
+                               Location root,
+                               XRegister obj,
+                               uint32_t offset,
+                               ReadBarrierOption read_barrier_option,
+                               Loongarch64Label* label_low = nullptr);
+
+  void GenerateTestAndBranch(HInstruction* instruction,
+                             size_t condition_input_index,
+                             Loongarch64Label* true_target,
+                             Loongarch64Label* false_target);
+  void DivRemOneOrMinusOne(HBinaryOperation* instruction);
+  void DivRemByPowerOfTwo(HBinaryOperation* instruction);
+  void GenerateDivRemWithAnyConstant(HBinaryOperation* instruction);
+  void GenerateDivRemIntegral(HBinaryOperation* instruction);
+  void GenerateIntLongCompare(IfCondition cond, bool is64bit, LocationSummary* locations);
+  // When the function returns `false` it means that the condition holds if `dst` is non-zero
+  // and doesn't hold if `dst` is zero. If it returns `true`, the roles of zero and non-zero
+  // `dst` are exchanged.
+  bool MaterializeIntLongCompare(IfCondition cond,
+                                 bool is64bit,
+                                 LocationSummary* input_locations,
+                                 XRegister dst);
+  void GenerateIntLongCompareAndBranch(IfCondition cond,
+                                       bool is64bit,
+                                       LocationSummary* locations,
+                                       Loongarch64Label* label);
+  void GenerateFpCompare(IfCondition cond,
+                         bool gt_bias,
+                         DataType::Type type,
+                         LocationSummary* locations);
+  // When the function returns `false` it means that the condition holds if `dst` is non-zero
+  // and doesn't hold if `dst` is zero. If it returns `true`, the roles of zero and non-zero
+  // `dst` are exchanged.
+  bool MaterializeFpCompare(IfCondition cond,
+                            bool gt_bias,
+                            DataType::Type type,
+                            LocationSummary* input_locations,
+                            XRegister dst);
+  void GenerateFpCompareAndBranch(IfCondition cond,
+                                  bool gt_bias,
+                                  DataType::Type type,
+                                  LocationSummary* locations,
+                                  Loongarch64Label* label);
+  void HandleGoto(HInstruction* got, HBasicBlock* successor);
+  void GenPackedSwitchWithCompares(XRegister value_reg,
+                                   int32_t lower_bound,
+                                   uint32_t num_entries,
+                                   HBasicBlock* switch_block,
+                                   HBasicBlock* default_block);
+  void GenTableBasedPackedSwitch(XRegister value_reg,
+                                 int32_t lower_bound,
+                                 uint32_t num_entries,
+                                 HBasicBlock* switch_block,
+                                 HBasicBlock* default_block);
+  int32_t VecAddress(LocationSummary* locations,
+                     size_t size,
+                     /*out*/ XRegister* adjusted_base);
+  void GenConditionalMove(HSelect* select);
+
+  Loongarch64Assembler* const assembler_;
+  CodeGeneratorLOONGARCH64* const codegen_;
+
+  DISALLOW_COPY_AND_ASSIGN(InstructionCodeGeneratorLOONGARCH64);
+};
 
 class CodeGeneratorLOONGARCH64 : public CodeGenerator {
  public:
@@ -102,10 +321,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   Loongarch64Assembler* GetAssembler() override { return &assembler_; }
   const Loongarch64Assembler& GetAssembler() const override { return assembler_; }
 
-  HGraphVisitor* GetLocationBuilder() override {
-    LOG(FATAL) << "Unimplemented";
-    UNREACHABLE();
-  }
+  HGraphVisitor* GetLocationBuilder() override { return &location_builder_; }
 
   void SetupBlockedRegisters() const override;
 
@@ -180,6 +396,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
 
 private:
   Loongarch64Assembler assembler_;
+  LocationsBuilderLOONGARCH64 location_builder_;
 };
 
 }  // namespace loongarch64
