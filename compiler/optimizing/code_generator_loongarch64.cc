@@ -39,27 +39,64 @@ static constexpr FRegister kFpuCalleeSaves[] = {
 #define __                   down_cast<CodeGeneratorLOONGARCH64*>(codegen_)->GetAssembler()->  // NOLINT
 #define QUICK_ENTRY_POINT(x) QUICK_ENTRYPOINT_OFFSET(kLoongarch64PointerSize, x).Int32Value()
 
-Location LOONGARCH64ReturnLocation(DataType::Type return_type) {
-  UNUSED(return_type);
-  LOG(FATAL) << "Unimplemented";
+Location Loongarch64ReturnLocation(DataType::Type return_type) {
+  switch (return_type) {
+    case DataType::Type::kBool:
+    case DataType::Type::kUint8:
+    case DataType::Type::kInt8:
+    case DataType::Type::kUint16:
+    case DataType::Type::kInt16:
+    case DataType::Type::kUint32:
+    case DataType::Type::kInt32:
+    case DataType::Type::kReference:
+    case DataType::Type::kUint64:
+    case DataType::Type::kInt64:
+      return Location::RegisterLocation(A0);
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      return Location::FpuRegisterLocation(FA0);
+
+    case DataType::Type::kVoid:
+      return Location::NoLocation();
+  }
   UNREACHABLE();
 }
 
 Location InvokeDexCallingConventionVisitorLOONGARCH64::GetReturnLocation(DataType::Type type) const {
-  UNUSED(type);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  return Loongarch64ReturnLocation(type);
 }
 
 Location InvokeDexCallingConventionVisitorLOONGARCH64::GetMethodLocation() const {
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  return Location::RegisterLocation(kArtMethodRegister);
+
 }
 
 Location InvokeDexCallingConventionVisitorLOONGARCH64::GetNextLocation(DataType::Type type) {
-  UNUSED(type);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  Location next_location;
+  if (type == DataType::Type::kVoid) {
+    LOG(FATAL) << "Unexpected parameter type " << type;
+  }
+
+  // Note: Unlike the LOONGARCH C/C++ calling convention, managed ABI does not use
+  // GPRs to pass FP args when we run out of FPRs.
+  if (DataType::IsFloatingPointType(type) &&
+      float_index_ < calling_convention.GetNumberOfFpuRegisters()) {
+    next_location =
+        Location::FpuRegisterLocation(calling_convention.GetFpuRegisterAt(float_index_++));
+  } else if (!DataType::IsFloatingPointType(type) &&
+             (gp_index_ < calling_convention.GetNumberOfRegisters())) {
+    next_location = Location::RegisterLocation(calling_convention.GetRegisterAt(gp_index_++));
+  } else {
+    size_t stack_offset = calling_convention.GetStackOffsetOf(stack_index_);
+    next_location = DataType::Is64BitType(type) ? Location::DoubleStackSlot(stack_offset) :
+                                                  Location::StackSlot(stack_offset);
+  }
+
+  // Space on the stack is reserved for all arguments.
+  stack_index_ += DataType::Is64BitType(type) ? 2 : 1;
+
+  return next_location;
 }
 
 void LocationsBuilderLOONGARCH64::HandleInvoke(HInvoke* instruction) {
