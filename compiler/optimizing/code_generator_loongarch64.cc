@@ -61,7 +61,9 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
                     ComputeRegisterMask(reinterpret_cast<const int*>(kCoreCalleeSaves), arraysize(kCoreCalleeSaves)),
                     ComputeRegisterMask(reinterpret_cast<const int*>(kFpuCalleeSaves), arraysize(kFpuCalleeSaves)),
                     compiler_options,
-                    stats) {
+                    stats),
+      assembler_(graph->GetAllocator(),
+                 compiler_options.GetInstructionSetFeatures()->AsLoongarch64InstructionSetFeatures()) {
   LOG(FATAL) << "Unimplemented";
 }
 

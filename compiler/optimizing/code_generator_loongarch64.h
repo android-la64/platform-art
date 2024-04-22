@@ -98,14 +98,9 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
     LOG(FATAL) << "unimplemented";
     UNREACHABLE();
   }
-  Loongarch64Assembler* GetAssembler() override {
-    LOG(FATAL) << "Unimplemented";
-    UNREACHABLE();
-  }
-  const Loongarch64Assembler& GetAssembler() const override {
-    LOG(FATAL) << "Unimplemented";
-    UNREACHABLE();
-  }
+
+  Loongarch64Assembler* GetAssembler() override { return &assembler_; }
+  const Loongarch64Assembler& GetAssembler() const override { return assembler_; }
 
   HGraphVisitor* GetLocationBuilder() override {
     LOG(FATAL) << "Unimplemented";
@@ -182,6 +177,9 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
                            Location temp,
                            SlowPathCode* slow_path = nullptr) override;
   void MoveFromReturnRegister(Location trg, DataType::Type type) override;
+
+private:
+  Loongarch64Assembler assembler_;
 };
 
 }  // namespace loongarch64
