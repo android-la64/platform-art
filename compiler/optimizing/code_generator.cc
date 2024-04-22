@@ -955,6 +955,12 @@ std::unique_ptr<CodeGenerator> CodeGenerator::Create(HGraph* graph,
           new (allocator) riscv64::CodeGeneratorRISCV64(graph, compiler_options, stats));
     }
 #endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+    case InstructionSet::kLoongarch64: {
+      return std::unique_ptr<CodeGenerator>(
+          new (allocator) loongarch64::CodeGeneratorLOONGARCH64(graph, compiler_options, stats));
+    }
+#endif
 #ifdef ART_ENABLE_CODEGEN_x86
     case InstructionSet::kX86: {
       return std::unique_ptr<CodeGenerator>(

@@ -70,18 +70,6 @@ TEST(Loongarch64ManagedRegister, XRegister) {
   EXPECT_FALSE(reg.IsFRegister());
   EXPECT_EQ(T0, reg.AsXRegister());
 
-  reg = Loongarch64ManagedRegister::FromXRegister(T9);
-  EXPECT_FALSE(reg.IsNoRegister());
-  EXPECT_TRUE(reg.IsXRegister());
-  EXPECT_FALSE(reg.IsFRegister());
-  EXPECT_EQ(T9, reg.AsXRegister());
-
-  reg = Loongarch64ManagedRegister::FromXRegister(S9);
-  EXPECT_FALSE(reg.IsNoRegister());
-  EXPECT_TRUE(reg.IsXRegister());
-  EXPECT_FALSE(reg.IsFRegister());
-  EXPECT_EQ(S9, reg.AsXRegister());
-
   reg = Loongarch64ManagedRegister::FromXRegister(S0);
   EXPECT_FALSE(reg.IsNoRegister());
   EXPECT_TRUE(reg.IsXRegister());

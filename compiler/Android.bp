@@ -273,6 +273,7 @@ art_cc_defaults {
         },
         loongarch64: {
             srcs: [
+                "optimizing/code_generator_loongarch64.cc",
                 "utils/loongarch64/assembler_loongarch64.cc",
                 "utils/loongarch64/managed_register_loongarch64.cc",
             ],
