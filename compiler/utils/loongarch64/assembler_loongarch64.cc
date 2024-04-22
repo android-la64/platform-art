@@ -177,7 +177,7 @@ void Loongarch64Assembler::Ld_WU(XRegister rd, Literal* literal) {
 }
 
 void Loongarch64Assembler::Ld_D(XRegister rd, Literal* literal) {
-  DCHECK_EQ(literal->GetSize(), 4u);
+  DCHECK_EQ(literal->GetSize(), 8u);
   LoadLiteral(literal, rd, Branch::kLiteralLong);
 }
 
@@ -350,11 +350,11 @@ void Loongarch64Assembler::Pcalau12i(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xd, imm20, rd);
 }
 
-void Loongarch64Assembler::Pcaddu12i(XRegister rd, uint32_t imm20) {
+void Loongarch64Assembler::Pcaddu12i(XRegister rd, int32_t imm20) {
   EmitPC_rel(0xe, imm20, rd);
 }
 
-void Loongarch64Assembler::Pcaddu18i(XRegister rd, uint32_t imm20) {
+void Loongarch64Assembler::Pcaddu18i(XRegister rd, int32_t imm20) {
   EmitPC_rel(0xf, imm20, rd);
 }
 
@@ -814,14 +814,23 @@ void Loongarch64Assembler::EmitBranch(Loongarch64Assembler::Branch* branch) {
   CHECK(overwriting_);
   overwrite_location_ = branch->GetLocation();
   const int32_t offset = branch->GetOffset();
+  const int32_t target = branch->GetTarget();
   BranchCondition condition = branch->GetCondition();
   XRegister lhs = branch->GetLeftRegister();
   XRegister rhs = branch->GetRightRegister();
   enum {BIT18, BIT12};
 
-  auto emit_pc_handle_and_next = [&](auto Pchandle, auto next) {
+ // auto emit_pc_handle_and_next = [&](auto Pchandle, auto next) {
+ //   CHECK_EQ(overwrite_location_, branch->GetOffsetLocation());
+ //   auto [imm20, short_offset] = SplitOffset(BIT18, offset);
+ //   Pchandle(imm20);
+ //   next(short_offset);
+ // };
+
+  auto emit_pc_handle_and_next = [&](auto Pchandle, auto next, bool bits) {
     CHECK_EQ(overwrite_location_, branch->GetOffsetLocation());
-    auto [imm20, short_offset] = SplitOffset(BIT18, offset);
+    auto [imm20, short_offset] = SplitOffset(bits, target);
+    if(bits) imm20 = imm20 - ((overwrite_location_ & 0xff800) >> 12);
     Pchandle(imm20);
     next(short_offset);
   };
@@ -859,35 +868,38 @@ void Loongarch64Assembler::EmitBranch(Loongarch64Assembler::Branch* branch) {
       FALLTHROUGH_INTENDED;
     case Branch::kLongUncondBranch:
       emit_pc_handle_and_next([&](uint32_t imm20) { Pcaddu18i(TMP, imm20); },
-                          [&](int32_t short_offset) { Jirl(Zero, TMP, short_offset); });
+                              [&](int32_t short_offset) { Jirl(Zero, TMP, short_offset); },
+                              BIT18);
       break;
     case Branch::kLongCall:
       DCHECK(lhs != Zero);
       emit_pc_handle_and_next([&](int32_t imm20) { Pcaddu18i(lhs, imm20); },
-                              [&](int32_t short_offset) { Jirl(lhs, lhs, short_offset); });
+                              [&](int32_t short_offset) { Jirl(lhs, lhs, short_offset); },
+                              BIT18);
       break;
 
     // label.
     case Branch::kLabel:
       emit_pc_handle_and_next([&](int32_t imm20) { Pcaddu12i(lhs, imm20); },
-                              // TODO short_offset should be pc & 0xfff
-                              [&](int32_t short_offset) { Addi_D(lhs, lhs, short_offset); });
+                              [&](int32_t short_offset) { Addi_D(lhs, lhs, short_offset); },
+                              BIT12);
       break;
     // literals.
     case Branch::kLiteral:
       emit_pc_handle_and_next([&](int32_t imm20) { Pcaddu12i(lhs, imm20); },
-                              // TODO short_offset should be pc & 0xfff
-                              [&](int32_t short_offset) { Ld_W(lhs, lhs, short_offset); });
+                              [&](int32_t short_offset) { Ld_W(lhs, lhs, short_offset); },
+                              BIT12);
       break;
     case Branch::kLiteralUnsigned:
       emit_pc_handle_and_next([&](int32_t imm20) { Pcaddu12i(lhs, imm20); },
-                              // TODO short_offset should be pc & 0xfff
-                              [&](int32_t short_offset) { Ld_WU(lhs, lhs, short_offset); });
+                              [&](int32_t short_offset) { Ld_WU(lhs, lhs, short_offset); },
+                              BIT12);
       break;
     case Branch::kLiteralLong:
       emit_pc_handle_and_next([&](int32_t imm20) { Pcaddu12i(lhs, imm20); },
                               // TODO short_offset should be pc & 0xfff
-                              [&](int32_t short_offset) { Ld_D(lhs, lhs, short_offset); });
+                              [&](int32_t short_offset) { Ld_D(lhs, lhs, short_offset); },
+                              BIT12);
       break;
   }
   CHECK_EQ(overwrite_location_, branch->GetEndLocation());

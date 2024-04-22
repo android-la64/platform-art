@@ -77,8 +77,8 @@ class AssemblerLOONGARCH64Test : public AssemblerTest<Loongarch64Assembler,
      registers_.push_back(new XRegister(T6));
      registers_.push_back(new XRegister(T7));
      registers_.push_back(new XRegister(T8));
-     registers_.push_back(new XRegister(T9));
-     registers_.push_back(new XRegister(S9));
+     registers_.push_back(new XRegister(R21));
+     registers_.push_back(new XRegister(FP));
      registers_.push_back(new XRegister(S0));
      registers_.push_back(new XRegister(S1));
      registers_.push_back(new XRegister(S2));
@@ -449,36 +449,36 @@ class AssemblerLOONGARCH64Test : public AssemblerTest<Loongarch64Assembler,
     DriverStr(expected, test_name);
   }
 
- // void TestLoadLiteral(const std::string& test_name, bool with_padding_for_long) {
- //   std::string expected;
- //   Literal* narrow_literal = __ NewLiteral<uint32_t>(0x12345678);
- //   Literal* wide_literal = __ NewLiteral<uint64_t>(0x1234567887654321);
- //   auto print_load = [&](const std::string& load, XRegister rd, const std::string& label) {
- //     std::string rd_name = GetRegisterName(rd);
- //     expected += "1:\n"
- //                 "pcalau12i" + rd_name + ", %pc_hi20(" + label + "f)\n" +
- //                 load + " " + rd_name + ", %pc_lo12(1b)(" + rd_name + ")\n";
- //   };
- //   for (XRegister* reg : GetRegisters()) {
- //     if (*reg != Zero) {
- //       __ Ld_W(*reg, narrow_literal);
- //       print_load("ld.w", *reg, "2");
- //       __ Ld_WU(*reg, narrow_literal);
- //       print_load("ld.wu", *reg, "2");
- //       __ Ld_D(*reg, wide_literal);
- //       print_load("ld.d", *reg, "3");
- //     }
- //   }
- //   // All literal loads above emit 8 bytes of code. The narrow literal shall emit 4 bytes of code.
- //   // If we do not add another instruction, we shall end up with padding before the long literal.
- //   expected += EmitNops(with_padding_for_long ? 0u : sizeof(uint32_t));
- //   expected += "2:\n"
- //               ".4byte 0x12345678\n" +
- //               std::string(with_padding_for_long ? ".4byte 0\n" : "") +
- //               "3:\n"
- //               ".8byte 0x1234567887654321\n";
- //   DriverStr(expected, test_name);
- // }
+  void TestLoadLiteral(const std::string& test_name, bool with_padding_for_long) {
+    std::string expected;
+    Literal* narrow_literal = __ NewLiteral<uint32_t>(0x12345678);
+    Literal* wide_literal = __ NewLiteral<uint64_t>(0x1234567887654321);
+    auto print_load = [&](const std::string& load, XRegister rd, const std::string& label) {
+      std::string rd_name = GetRegisterName(rd);
+      expected += "1:\n"
+                  "pcalau12i " + rd_name + ", %pc_hi20(" + label + "f)\n" +
+                  load + " " + rd_name + ", " + rd_name + ", %pc_lo12(" + label + "f)\n";
+    };
+    for (XRegister* reg : GetRegisters()) {
+      if (*reg != Zero) {
+        __ Ld_W(*reg, narrow_literal);
+        print_load("ld.w", *reg, "2");
+        __ Ld_WU(*reg, narrow_literal);
+        print_load("ld.wu", *reg, "2");
+        __ Ld_D(*reg, wide_literal);
+        print_load("ld.d", *reg, "3");
+      }
+    }
+    // All literal loads above emit 8 bytes of code. The narrow literal shall emit 4 bytes of code.
+    // If we do not add another instruction, we shall end up with padding before the long literal.
+    expected += EmitNops(with_padding_for_long ? 0u : sizeof(uint32_t));
+    expected += "2:\n"
+                ".4byte 0x12345678\n" +
+                std::string(with_padding_for_long ? ".4byte 0\n" : "") +
+                "3:\n"
+                ".8byte 0x1234567887654321\n";
+    DriverStr(expected, test_name);
+  }
 
 
 
@@ -895,7 +895,7 @@ TEST_F(AssemblerLOONGARCH64Test, BMaxOffset23Backward) {
 /* TODO : address of %pc_lo12 based on current pc_abs */
 //TEST_F(AssemblerLOONGARCH64Test, LoadLabelAddress) {
 //  std::string expected;
-//  constexpr size_t kNumLoadsForward = 4 * KB;
+//  constexpr size_t kNumLoadsForward = 4 * KB ;
 //  constexpr size_t kNumLoadsBackward = 4 * KB;
 //  Loongarch64Label label;
 //  auto emit_batch = [&](size_t num_loads, const std::string& target_label) {
@@ -906,12 +906,12 @@ TEST_F(AssemblerLOONGARCH64Test, BMaxOffset23Backward) {
 //      __ LoadLabelAddress(rd, &label);
 //      expected += "1:\n"
 //                  "pcalau12i " + rd_name + ", %pc_hi20(" + target_label + ")\n"
-//                  "addi.d " + rd_name + ", " + rd_name + ", %pc_lo12(1b)\n";
+//                  "addi.d " + rd_name + ", " + rd_name + ", %pc_lo12(" + target_label + ")\n";
 //    }
 //  };
 //  emit_batch(kNumLoadsForward, "2f");
 //  __ Bind(&label);
-//  expected += "2:\nnop\n";
+//  expected += "2:\n";
 //  emit_batch(kNumLoadsBackward, "2b");
 //  DriverStr(expected, "LoadLabelAddress");
 //}

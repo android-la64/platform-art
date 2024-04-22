@@ -211,8 +211,8 @@ class Loongarch64Assembler final : public Assembler {
   void Lu32i_D(XRegister rd, uint32_t imm20);
   void Pcaddi(XRegister rd, uint32_t imm20);
   void Pcalau12i(XRegister rd, uint32_t imm20);
-  void Pcaddu12i(XRegister rd, uint32_t imm20);
-  void Pcaddu18i(XRegister rd, uint32_t imm20);
+  void Pcaddu12i(XRegister rd, int32_t imm20);
+  void Pcaddu18i(XRegister rd, int32_t imm20);
 
   // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100 
   //                                             ~ 0 0000 0000 0101 0110
@@ -720,10 +720,10 @@ class Loongarch64Assembler final : public Assembler {
   //   [            opcode 31:25         |       I20[19:0]     |    rd    ]
   //   --------------------------------------------------------------------
   template <typename Reg1>
-  void EmitPC_rel(uint32_t opcode, uint32_t imm20, Reg1 rd) {
+  void EmitPC_rel(uint32_t opcode, int32_t imm20, Reg1 rd) {
     DCHECK(IsUint<7>(opcode));
-    DCHECK(IsUint<20>(imm20)) << imm20;
-    uint32_t encoding = opcode << 25 | imm20 << 5 |
+    DCHECK(IsInt<20>(imm20)) << imm20;
+    uint32_t encoding = opcode << 25 | (imm20 & 0xFFFFF) << 5 |
                         static_cast<uint32_t>(rd);
     Emit(encoding);
   }
