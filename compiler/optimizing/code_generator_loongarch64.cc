@@ -379,13 +379,121 @@ void InstructionCodeGeneratorLOONGARCH64::HandleCondition(HCondition* instructio
 }
 
 void LocationsBuilderLOONGARCH64::HandleShift(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(instruction->IsShl() ||
+         instruction->IsShr() ||
+         instruction->IsUShr() ||
+         instruction->IsRor());
+
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  DataType::Type type = instruction->GetResultType();
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64: {
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected shift type " << type;
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::HandleShift(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(instruction->IsShl() ||
+         instruction->IsShr() ||
+         instruction->IsUShr() ||
+         instruction->IsRor());
+  LocationSummary* locations = instruction->GetLocations();
+  DataType::Type type = instruction->GetType();
+
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64: {
+      XRegister rd = locations->Out().AsRegister<XRegister>();
+      XRegister rs1 = locations->InAt(0).AsRegister<XRegister>();
+      Location rs2_location = locations->InAt(1);
+
+      if (rs2_location.IsConstant()) {
+        int64_t imm = CodeGenerator::GetInt64ValueOf(rs2_location.GetConstant());
+        uint32_t shamt =
+            imm & (type == DataType::Type::kInt32 ? kMaxIntShiftDistance : kMaxLongShiftDistance);
+
+        if (shamt == 0) {
+          if (rd != rs1) {
+            __ Move(rd, rs1);
+          }
+        } else if (type == DataType::Type::kInt32) {
+          if (instruction->IsShl()) {
+            __ Slli_w(rd, rs1, shamt);
+          } else if (instruction->IsShr()) {
+            __ Srai_w(rd, rs1, shamt);
+          } else if (instruction->IsUShr()) {
+            __ Srli_w(rd, rs1, shamt);
+          } else {
+            ScratchRegisterScope srs(GetAssembler());
+            XRegister tmp = srs.AllocateXRegister();
+            __ Srli_w(tmp, rs1, shamt);
+            __ Slli_w(rd, rs1, 32 - shamt);
+            __ Or(rd, rd, tmp);
+          }
+        } else {
+          if (instruction->IsShl()) {
+            __ Slli_d(rd, rs1, shamt);
+          } else if (instruction->IsShr()) {
+            __ Srai_d(rd, rs1, shamt);
+          } else if (instruction->IsUShr()) {
+            __ Srli_d(rd, rs1, shamt);
+          } else {
+            ScratchRegisterScope srs(GetAssembler());
+            XRegister tmp = srs.AllocateXRegister();
+            __ Srli_d(tmp, rs1, shamt);
+            __ Slli_d(rd, rs1, 64 - shamt);
+            __ Or(rd, rd, tmp);
+          }
+        }
+      } else {
+        XRegister rs2 = rs2_location.AsRegister<XRegister>();
+        if (type == DataType::Type::kInt32) {
+          if (instruction->IsShl()) {
+            __ Sll_w(rd, rs1, rs2);
+          } else if (instruction->IsShr()) {
+            __ Sra_w(rd, rs1, rs2);
+          } else if (instruction->IsUShr()) {
+            __ Srl_w(rd, rs1, rs2);
+          } else {
+            ScratchRegisterScope srs(GetAssembler());
+            XRegister tmp = srs.AllocateXRegister();
+            XRegister tmp2 = srs.AllocateXRegister();
+            __ Srl_w(tmp, rs1, rs2);
+            __ Sub_w(tmp2, Zero, rs2);  // tmp2 = -rs; we can use this instead of `32 - rs`
+            __ Sll_w(rd, rs1, tmp2);   // because only low 5 bits are used for SLL_W.
+            __ Or(rd, rd, tmp);
+          }
+        } else {
+          if (instruction->IsShl()) {
+            __ Sll_d(rd, rs1, rs2);
+          } else if (instruction->IsShr()) {
+            __ Sra_d(rd, rs1, rs2);
+          } else if (instruction->IsUShr()) {
+            __ Srl_d(rd, rs1, rs2);
+          } else {
+            ScratchRegisterScope srs(GetAssembler());
+            XRegister tmp = srs.AllocateXRegister();
+            XRegister tmp2 = srs.AllocateXRegister();
+            __ Srl_d(tmp, rs1, rs2);
+            __ Sub_d(tmp2, Zero, rs2);  // tmp2 = -rs; we can use this instead of `64 - rs`
+            __ Sll_d(rd, rs1, tmp2);    // because only low 6 bits are used for SLL.
+            __ Or(rd, rd, tmp);
+          }
+        }
+      }
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected shift operation type " << type;
+  }
 }
 
 void LocationsBuilderLOONGARCH64::HandleFieldSet(HInstruction* instruction,
@@ -1016,6 +1124,15 @@ void LocationsBuilderLOONGARCH64::VisitNeg(HNeg* instruction) {
 void InstructionCodeGeneratorLOONGARCH64::VisitNeg(HNeg* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
+}
+
+void LocationsBuilderLOONGARCH64::VisitNativeDebugInfo(HNativeDebugInfo* info) {
+  UNUSED(info);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorLOONGARCH64::VisitNativeDebugInfo(HNativeDebugInfo*) {
+  // MaybeRecordNativeDebugInfo is already called implicitly in CodeGenerator::Compile.
 }
 
 void LocationsBuilderLOONGARCH64::VisitNewArray(HNewArray* instruction) {

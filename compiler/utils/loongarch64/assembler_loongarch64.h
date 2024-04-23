@@ -35,6 +35,8 @@
 namespace art {
 namespace loongarch64 {
 
+class ScratchRegisterScope;
+
 // Due to the limited accuracy of floating-point numbers
 // controlled by fcsr0 9:8
 enum class FPRoundingMode : uint32_t {
@@ -133,7 +135,9 @@ class Loongarch64Assembler final : public Assembler {
         jump_tables_(allocator->Adapter(kArenaAllocAssembler)),
         last_position_adjustment_(0),
         last_old_position_(0),
-        last_branch_id_(0)  {
+        last_branch_id_(0),
+        available_scratch_core_registers_((1u << TMP) | (1u << TMP2)),
+        available_scratch_fp_registers_(1u << FTMP)   {
     UNUSED(instruction_set_features);
     cfi().DelayEmittingAdvancePCs();
   }
@@ -475,7 +479,7 @@ class Loongarch64Assembler final : public Assembler {
     uint32_t PromoteIfNeeded();
 
     // Returns the offset into assembler buffer that shall be used as the base PC for
-    // offset calculation. RISC-V always uses the address of the PC-relative instruction
+    // offset calculation. LOONGARCH always uses the address of the PC-relative instruction
     // as the PC, so this is essentially the location of that instruction.
     uint32_t GetOffsetLocation() const;
 
@@ -760,10 +764,112 @@ class Loongarch64Assembler final : public Assembler {
   uint32_t last_old_position_;
   uint32_t last_branch_id_;
 
+  uint32_t available_scratch_core_registers_;
+  uint32_t available_scratch_fp_registers_;
 
   static constexpr uint32_t kXlen = 64;
 
+  friend class ScratchRegisterScope;
+
   DISALLOW_COPY_AND_ASSIGN(Loongarch64Assembler);
+};
+
+class ScratchRegisterScope {
+ public:
+  explicit ScratchRegisterScope(Loongarch64Assembler* assembler)
+      : assembler_(assembler),
+        old_available_scratch_core_registers_(assembler->available_scratch_core_registers_),
+        old_available_scratch_fp_registers_(assembler->available_scratch_fp_registers_) {}
+
+  ~ScratchRegisterScope() {
+    assembler_->available_scratch_core_registers_ = old_available_scratch_core_registers_;
+    assembler_->available_scratch_fp_registers_ = old_available_scratch_fp_registers_;
+  }
+
+  // Alocate a scratch `XRegister`. There must be an available register to allocate.
+  XRegister AllocateXRegister() {
+    CHECK_NE(assembler_->available_scratch_core_registers_, 0u);
+    // Allocate the highest available scratch register (prefer TMP(T6) over TMP2(T5)).
+    uint32_t reg_num = (BitSizeOf(assembler_->available_scratch_core_registers_) - 1u) -
+                       CLZ(assembler_->available_scratch_core_registers_);
+    assembler_->available_scratch_core_registers_ &= ~(1u << reg_num);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfXRegisters));
+    return enum_cast<XRegister>(reg_num);
+  }
+
+  // Free a previously unavailable core register for use as a scratch register.
+  // This can be an arbitrary register, not necessarly the usual `TMP` or `TMP2`.
+  void FreeXRegister(XRegister reg) {
+    uint32_t reg_num = enum_cast<uint32_t>(reg);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfXRegisters));
+    CHECK_EQ((1u << reg_num) & assembler_->available_scratch_core_registers_, 0u);
+    assembler_->available_scratch_core_registers_ |= 1u << reg_num;
+  }
+
+  // The number of available scratch core registers.
+  size_t AvailableXRegisters() {
+    return POPCOUNT(assembler_->available_scratch_core_registers_);
+  }
+
+  // Make sure a core register is available for use as a scratch register.
+  void IncludeXRegister(XRegister reg) {
+    uint32_t reg_num = enum_cast<uint32_t>(reg);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfXRegisters));
+    assembler_->available_scratch_core_registers_ |= 1u << reg_num;
+  }
+
+  // Make sure a core register is not available for use as a scratch register.
+  void ExcludeXRegister(XRegister reg) {
+    uint32_t reg_num = enum_cast<uint32_t>(reg);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfXRegisters));
+    assembler_->available_scratch_core_registers_ &= ~(1u << reg_num);
+  }
+
+  // Alocate a scratch `FRegister`. There must be an available register to allocate.
+  FRegister AllocateFRegister() {
+    CHECK_NE(assembler_->available_scratch_fp_registers_, 0u);
+    // Allocate the highest available scratch register (same as for core registers).
+    uint32_t reg_num = (BitSizeOf(assembler_->available_scratch_fp_registers_) - 1u) -
+                       CLZ(assembler_->available_scratch_fp_registers_);
+    assembler_->available_scratch_fp_registers_ &= ~(1u << reg_num);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfFRegisters));
+    return enum_cast<FRegister>(reg_num);
+  }
+
+  // Free a previously unavailable FP register for use as a scratch register.
+  // This can be an arbitrary register, not necessarly the usual `FTMP`.
+  void FreeFRegister(FRegister reg) {
+    uint32_t reg_num = enum_cast<uint32_t>(reg);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfFRegisters));
+    CHECK_EQ((1u << reg_num) & assembler_->available_scratch_fp_registers_, 0u);
+    assembler_->available_scratch_fp_registers_ |= 1u << reg_num;
+  }
+
+  // The number of available scratch FP registers.
+  size_t AvailableFRegisters() {
+    return POPCOUNT(assembler_->available_scratch_fp_registers_);
+  }
+
+  // Make sure an FP register is available for use as a scratch register.
+  void IncludeFRegister(FRegister reg) {
+    uint32_t reg_num = enum_cast<uint32_t>(reg);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfFRegisters));
+    assembler_->available_scratch_fp_registers_ |= 1u << reg_num;
+  }
+
+  // Make sure an FP register is not available for use as a scratch register.
+  void ExcludeFRegister(FRegister reg) {
+    uint32_t reg_num = enum_cast<uint32_t>(reg);
+    DCHECK_LT(reg_num, enum_cast<uint32_t>(kNumberOfFRegisters));
+    assembler_->available_scratch_fp_registers_ &= ~(1u << reg_num);
+  }
+
+ private:
+  Loongarch64Assembler* const assembler_;
+  const uint32_t old_available_scratch_core_registers_;
+  const uint32_t old_available_scratch_fp_registers_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScratchRegisterScope);
 };
 
 }  // namespace loongarch64
