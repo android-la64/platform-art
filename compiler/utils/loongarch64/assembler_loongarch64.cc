@@ -263,6 +263,38 @@ void Loongarch64Assembler::Sra_d(XRegister rd, XRegister rs1, XRegister rs2) {
   Emit3R(0x33, rs2, rs1, rd);
 }
 
+void  Loongarch64Assembler::Slli_w(XRegister rd, XRegister rj, int ui5) {
+  Emit2RI8(0x10, ((0x1 << 5) | ui5), rj, rd);
+}
+
+void  Loongarch64Assembler::Slli_d(XRegister rd, XRegister rj, int ui6) {
+  Emit2RI8(0x10, ((0x1 << 6) | ui6), rj, rd);
+}
+
+void  Loongarch64Assembler::Srli_w(XRegister rd, XRegister rj, int ui5) {
+  Emit2RI8(0x11, ((0x1 << 5) | ui5), rj, rd);
+}
+
+void  Loongarch64Assembler::Srli_d(XRegister rd, XRegister rj, int ui6) {
+  Emit2RI8(0x11, ((0x1 << 6) | ui6), rj, rd);
+}
+
+void  Loongarch64Assembler::Srai_w(XRegister rd, XRegister rj, int ui5) {
+  Emit2RI8(0x12, ((0x1 << 5) | ui5), rj, rd);
+}
+
+void  Loongarch64Assembler::Srai_d(XRegister rd, XRegister rj, int ui6) {
+  Emit2RI8(0x12, ((0x1 << 6) | ui6), rj, rd);
+}
+
+void  Loongarch64Assembler::Rotri_w(XRegister rd, XRegister rj, int ui5) {
+  Emit2RI8(0x13, ((0x1 << 5) | ui5), rj, rd);
+}
+
+void  Loongarch64Assembler::Rotri_d(XRegister rd, XRegister rj, int ui6) {
+  Emit2RI8(0x13, ((0x1 << 6) | ui6), rj, rd);
+}
+
 // 3R-Type
 // mid-level ALU instructions : opcode from 0 0000 0000 0011 1000 
 //                                        ~ 0 0000 0000 0100 0111
@@ -451,6 +483,7 @@ void Loongarch64Assembler::Xori(XRegister rd, XRegister rs1, uint32_t imm12) {
 }
 
 /////////////////////////////// LOONGARCH64 pseudo Instructions ///////////////////////////////
+void Loongarch64Assembler::Move(XRegister rd, XRegister rj) { Or(rd, rj, Zero); }
 void Loongarch64Assembler::Jr(XRegister rd) { Jirl(Zero, rd, 0); };
 void Loongarch64Assembler::Nop() { Andi(Zero, Zero, 0); }
 

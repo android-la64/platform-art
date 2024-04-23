@@ -148,6 +148,17 @@ class Loongarch64Assembler final : public Assembler {
   DebugFrameOpCodeWriterForAssembler& cfi() { return Assembler::cfi(); }
 
   ////////////////////////////// LOONGARCH64 MACRO Instructions END ///////////////////////////////
+  // 2RI8-Type
+  // Load signed instructions : opcode from 00 0000 0001 0000
+  //                                      ~ 00 0000 0001 0011
+  void Slli_w(XRegister rd, XRegister rj, int ui5);
+  void Slli_d(XRegister rd, XRegister rj, int ui6);
+  void Srli_w(XRegister rd, XRegister rj, int ui5);
+  void Srli_d(XRegister rd, XRegister rj, int ui6);
+  void Srai_w(XRegister rd, XRegister rj, int ui5);
+  void Srai_d(XRegister rd, XRegister rj, int ui6);
+  void Rotri_w(XRegister rd, XRegister rj, int ui5);
+  void Rotri_d(XRegister rd, XRegister rj, int ui6);
   // 2RI12-Type
   // Load signed instructions : opcode from 00 1010 0000 
   //                                      ~ 00 1010 0011
@@ -259,6 +270,8 @@ class Loongarch64Assembler final : public Assembler {
 
   // Branch pseudo instructions
   void Bgt(XRegister );
+  // pseudo instructions
+  void Move(XRegister rd, XRegister rj);
   // Jump pseudo instructions
   void Jr(XRegister rs);
   // pseudo instructions
