@@ -2854,6 +2854,36 @@ void LocationsBuilderARMVIXL::VisitGoto(HGoto* got) {
   got->SetLocations(nullptr);
 }
 
+void LocationsBuilderARMVIXL::VisitNop(HNop* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorARMVIXL::VisitNop(HNop* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void LocationsBuilderARMVIXL::VisitMethodEntryHook(HMethodEntryHook* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorARMVIXL::VisitMethodEntryHook(HMethodEntryHook* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void LocationsBuilderARMVIXL::VisitMethodExitHook(HMethodExitHook* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorARMVIXL::VisitMethodExitHook(HMethodExitHook* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
 void InstructionCodeGeneratorARMVIXL::VisitGoto(HGoto* got) {
   HandleGoto(got, got->GetSuccessor());
 }
