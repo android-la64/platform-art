@@ -191,7 +191,7 @@ class Loongarch64Assembler final : public Assembler {
   void Sltui(XRegister rd, XRegister rs1, int32_t imm12);
   void Addi_W(XRegister rd, XRegister rs1, int32_t imm12);
   void Addi_D(XRegister rd, XRegister rs1, int32_t imm12);
-  void Lu52i_d(XRegister rd, XRegister rs1, int32_t imm12);
+  void Lu52i_D(XRegister rd, XRegister rs1, int32_t imm12);
   void Andi(XRegister rd, XRegister rs1, uint32_t imm12);
   void Ori(XRegister rd, XRegister rs1, uint32_t imm12);
   void Xori(XRegister rd, XRegister rs1, uint32_t imm12);
@@ -222,12 +222,12 @@ class Loongarch64Assembler final : public Assembler {
 
   // PC-relative instructions : opcode from 0 0010 10
   //                                      ~ 0 0011 11
-  void Lu21i_W(XRegister rd, uint32_t imm20);
+  void Lu12i_W(XRegister rd, uint32_t imm20);
   void Lu32i_D(XRegister rd, uint32_t imm20);
   void Pcaddi(XRegister rd, uint32_t imm20);
   void Pcalau12i(XRegister rd, uint32_t imm20);
-  void Pcaddu12i(XRegister rd, int32_t imm20);
-  void Pcaddu18i(XRegister rd, int32_t imm20);
+  void Pcaddu12i(XRegister rd, uint32_t imm20);
+  void Pcaddu18i(XRegister rd, uint32_t imm20);
 
   // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100 
   //                                             ~ 0 0000 0000 0101 0110
@@ -254,6 +254,11 @@ class Loongarch64Assembler final : public Assembler {
   void Mod_d(XRegister rd, XRegister rs1, XRegister rs2);
   void Div_du(XRegister rd, XRegister rs1, XRegister rs2);
   void Mod_du(XRegister rd, XRegister rs1, XRegister rs2);
+
+
+  // Macros for loading constants.
+  void LoadConst32(XRegister rd, int32_t value);
+  void LoadConst64(XRegister rd, int64_t value);
 
   // transfer instruction, opcode from 01 0000
   //                                 ~ 01 1011
@@ -530,6 +535,31 @@ class Loongarch64Assembler final : public Assembler {
   void PatchCFI();
 
 
+  // Convert 12-bit x to a sign-extended 12-bit integer
+  static int simm12(int x) {
+    DCHECK(x == (x & 0xFFF)) << x << "must be 12-bit only";
+    return (x << 20) >> 20;
+  }
+
+  // Convert 20-bit x to a sign-extended 20-bit integer
+  int simm20(int32_t x) {
+    DCHECK(x == (x & 0xFFFFF)) << x << "must be 20-bit only";
+    return (x << 12) >> 12;
+  }
+
+  // get a word with the n.th or the right-most or left-most n bits set
+  // (note: #define used only so that they can be used in enum constant definitions)
+  #define nth_bit(n)        (((n) >= (1 << 6)) ? 0ULL : (1ULL << (n)))
+  #define right_n_bits(n)   (nth_bit(n) - 1)
+  inline int64_t mask_bits      (int64_t  x, int64_t m) { return x & m; }
+  // returns the bitfield of x starting at start_bit_no with length field_length (no sign-extension!)
+  inline int64_t bitfield(int64_t x, int start_bit_no, int field_length) {
+    return mask_bits(x >> start_bit_no, right_n_bits(field_length));
+  }
+
+  // Implementation helper for `Li()`, `LoadConst32()` and `LoadConst64()`.
+  void LoadImmediate(XRegister rd, int64_t imm);
+
   // Emit helpers.
 
   // 2R-Type instruction:
@@ -614,10 +644,11 @@ class Loongarch64Assembler final : public Assembler {
   template <typename Reg2, typename Reg1>
   void Emit2RI12(uint32_t opcode, int32_t imm12, Reg2 rj, Reg1 rd) {
     DCHECK(IsUint<10>(opcode));
-    DCHECK(IsInt<12>(imm12)) << imm12; // Operators overloading when trigger assertion
+    imm12 = imm12 & 0xfff;
+    DCHECK(IsUint<12>(imm12)) << imm12; // Operators overloading when trigger assertion
     DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
-    uint32_t encoding = opcode << 22 | static_cast<uint32_t>(imm12 & 0xfff) << 10 |
+    uint32_t encoding = opcode << 22 | static_cast<uint32_t>(imm12) << 10 |
                         static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
     Emit(encoding);
   }
@@ -735,9 +766,9 @@ class Loongarch64Assembler final : public Assembler {
   //   [            opcode 31:25         |       I20[19:0]     |    rd    ]
   //   --------------------------------------------------------------------
   template <typename Reg1>
-  void EmitPC_rel(uint32_t opcode, int32_t imm20, Reg1 rd) {
+  void EmitPC_rel(uint32_t opcode, uint32_t imm20, Reg1 rd) {
     DCHECK(IsUint<7>(opcode));
-    DCHECK(IsInt<20>(imm20)) << imm20;
+    DCHECK(IsUint<20>(imm20 & 0xFFFFF)) << imm20;
     uint32_t encoding = opcode << 25 | (imm20 & 0xFFFFF) << 5 |
                         static_cast<uint32_t>(rd);
     Emit(encoding);

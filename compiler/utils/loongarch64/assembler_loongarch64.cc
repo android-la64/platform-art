@@ -117,6 +117,17 @@ void Loongarch64Assembler::Bgeu(XRegister rs1, XRegister rd, int32_t offset16) {
   Emit2RI16_B(0x1b, offset16, rs1, rd);
 }
 
+void Loongarch64Assembler::LoadConst32(XRegister rd, int32_t value) {
+  //LoadImmediate(rd, value, /*can_use_tmp=*/ false);  // No need to use TMP for 32-bit values.
+  LoadImmediate(rd, value);  // No need to use TMP for 32-bit values.
+}
+
+void Loongarch64Assembler::LoadConst64(XRegister rd, int64_t value) {
+  CHECK_NE(rd, TMP);
+  //LoadImmediate(rd, value, /*can_use_tmp=*/ true);
+  LoadImmediate(rd, value);
+}
+
 // Jumps and branches to a label
 void Loongarch64Assembler::Beqz(XRegister rs, Loongarch64Label* label, bool is_bare) {
   Bcond(label, is_bare, kCondEQZ, rs, Zero);
@@ -363,7 +374,7 @@ void Loongarch64Assembler::Mod_du(XRegister rd, XRegister rs1, XRegister rs2) {
 }
 
 /////////////////////////////// LOONGARCH64 PC_relative Instructions ///////////////////////////////
-void Loongarch64Assembler::Lu21i_W(XRegister rd, uint32_t imm20) {
+void Loongarch64Assembler::Lu12i_W(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xa, imm20, rd);
 }
 
@@ -379,11 +390,11 @@ void Loongarch64Assembler::Pcalau12i(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xd, imm20, rd);
 }
 
-void Loongarch64Assembler::Pcaddu12i(XRegister rd, int32_t imm20) {
+void Loongarch64Assembler::Pcaddu12i(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xe, imm20, rd);
 }
 
-void Loongarch64Assembler::Pcaddu18i(XRegister rd, int32_t imm20) {
+void Loongarch64Assembler::Pcaddu18i(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xf, imm20, rd);
 }
 
@@ -466,7 +477,7 @@ void Loongarch64Assembler::Addi_W(XRegister rd, XRegister rs1, int32_t imm12) {
 void Loongarch64Assembler::Addi_D(XRegister rd, XRegister rs1, int32_t imm12) {
   Emit2RI12(0x0b, imm12, rs1, rd);
 }
-void Loongarch64Assembler::Lu52i_d(XRegister rd, XRegister rs1, int32_t imm12) {
+void Loongarch64Assembler::Lu52i_D(XRegister rd, XRegister rs1, int32_t imm12) {
   Emit2RI12(0x0c, imm12, rs1, rd);
 }
 
@@ -1283,6 +1294,32 @@ void Loongarch64Assembler::EmitLiterals() {
   }
 }
 
+void Loongarch64Assembler::LoadImmediate(XRegister rd, int64_t imm) {
+  int64_t hi12 = bitfield(imm, 52, 12);
+  int64_t lo52 = bitfield(imm,  0, 52);
+
+  if ((hi12 != 0 && hi12 != 0xfff) && lo52 == 0) {
+    Lu52i_D(rd, Zero, hi12);
+  } else {
+    int64_t hi20 = bitfield(imm, 32, 20);
+    int64_t lo20 = bitfield(imm, 12, 20);
+    int64_t lo12 = bitfield(imm,  0, 12);
+
+    if (lo20 == 0) {
+      Ori(rd, Zero, lo12);
+    } else if (bitfield(simm12(lo12), 12, 20) == lo20) {
+      Addi_W(rd, Zero, simm12(lo12));
+    } else {
+      Lu12i_W(rd, lo20);
+      if (lo12 != 0)
+        Ori(rd, rd, lo12);
+    }
+    if (hi20 != bitfield(simm20(lo20), 20, 20))
+      Lu32i_D(rd, hi20);
+    if (hi12 != bitfield(simm20(hi20), 20, 12))
+      Lu52i_D(rd, rd, hi12);
+  }
+}
 
 /////////////////////////////// LOONGARCH64 VARIANTS extension end ////////////
 

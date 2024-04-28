@@ -267,6 +267,131 @@ ArrayRef<const FRegister> GetFPRegisters() override {
     return RepeatInsn(num_nops, "nop\n", [&]() { __ Nop(); });
   }
 
+  template <typename EmitLoadConst>
+  void TestLoadConst64(const std::string& test_name,
+                       bool can_use_tmp,
+                       EmitLoadConst&& emit_load_const) {
+    std::string expected;
+    // Test standard immediates. Unlike other instructions, `Li()` accepts an `int64_t` but
+    // this is unsupported by `CreateImmediate()`, so we cannot use `RepeatRIb()` for these.
+    // Note: This `CreateImmediateValuesBits()` call does not produce any values where
+    // `LoadConst64()` would emit different code from `Li()`.
+    for (int64_t value : CreateImmediateValuesBits(64, /*as_uint=*/ false)) {
+      emit_load_const(A0, value);
+      expected += "li.d $a0, " + std::to_string(value) + "\n";
+    }
+    // Test various registers with a few small values.
+    // (Even Zero is an accepted register even if that does not really load the requested value.)
+    for (XRegister* reg : GetRegisters()) {
+      if (can_use_tmp && *reg == TMP) {
+        continue;  // Not a valid target register.
+      }
+      std::string rd = GetRegisterName(*reg);
+      emit_load_const(*reg, -1);
+      expected += "li.d " + rd + ", -1\n";
+      emit_load_const(*reg, 0);
+      expected += "li.d " + rd + ", 0\n";
+      emit_load_const(*reg, 1);
+      expected += "li.d " + rd + ", 1\n";
+    }
+    // TODO
+    //// Test some significant values. Some may just repeat the tests above but other values
+    //// show some complex patterns, even exposing a value where clang (and therefore also this
+    //// assembler) does not generate the shortest sequence.
+    //// For the following values, `LoadConst64()` emits the same code as `Li()`.
+    //int64_t test_values1[] = {
+    //    // Small values, either ADDI, ADDI+SLLI, LUI, or LUI+ADDIW.
+    //    // The ADDI+LUI is presumably used to allow shorter code for RV64C.
+    //    -4097, -4096, -4095, -2176, -2049, -2048, -2047, -1025, -1024, -1023, -2, -1,
+    //    0, 1, 2, 1023, 1024, 1025, 2047, 2048, 2049, 2176, 4095, 4096, 4097,
+    //    // Just below std::numeric_limits<int32_t>::min()
+    //    INT64_C(-0x80000001),  // LUI+ADDI
+    //    INT64_C(-0x80000800),  // LUI+ADDI
+    //    INT64_C(-0x80000801),  // LUI+ADDIW+SLLI+ADDI; LUI+ADDI+ADDI would be shorter.
+    //    INT64_C(-0x80000800123),  // LUI+ADDIW+SLLI+ADDI
+    //    INT64_C(0x0123450000000123),  // LUI+SLLI+ADDI
+    //    INT64_C(-0x7654300000000123),  // LUI+SLLI+ADDI
+    //    INT64_C(0x0fffffffffff0000),  // LUI+SRLI
+    //    INT64_C(0x0ffffffffffff000),  // LUI+SRLI
+    //    INT64_C(0x0ffffffffffff010),  // LUI+ADDIW+SRLI
+    //    INT64_C(0x0fffffffffffff10),  // ADDI+SLLI+ADDI; LUI+ADDIW+SRLI would be same length.
+    //    INT64_C(0x0fffffffffffff80),  // ADDI+SRLI
+    //    INT64_C(0x0ffffffff7ffff80),  // LUI+ADDI+SRLI
+    //    INT64_C(0x0123450000001235),  // LUI+SLLI+ADDI+SLLI+ADDI
+    //    INT64_C(0x0123450000001234),  // LUI+SLLI+ADDI+SLLI
+    //    INT64_C(0x0000000fff808010),  // LUI+SLLI+SRLI
+    //    INT64_C(0x00000000fff80801),  // LUI+SLLI+SRLI
+    //    INT64_C(0x00000000ffffffff),  // ADDI+SRLI
+    //    INT64_C(0x00000001ffffffff),  // ADDI+SRLI
+    //    INT64_C(0x00000003ffffffff),  // ADDI+SRLI
+    //    INT64_C(0x00000000ffc00801),  // LUI+ADDIW+SLLI+ADDI
+    //    INT64_C(0x00000001fffff7fe),  // ADDI+SLLI+SRLI
+    //};
+    //for (int64_t value : test_values1) {
+    //  emit_load_const(A0, value);
+    //  expected += "li.d $a0, " + std::to_string(value) + "\n";
+    //}
+    //// For the following values, `LoadConst64()` emits different code than `Li()`.
+    //std::pair<int64_t, const char*> test_values2[] = {
+    //    // Li:        LUI+ADDIW+SLLI+ADDI+SLLI+ADDI+SLLI+ADDI
+    //    // LoadConst: LUI+ADDIW+LUI+ADDIW+SLLI+ADD (using TMP)
+    //    { INT64_C(0x1234567812345678),
+    //      "li.d {reg1}, 0x12345678 / 8\n"  // Trailing zero bits in high word are handled by SLLI.
+    //      "li.d {reg2}, 0x12345678\n"
+    //      "slli.d {reg1}, {reg1}, 32 + 3\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+    //    { INT64_C(0x1234567887654321),
+    //      "li.d {reg1}, 0x12345678 + 1\n"  // One higher to compensate for negative TMP.
+    //      "li.d {reg2}, 0x87654321 - 0x100000000\n"
+    //      "slli.d {reg1}, {reg1}, 32\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+    //    { INT64_C(-0x1234567887654321),
+    //      "li.d {reg1}, -0x12345678 - 1\n"  // High 32 bits of the constant.
+    //      "li.d {reg2}, 0x100000000 - 0x87654321\n"  // Low 32 bits of the constant.
+    //      "slli.d {reg1}, {reg1}, 32\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+
+    //    // Li:        LUI+SLLI+ADDI+SLLI+ADDI+SLLI
+    //    // LoadConst: LUI+LUI+SLLI+ADD (using TMP)
+    //    { INT64_C(0x1234500012345000),
+    //      "lu12i.w {reg1}, 0x12345\n"
+    //      "lu12i.w {reg2}, 0x12345\n"
+    //      "slli.d {reg1}, {reg1}, 44 - 12\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+    //    { INT64_C(0x0123450012345000),
+    //      "lu12i.w {reg1}, 0x12345\n"
+    //      "lu12i.w {reg2}, 0x12345\n"
+    //      "slli.d {reg1}, {reg1}, 40 - 12\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+
+    //    // Li:        LUI+ADDIW+SLLI+ADDI+SLLI+ADDI
+    //    // LoadConst: LUI+LUI+ADDIW+SLLI+ADD (using TMP)
+    //    { INT64_C(0x0001234512345678),
+    //      "lu12i.w {reg1}, 0x12345\n"
+    //      "li.d {reg2}, 0x12345678\n"
+    //      "slli.d {reg1}, {reg1}, 32 - 12\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+    //    { INT64_C(0x0012345012345678),
+    //      "lu12i.w {reg1}, 0x12345\n"
+    //      "li.d {reg2}, 0x12345678\n"
+    //      "slli.d {reg1}, {reg1}, 36 - 12\n"
+    //      "add.d {reg1}, {reg1}, {reg2}\n" },
+    //};
+    //for (auto [value, fmt] : test_values2) {
+    //  emit_load_const(A0, value);
+    //  if (can_use_tmp) {
+    //    std::string base = fmt;
+    //    ReplaceReg(REG1_TOKEN, GetRegisterName(A0), &base);
+    //    ReplaceReg(REG2_TOKEN, GetRegisterName(TMP), &base);
+    //    expected += base;
+    //  } else {
+    //    expected += "li.d $a0, " + std::to_string(value) + "\n";
+    //  }
+    //}
+
+    DriverStr(expected, test_name);
+  }
+
   auto GetPrintBcond() {
     return [](const std::string& cond,
               [[maybe_unused]] const std::string& opposite_cond,
@@ -683,7 +808,7 @@ TEST_F(AssemblerLOONGARCH64Test, Addi_D) {
 }
 
 TEST_F(AssemblerLOONGARCH64Test, Lu52i_d) {
-  DriverStr(RepeatRRIb(&Loongarch64Assembler::Lu52i_d, -12, "lu52i.d {reg1}, {reg2}, {imm}"), "Lu52i_d");
+  DriverStr(RepeatRRIb(&Loongarch64Assembler::Lu52i_D, -12, "lu52i.d {reg1}, {reg2}, {imm}"), "Lu52i_d");
 }
 
 TEST_F(AssemblerLOONGARCH64Test, Andi) {
@@ -840,6 +965,19 @@ TEST_F(AssemblerLOONGARCH64Test, Div_du) {
 TEST_F(AssemblerLOONGARCH64Test, Mod_du) {
   DriverStr(RepeatRRR(&Loongarch64Assembler::Mod_du, "mod.du {reg1}, {reg2}, {reg3}"), "Mod_du");
 }
+
+
+TEST_F(AssemblerLOONGARCH64Test, LoadConst32) {
+  // `LoadConst32()` emits the same code sequences as `Li()` for 32-bit values.
+  DriverStr(RepeatRIb(&Loongarch64Assembler::LoadConst32, -32, "li.w {reg}, {imm}"), "LoadConst32");
+}
+
+TEST_F(AssemblerLOONGARCH64Test, LoadConst64) {
+  TestLoadConst64("LoadConst64",
+                  /*can_use_tmp=*/ true,
+                  [&](XRegister rd, int64_t value) { __ LoadConst64(rd, value); });
+}
+
 
 // Branch test
 // +- [0 ~ 128k) use beq/.../b to jump
