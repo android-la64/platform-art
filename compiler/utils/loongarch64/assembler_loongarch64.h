@@ -255,10 +255,26 @@ class Loongarch64Assembler final : public Assembler {
   void Div_du(XRegister rd, XRegister rs1, XRegister rs2);
   void Mod_du(XRegister rd, XRegister rs1, XRegister rs2);
 
+  // Load/store macros for arbitrary 32-bit offsets.
+  void Load_B(XRegister rd, XRegister rs1, int32_t offset);
+  void Load_H(XRegister rd, XRegister rs1, int32_t offset);
+  void Load_W(XRegister rd, XRegister rs1, int32_t offset);
+  void Load_D(XRegister rd, XRegister rs1, int32_t offset);
+  void Load_BU(XRegister rd, XRegister rs1, int32_t offset);
+  void Load_HU(XRegister rd, XRegister rs1, int32_t offset);
+  void Load_WU(XRegister rd, XRegister rs1, int32_t offset);
+  void Store_B(XRegister rs2, XRegister rs1, int32_t offset);
+  void Store_H(XRegister rs2, XRegister rs1, int32_t offset);
+  void Store_W(XRegister rs2, XRegister rs1, int32_t offset);
+  void Store_D(XRegister rs2, XRegister rs1, int32_t offset);
 
   // Macros for loading constants.
   void LoadConst32(XRegister rd, int32_t value);
   void LoadConst64(XRegister rd, int64_t value);
+
+  // Macros for adding constants.
+  void AddConst32(XRegister rd, XRegister rs1, int32_t value);
+  void AddConst64(XRegister rd, XRegister rs1, int64_t value);
 
   // transfer instruction, opcode from 01 0000
   //                                 ~ 01 1011
@@ -285,6 +301,7 @@ class Loongarch64Assembler final : public Assembler {
   void Jr(XRegister rs);
   // pseudo instructions
   void Nop();
+  void Li(XRegister rd, int64_t imm);
 
 
   // Jumps and branches to a label.
@@ -301,9 +318,9 @@ class Loongarch64Assembler final : public Assembler {
   void Bgeu(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
 
   // Literal load.
-  void Ld_W(XRegister rd, Literal* literal);
-  void Ld_WU(XRegister rd, Literal* literal);
-  void Ld_D(XRegister rd, Literal* literal);
+  void Load_W(XRegister rd, Literal* literal);
+  void Load_WU(XRegister rd, Literal* literal);
+  void Load_D(XRegister rd, Literal* literal);
 
 
 
@@ -535,6 +552,9 @@ class Loongarch64Assembler final : public Assembler {
   void PatchCFI();
 
 
+  // Adjust base register and offset if needed for load/store with a large offset.
+  void AdjustBaseAndOffset(XRegister& base, int32_t& offset);
+
   // Convert 12-bit x to a sign-extended 12-bit integer
   static int simm12(int x) {
     DCHECK(x == (x & 0xFFF)) << x << "must be 12-bit only";
@@ -542,7 +562,7 @@ class Loongarch64Assembler final : public Assembler {
   }
 
   // Convert 20-bit x to a sign-extended 20-bit integer
-  int simm20(int32_t x) {
+  static int simm20(int32_t x) {
     DCHECK(x == (x & 0xFFFFF)) << x << "must be 20-bit only";
     return (x << 12) >> 12;
   }

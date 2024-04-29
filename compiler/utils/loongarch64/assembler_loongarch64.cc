@@ -33,7 +33,7 @@ static_assert(kLoongarch64PointerSize == PointerSize::k64, "Unexpected Loongarch
 // a signed 12-bit short offset for ADDI/etc.(what's more?)
 ALWAYS_INLINE static inline std::pair<uint32_t, int32_t> SplitOffset(bool bits12, int32_t offset) {
   // The highest 0x800 values are out of range.
-  DCHECK_LT(offset, 0x7ffe0000);
+  DCHECK_LT(offset, 0x7ffff800);
   // Round `offset` to nearest 4KiB or 128KiB offset.
   int32_t near_offset = (offset + (bits12 ? 0x800 : 0x20000)) & (bits12 ? ~0xfff : ~0x3ffff);
   // Calculate the short offset.
@@ -128,6 +128,57 @@ void Loongarch64Assembler::LoadConst64(XRegister rd, int64_t value) {
   LoadImmediate(rd, value);
 }
 
+template <typename ValueType, typename Addi, typename AddLarge>
+void AddConstImpl(XRegister rd,
+                  XRegister rs1,
+                  ValueType value,
+                  Addi&& addi,
+                  AddLarge&& add_large) {
+  CHECK_NE(rs1, TMP);
+  if (IsInt<12>(value)) {
+    addi(rd, rs1, value);
+    return;
+  }
+
+  constexpr int32_t kPositiveValueSimpleAdjustment = 0x7ff;
+  constexpr int32_t kHighestValueForSimpleAdjustment = 2 * kPositiveValueSimpleAdjustment;
+  constexpr int32_t kNegativeValueSimpleAdjustment = -0x800;
+  constexpr int32_t kLowestValueForSimpleAdjustment = 2 * kNegativeValueSimpleAdjustment;
+
+  if (value >= 0 && value <= kHighestValueForSimpleAdjustment) {
+    addi(rd, rs1, kPositiveValueSimpleAdjustment);
+    addi(rd, rd, value - kPositiveValueSimpleAdjustment);
+  } else if (value < 0 && value >= kLowestValueForSimpleAdjustment) {
+    addi(rd, rs1, kNegativeValueSimpleAdjustment);
+    addi(rd, rd, value - kNegativeValueSimpleAdjustment);
+  } else {
+    add_large(rd, rs1, value);
+  }
+}
+
+void Loongarch64Assembler::AddConst32(XRegister rd, XRegister rs1, int32_t value) {
+  auto addiw = [&](XRegister rd, XRegister rs1, int32_t value) { Addi_W(rd, rs1, value); };
+  auto add_large = [&](XRegister rd, XRegister rs1, int32_t value) {
+    LoadConst32(TMP, value);
+    Add_w(rd, rs1, TMP);
+  };
+  AddConstImpl(rd, rs1, value, addiw, add_large);
+}
+
+void Loongarch64Assembler::AddConst64(XRegister rd, XRegister rs1, int64_t value) {
+  auto addi = [&](XRegister rd, XRegister rs1, int32_t value) { Addi_D(rd, rs1, value); };
+  auto add_large = [&](XRegister rd, XRegister rs1, int64_t value) {
+    // We cannot load TMP with `LoadConst64()`, so use `Li()`.
+    // TODO(loongarch64): Refactor `LoadImmediate()` so that we can reuse the code to detect
+    // when the code path using the `TMP` is beneficial, and use that path with a small
+    // modification - instead of adding the two parts togeter, add them individually
+    // to the input `rs1`. (This works as long as `rd` is not `TMP`.)
+    Li(TMP, value);
+    Add_d(rd, rs1, TMP);
+  };
+  AddConstImpl(rd, rs1, value, addi, add_large);
+}
+
 // Jumps and branches to a label
 void Loongarch64Assembler::Beqz(XRegister rs, Loongarch64Label* label, bool is_bare) {
   Bcond(label, is_bare, kCondEQZ, rs, Zero);
@@ -174,17 +225,17 @@ void Loongarch64Assembler::Bgeu(XRegister rs, XRegister rt, Loongarch64Label* la
   Bcond(label, is_bare, kCondGEU, rs, rt);
 }
 
-void Loongarch64Assembler::Ld_W(XRegister rd, Literal* literal) {
+void Loongarch64Assembler::Load_W(XRegister rd, Literal* literal) {
   DCHECK_EQ(literal->GetSize(), 4u);
   LoadLiteral(literal, rd, Branch::kLiteral);
 }
 
-void Loongarch64Assembler::Ld_WU(XRegister rd, Literal* literal) {
+void Loongarch64Assembler::Load_WU(XRegister rd, Literal* literal) {
   DCHECK_EQ(literal->GetSize(), 4u);
   LoadLiteral(literal, rd, Branch::kLiteralUnsigned);
 }
 
-void Loongarch64Assembler::Ld_D(XRegister rd, Literal* literal) {
+void Loongarch64Assembler::Load_D(XRegister rd, Literal* literal) {
   DCHECK_EQ(literal->GetSize(), 8u);
   LoadLiteral(literal, rd, Branch::kLiteralLong);
 }
@@ -373,6 +424,65 @@ void Loongarch64Assembler::Mod_du(XRegister rd, XRegister rs1, XRegister rs2) {
   Emit3R(0x47, rs2, rs1, rd);
 }
 
+void Loongarch64Assembler::Load_B(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_B(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Load_H(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_H(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Load_W(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_W(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Load_D(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_D(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Load_BU(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_BU(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Load_HU(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_HU(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Load_WU(XRegister rd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  Ld_WU(rd, rs1, offset);
+}
+
+void Loongarch64Assembler::Store_B(XRegister rs2, XRegister rs1, int32_t offset) {
+  CHECK_NE(rs2, TMP);
+  AdjustBaseAndOffset(rs1, offset);
+  St_B(rs2, rs1, offset);
+}
+
+void Loongarch64Assembler::Store_H(XRegister rs2, XRegister rs1, int32_t offset) {
+  CHECK_NE(rs2, TMP);
+  AdjustBaseAndOffset(rs1, offset);
+  St_H(rs2, rs1, offset);
+}
+
+void Loongarch64Assembler::Store_W(XRegister rs2, XRegister rs1, int32_t offset) {
+  CHECK_NE(rs2, TMP);
+  AdjustBaseAndOffset(rs1, offset);
+  St_W(rs2, rs1, offset);
+}
+
+void Loongarch64Assembler::Store_D(XRegister rs2, XRegister rs1, int32_t offset) {
+  CHECK_NE(rs2, TMP);
+  AdjustBaseAndOffset(rs1, offset);
+  St_D(rs2, rs1, offset);
+}
+
 /////////////////////////////// LOONGARCH64 PC_relative Instructions ///////////////////////////////
 void Loongarch64Assembler::Lu12i_W(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xa, imm20, rd);
@@ -497,7 +607,9 @@ void Loongarch64Assembler::Xori(XRegister rd, XRegister rs1, uint32_t imm12) {
 void Loongarch64Assembler::Move(XRegister rd, XRegister rj) { Or(rd, rj, Zero); }
 void Loongarch64Assembler::Jr(XRegister rd) { Jirl(Zero, rd, 0); };
 void Loongarch64Assembler::Nop() { Andi(Zero, Zero, 0); }
-
+void Loongarch64Assembler::Li(XRegister rd, int64_t imm) {
+  LoadImmediate(rd, imm);
+}
 
 
 const Loongarch64Assembler::Branch::BranchInfo Loongarch64Assembler::Branch::branch_info_[] = {
@@ -1292,6 +1404,51 @@ void Loongarch64Assembler::EmitLiterals() {
       }
     }
   }
+}
+
+// This method is used to adjust the base register and offset pair for
+// a load/store when the offset doesn't fit into 12-bit signed integer.
+void Loongarch64Assembler::AdjustBaseAndOffset(XRegister& base, int32_t& offset) {
+  CHECK_NE(base, TMP);  // The `TMP` is reserved for adjustment even if it's not needed.
+  if (IsInt<12>(offset)) {
+    return;
+  }
+
+  constexpr int32_t kPositiveOffsetMaxSimpleAdjustment = 0x7ff;
+  constexpr int32_t kHighestOffsetForSimpleAdjustment = 2 * kPositiveOffsetMaxSimpleAdjustment;
+  constexpr int32_t kPositiveOffsetSimpleAdjustmentAligned8 =
+      RoundDown(kPositiveOffsetMaxSimpleAdjustment, 8);
+  constexpr int32_t kPositiveOffsetSimpleAdjustmentAligned4 =
+      RoundDown(kPositiveOffsetMaxSimpleAdjustment, 4);
+  constexpr int32_t kNegativeOffsetSimpleAdjustment = -0x800;
+  constexpr int32_t kLowestOffsetForSimpleAdjustment = 2 * kNegativeOffsetSimpleAdjustment;
+
+  if (offset >= 0 && offset <= kHighestOffsetForSimpleAdjustment) {
+    // Make the adjustment 8-byte aligned (0x7f8) except for offsets that cannot be reached
+    // with this adjustment, then try 4-byte alignment, then just half of the offset.
+    int32_t adjustment = IsInt<12>(offset - kPositiveOffsetSimpleAdjustmentAligned8)
+        ? kPositiveOffsetSimpleAdjustmentAligned8
+        : IsInt<12>(offset - kPositiveOffsetSimpleAdjustmentAligned4)
+            ? kPositiveOffsetSimpleAdjustmentAligned4
+            : offset / 2;
+    DCHECK(IsInt<12>(adjustment));
+    Addi_D(TMP, base, adjustment);
+    offset -= adjustment;
+  } else if (offset < 0 && offset >= kLowestOffsetForSimpleAdjustment) {
+    Addi_D(TMP, base, kNegativeOffsetSimpleAdjustment);
+    offset -= kNegativeOffsetSimpleAdjustment;
+  } else if (offset >= 0x7ffff800) {
+    // Support even large offsets outside the range supported by `SplitOffset()`.
+    LoadConst32(TMP, offset);
+    Add_d(TMP, TMP, base);
+    offset = 0;
+  } else {
+    auto [imm20, short_offset] = SplitOffset(1, offset);
+    Lu12i_W(TMP, imm20);
+    Add_d(TMP, TMP, base);
+    offset = short_offset;
+  }
+  base = TMP;
 }
 
 void Loongarch64Assembler::LoadImmediate(XRegister rd, int64_t imm) {
