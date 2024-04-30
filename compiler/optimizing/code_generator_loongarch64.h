@@ -394,9 +394,15 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
                            SlowPathCode* slow_path = nullptr) override;
   void MoveFromReturnRegister(Location trg, DataType::Type type) override;
 
+  void GenerateMemoryBarrier(MemBarrierKind kind);
+
+  void MaybeIncrementHotness(bool is_frame_entry);
+
 private:
   Loongarch64Assembler assembler_;
   LocationsBuilderLOONGARCH64 location_builder_;
+  Loongarch64Label frame_entry_label_;
+
 };
 
 }  // namespace loongarch64

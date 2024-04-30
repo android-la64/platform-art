@@ -18,11 +18,17 @@
 
 #include "android-base/logging.h"
 #include "android-base/macros.h"
+#include "thread.h"
 #include "arch/loongarch64/registers_loongarch64.h"
 #include "base/macros.h"
+#include "dwarf/register.h"
 #include "intrinsics_list.h"
+#include "jit/profiling_info.h"
 #include "optimizing/nodes.h"
-#include "utils/loongarch64/assembler_loongarch64.h"
+#include "utils/label.h"
+#include "utils/stack_checks.h"
+#include "runtime.h"
+#include "thread-current-inl.h"
 
 namespace art {
 namespace loongarch64 {
@@ -36,7 +42,6 @@ static constexpr FRegister kFpuCalleeSaves[] = {
     FS0, FS1, FS2, FS3, FS4, FS5, FS6, FS7
 };
 
-#define __                   down_cast<CodeGeneratorLOONGARCH64*>(codegen_)->GetAssembler()->  // NOLINT
 #define QUICK_ENTRY_POINT(x) QUICK_ENTRYPOINT_OFFSET(kLoongarch64PointerSize, x).Int32Value()
 
 Location Loongarch64ReturnLocation(DataType::Type return_type) {
@@ -99,6 +104,8 @@ Location InvokeDexCallingConventionVisitorLOONGARCH64::GetNextLocation(DataType:
   return next_location;
 }
 
+#define __ down_cast<CodeGeneratorLOONGARCH64*>(codegen)->GetAssembler()->  // NOLINT
+
 void LocationsBuilderLOONGARCH64::HandleInvoke(HInvoke* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
@@ -115,6 +122,31 @@ Location LocationsBuilderLOONGARCH64::FpuRegisterOrConstantForStore(HInstruction
   LOG(FATAL) << "Unimplemented";
   UNREACHABLE();
 }
+
+class CompileOptimizedSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  CompileOptimizedSlowPathLOONGARCH64() : SlowPathCodeLOONGARCH64(/*instruction=*/ nullptr) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    uint32_t entrypoint_offset =
+        GetThreadOffset<kLoongarch64PointerSize>(kQuickCompileOptimized).Int32Value();
+    __ Bind(GetEntryLabel());
+    __ Load_D(RA, TR, entrypoint_offset);
+    // Note: we don't record the call here (and therefore don't generate a stack
+    // map), as the entrypoint should never be suspended.
+    __ Move(TMP, RA);
+    __ Jirl(RA, TMP, 0);
+    __ B(GetExitLabel());
+  }
+
+  const char* GetDescription() const override { return "CompileOptimizedSlowPath"; }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(CompileOptimizedSlowPathLOONGARCH64);
+};
+
+#undef __
+#define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
 
 InstructionCodeGeneratorLOONGARCH64::InstructionCodeGeneratorLOONGARCH64(HGraph* graph,
                                                                  CodeGeneratorLOONGARCH64* codegen)
@@ -359,13 +391,102 @@ void InstructionCodeGeneratorLOONGARCH64::GenConditionalMove(HSelect* select) {
 }
 
 void LocationsBuilderLOONGARCH64::HandleBinaryOp(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK_EQ(instruction->InputCount(), 2u);
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  DataType::Type type = instruction->GetResultType();
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64: {
+      locations->SetInAt(0, Location::RequiresRegister());
+      HInstruction* right = instruction->InputAt(1);
+      bool can_use_imm = false;
+      if (right->IsConstant()) {
+        int64_t imm = CodeGenerator::GetInt64ValueOf(right->AsConstant());
+        can_use_imm = IsInt<12>(instruction->IsSub() ? -imm : imm);
+      }
+      if (can_use_imm) {
+        locations->SetInAt(1, Location::ConstantLocation(right->AsConstant()));
+      } else {
+        locations->SetInAt(1, Location::RequiresRegister());
+      }
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+    }
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetInAt(1, Location::RequiresFpuRegister());
+      locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      break;
+
+    default:
+      LOG(FATAL) << "Unexpected " << instruction->DebugName() << " type " << type;
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type type = instruction->GetType();
+  LocationSummary* locations = instruction->GetLocations();
+
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64: {
+      XRegister rd = locations->Out().AsRegister<XRegister>();
+      XRegister rs1 = locations->InAt(0).AsRegister<XRegister>();
+      Location rs2_location = locations->InAt(1);
+
+      bool use_imm = rs2_location.IsConstant();
+      XRegister rs2 = use_imm ? kNoXRegister : rs2_location.AsRegister<XRegister>();
+      int64_t imm = use_imm ? CodeGenerator::GetInt64ValueOf(rs2_location.GetConstant()) : 0;
+
+      if (instruction->IsAnd()) {
+        if (use_imm) {
+          __ Andi(rd, rs1, imm);
+        } else {
+          __ And(rd, rs1, rs2);
+        }
+      } else if (instruction->IsOr()) {
+        if (use_imm) {
+          __ Ori(rd, rs1, imm);
+        } else {
+          __ Or(rd, rs1, rs2);
+        }
+      } else if (instruction->IsXor()) {
+        if (use_imm) {
+          __ Xori(rd, rs1, imm);
+        } else {
+          __ Xor(rd, rs1, rs2);
+        }
+      } else {
+        DCHECK(instruction->IsAdd() || instruction->IsSub());
+        if (type == DataType::Type::kInt32) {
+          if (use_imm) {
+            __ Addi_W(rd, rs1, instruction->IsSub() ? -imm : imm);
+          } else if (instruction->IsAdd()) {
+            __ Add_w(rd, rs1, rs2);
+          } else {
+            DCHECK(instruction->IsSub());
+            __ Sub_w(rd, rs1, rs2);
+          }
+        } else {
+          if (use_imm) {
+            __ Addi_D(rd, rs1, instruction->IsSub() ? -imm : imm);
+          } else if (instruction->IsAdd()) {
+            __ Add_d(rd, rs1, rs2);
+          } else {
+            DCHECK(instruction->IsSub());
+            __ Sub_d(rd, rs1, rs2);
+          }
+        }
+      }
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected binary operation type " << type;
+      UNREACHABLE();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::HandleCondition(HCondition* instruction) {
@@ -768,14 +889,12 @@ void InstructionCodeGeneratorLOONGARCH64::VisitDivZeroCheck(HDivZeroCheck* instr
 }
 
 void LocationsBuilderLOONGARCH64::VisitDoubleConstant(HDoubleConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  locations->SetOut(Location::ConstantLocation(instruction));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitDoubleConstant(HDoubleConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
+void InstructionCodeGeneratorLOONGARCH64::VisitDoubleConstant([[maybe_unused]] HDoubleConstant* instruction) {}
 
 void LocationsBuilderLOONGARCH64::VisitEqual(HEqual* instruction) {
   UNUSED(instruction);
@@ -1814,6 +1933,8 @@ UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(TRUE_OVERRIDE)
 
 }  // namespace detail
 
+#define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
+
 CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
                                            const CompilerOptions& compiler_options,
                                            OptimizingCompilerStats* stats)
@@ -1831,8 +1952,144 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
   LOG(FATAL) << "Unimplemented";
 }
 
-void CodeGeneratorLOONGARCH64::GenerateFrameEntry() { LOG(FATAL) << "Unimplemented"; }
-void CodeGeneratorLOONGARCH64::GenerateFrameExit() { LOG(FATAL) << "Unimplemented"; }
+void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
+  if (GetCompilerOptions().CountHotnessInCompiledCode()) {
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister method = is_frame_entry ? kArtMethodRegister : srs.AllocateXRegister();
+    if (!is_frame_entry) {
+      __ Load_D(method, SP, 0);
+    }
+    XRegister counter = srs.AllocateXRegister();
+    __ Load_HU(counter, method, ArtMethod::HotnessCountOffset().Int32Value());
+    Loongarch64Label done;
+    __ Beqz(counter, &done);  // Can clobber `TMP` if taken.
+    __ Addi_D(counter, counter, -1);
+    // We may not have another scratch register available for `Storeh`()`,
+    // so we must use the `Sh()` function directly.
+    static_assert(IsInt<12>(ArtMethod::HotnessCountOffset().Int32Value()));
+    __ St_H(counter, method, ArtMethod::HotnessCountOffset().Int32Value());
+    __ Bind(&done);
+  }
+
+  if (GetGraph()->IsCompilingBaseline() && !Runtime::Current()->IsAotCompiler()) {
+    SlowPathCodeLOONGARCH64* slow_path = new (GetScopedAllocator()) CompileOptimizedSlowPathLOONGARCH64();
+    AddSlowPath(slow_path);
+    ScopedProfilingInfoUse spiu(Runtime::Current()->GetJit(), GetGraph()->GetArtMethod(), Thread::Current());
+    ProfilingInfo* info = spiu.GetProfilingInfo();
+    DCHECK(info != nullptr);
+    DCHECK(!HasEmptyFrame());
+    uint64_t address = reinterpret_cast64<uint64_t>(info);
+    Loongarch64Label done;
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister tmp = srs.AllocateXRegister();
+    __ LoadConst64(tmp, address);
+    XRegister counter = srs.AllocateXRegister();
+    __ Load_HU(counter, tmp, ProfilingInfo::BaselineHotnessCountOffset().Int32Value());
+    __ Beqz(counter, slow_path->GetEntryLabel());  // Can clobber `TMP` if taken.
+    __ Addi_D(counter, counter, -1);
+    // We do not have another scratch register available for `Storeh`()`,
+    // so we must use the `Sh()` function directly.
+    static_assert(IsInt<12>(ProfilingInfo::BaselineHotnessCountOffset().Int32Value()));
+    __ St_H(counter, tmp, ProfilingInfo::BaselineHotnessCountOffset().Int32Value());
+    __ Bind(slow_path->GetExitLabel());
+  }
+}
+
+void CodeGeneratorLOONGARCH64::GenerateMemoryBarrier(MemBarrierKind kind) {
+  switch (kind) {
+    case MemBarrierKind::kAnyAny:
+    case MemBarrierKind::kAnyStore:
+    case MemBarrierKind::kLoadAny:
+    case MemBarrierKind::kStoreStore: {
+      // TODO(loongarch64): Use more specific fences.
+      __ Dbar(0x700);
+      break;
+    }
+
+    default:
+      LOG(FATAL) << "Unexpected memory barrier " << kind;
+      UNREACHABLE();
+  }
+}
+
+void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
+   __ Bind(&frame_entry_label_);
+
+  bool do_overflow_check =
+      FrameNeedsStackCheck(GetFrameSize(), InstructionSet::kLoongarch64) || !IsLeafMethod();
+
+  if (do_overflow_check) {
+    __ Load_W(
+        Zero, SP, -static_cast<int32_t>(GetStackOverflowReservedBytes(InstructionSet::kLoongarch64)));
+    RecordPcInfo(nullptr, 0);
+  }
+
+  if (!HasEmptyFrame()) {
+    // Make sure the frame size isn't unreasonably large.
+    if (GetFrameSize() > GetStackOverflowReservedBytes(InstructionSet::kLoongarch64)) {
+      LOG(FATAL) << "Stack frame larger than "
+                 << GetStackOverflowReservedBytes(InstructionSet::kLoongarch64) << " bytes";
+    }
+
+    // Spill callee-saved registers.
+
+    uint32_t frame_size = GetFrameSize();
+
+    IncreaseFrame(frame_size);
+
+    uint32_t offset = frame_size;
+    for (size_t i = arraysize(kCoreCalleeSaves); i != 0; ) {
+      --i;
+      XRegister reg = kCoreCalleeSaves[i];
+      if (allocated_registers_.ContainsCoreRegister(reg)) {
+        offset -= kLoongarch64DoublewordSize;
+        __ Store_D(reg, SP, offset);
+        __ cfi().RelOffset(dwarf::Reg::Loongarch64Core(reg), offset);
+      }
+    }
+    // TODO: support FP
+
+    // Save the current method if we need it. Note that we do not
+    // do this in HCurrentMethod, as the instruction might have been removed
+    // in the SSA graph.
+    if (RequiresCurrentMethod()) {
+      __ Store_D(kArtMethodRegister, SP, 0);
+    }
+
+    if (GetGraph()->HasShouldDeoptimizeFlag()) {
+      // Initialize should_deoptimize flag to 0.
+      __ Store_W(Zero, SP, GetStackOffsetOfShouldDeoptimizeFlag());
+    }
+  }
+  MaybeIncrementHotness(/*is_frame_entry=*/ true);
+}
+
+void CodeGeneratorLOONGARCH64::GenerateFrameExit() {
+  __ cfi().RememberState();
+
+  if (!HasEmptyFrame()) {
+    // Restore callee-saved registers.
+
+    // For better instruction scheduling restore RA before other registers.
+    uint32_t offset = GetFrameSize();
+    for (size_t i = arraysize(kCoreCalleeSaves); i != 0; ) {
+      --i;
+      XRegister reg = kCoreCalleeSaves[i];
+      if (allocated_registers_.ContainsCoreRegister(reg)) {
+        offset -= kLoongarch64DoublewordSize;
+        __ Load_D(reg, SP, offset);
+        __ cfi().Restore(dwarf::Reg::Loongarch64Core(reg));
+      }
+    }
+    // TODO: support FP
+    DecreaseFrame(GetFrameSize());
+  }
+
+  __ Jr(RA);
+
+  __ cfi().RestoreState();
+  __ cfi().DefCFAOffset(GetFrameSize());
+}
 
 void CodeGeneratorLOONGARCH64::Bind(HBasicBlock* block) {
   UNUSED(block);
@@ -1954,13 +2211,15 @@ void CodeGeneratorLOONGARCH64::InvokeRuntimeWithoutRecordingPcInfo(int32_t entry
 }
 
 void CodeGeneratorLOONGARCH64::IncreaseFrame(size_t adjustment) {
-  UNUSED(adjustment);
-  LOG(FATAL) << "Unimplemented";
+  int32_t adjustment32 = dchecked_integral_cast<int32_t>(adjustment);
+  __ AddConst32(SP, SP, -adjustment32);
+  GetAssembler()->cfi().AdjustCFAOffset(adjustment32);
 }
 
 void CodeGeneratorLOONGARCH64::DecreaseFrame(size_t adjustment) {
-  UNUSED(adjustment);
-  LOG(FATAL) << "Unimplemented";
+  int32_t adjustment32 = dchecked_integral_cast<int32_t>(adjustment);
+  __ AddConst32(SP, SP, adjustment32);
+  GetAssembler()->cfi().AdjustCFAOffset(-adjustment32);
 }
 
 void CodeGeneratorLOONGARCH64::GenerateNop() { LOG(FATAL) << "Unimplemented"; }
@@ -2027,5 +2286,5 @@ void CodeGeneratorLOONGARCH64::MoveFromReturnRegister(Location trg, DataType::Ty
   LOG(FATAL) << "Unimplemented";
 }
 
-}  // namespace riscv64
+}  // namespace loongarch64
 }  // namespace art
