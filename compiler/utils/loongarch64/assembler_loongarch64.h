@@ -322,6 +322,9 @@ class Loongarch64Assembler final : public Assembler {
   void Load_WU(XRegister rd, Literal* literal);
   void Load_D(XRegister rd, Literal* literal);
 
+  // Barrier instructions
+  void Dbar(uint32_t);
+
 
 
 
@@ -794,6 +797,18 @@ class Loongarch64Assembler final : public Assembler {
     Emit(encoding);
   }
 
+  // I15
+  //
+  //   31                              15 14                              0
+  //   --------------------------------------------------------------------
+  //   [ . . . . . . . . . . . . . . . . | . . . . . .  . . . .  . . . . .]
+  //   [            opcode 31:15         |          I15[14:0]             ]
+  //   --------------------------------------------------------------------
+  void EmitI15(uint32_t opcode, int imm15) {
+    DCHECK(IsUint<15>(imm15)) << imm15;
+    uint32_t encoding = opcode << 15 | (imm15 & 0x7FFF);
+    Emit(encoding);
+  }
 
   ArenaVector<Branch> branches_;
 

@@ -611,6 +611,13 @@ void Loongarch64Assembler::Li(XRegister rd, int64_t imm) {
   LoadImmediate(rd, imm);
 }
 
+/////////////////////////////// LOONGARCH64 barrier Instructions ///////////////////////////////
+void Loongarch64Assembler::Dbar(uint32_t imm15) {
+  EmitI15(0x70e4, imm15);
+}
+
+/////////////////////////////// LOONGARCH64 atom Instructions ///////////////////////////////
+
 
 const Loongarch64Assembler::Branch::BranchInfo Loongarch64Assembler::Branch::branch_info_[] = {
     // Short branches (can be promoted to longer).
