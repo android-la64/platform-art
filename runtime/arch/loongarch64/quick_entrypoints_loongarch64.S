@@ -692,6 +692,18 @@ ENTRY art_quick_resolution_trampoline
 END art_quick_resolution_trampoline
 
 
+ENTRY art_quick_compile_optimized
+    SETUP_SAVE_EVERYTHING_FRAME
+    ld.d   $a0, FRAME_SIZE_SAVE_EVERYTHING($sp)   // pass ArtMethod
+    mv   $a1, $xSELF                            // pass Thread::Current
+    bl artCompileOptimized                  // (ArtMethod*, Thread*)
+    RESTORE_SAVE_EVERYTHING_FRAME
+    // Note: If we implement implicit suspend checks or a marking register for GC, we don't need
+    // to restore such registers here, as artCompileOptimized doesn't allow thread suspension.
+    jirl $zero, $ra, 0
+END art_quick_compile_optimized
+
+
 UNDEFINED art_quick_deoptimize_from_compiled_code
 UNDEFINED art_quick_string_builder_append
 UNDEFINED art_quick_compile_optimized

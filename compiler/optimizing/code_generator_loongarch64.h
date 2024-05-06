@@ -318,10 +318,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   void MoveLocation(Location destination, Location source, DataType::Type dst_type) override;
   void AddLocationAsTemp(Location location, LocationSummary* locations) override;
 
-  HGraphVisitor* GetInstructionVisitor() override {
-    LOG(FATAL) << "unimplemented";
-    UNREACHABLE();
-  }
+  HGraphVisitor* GetInstructionVisitor() override { return &instruction_visitor_; }
 
   Loongarch64Assembler* GetAssembler() override { return &assembler_; }
   const Loongarch64Assembler& GetAssembler() const override { return assembler_; }
@@ -343,8 +340,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   InstructionSet GetInstructionSet() const override { return InstructionSet::kLoongarch64; }
 
   uint32_t GetPreferredSlotsAlignment() const override {
-    LOG(FATAL) << "Unimplemented";
-    UNREACHABLE();
+    return static_cast<uint32_t>(kLoongarch64PointerSize);
   }
 
   void Finalize(CodeAllocator* allocator) override;
@@ -426,6 +422,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
 private:
   Loongarch64Assembler assembler_;
   LocationsBuilderLOONGARCH64 location_builder_;
+  InstructionCodeGeneratorLOONGARCH64 instruction_visitor_;
   Loongarch64Label frame_entry_label_;
 
   // Labels for each block that will be compiled.

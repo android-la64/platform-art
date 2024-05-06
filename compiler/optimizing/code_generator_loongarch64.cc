@@ -202,6 +202,30 @@ class SuspendCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
   DISALLOW_COPY_AND_ASSIGN(SuspendCheckSlowPathLOONGARCH64);
 };
 
+class NullCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  explicit NullCheckSlowPathLOONGARCH64(HNullCheck* instr) : SlowPathCodeLOONGARCH64(instr) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    __ Bind(GetEntryLabel());
+    if (instruction_->CanThrowIntoCatchBlock()) {
+      // Live registers will be restored in the catch block if caught.
+      SaveLiveRegisters(codegen, instruction_->GetLocations());
+    }
+    loongarch64_codegen->InvokeRuntime(
+        kQuickThrowNullPointer, instruction_, instruction_->GetDexPc(), this);
+    CheckEntrypointTypes<kQuickThrowNullPointer, void, void>();
+  }
+
+  bool IsFatal() const override { return true; }
+
+  const char* GetDescription() const override { return "NullCheckSlowPathRISCV64"; }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(NullCheckSlowPathLOONGARCH64);
+};
+
 #undef __
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
 
@@ -1130,14 +1154,16 @@ void InstructionCodeGeneratorLOONGARCH64::VisitCurrentMethod(HCurrentMethod* ins
 }
 
 void LocationsBuilderLOONGARCH64::VisitShouldDeoptimizeFlag(HShouldDeoptimizeFlag* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  locations->SetOut(Location::RequiresRegister());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitShouldDeoptimizeFlag(
     HShouldDeoptimizeFlag* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  __ Load_W(instruction->GetLocations()->Out().AsRegister<XRegister>(),
+           SP,
+           codegen_->GetStackOffsetOfShouldDeoptimizeFlag());
 }
 
 void LocationsBuilderLOONGARCH64::VisitDeoptimize(HDeoptimize* instruction) {
@@ -2245,7 +2271,11 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
       assembler_(graph->GetAllocator(),
                  compiler_options.GetInstructionSetFeatures()->AsLoongarch64InstructionSetFeatures()),
       location_builder_(graph, this),
-      block_labels_(nullptr) {}
+      instruction_visitor_(graph, this),
+      block_labels_(nullptr) {
+  // Always mark the RA register to be saved.
+  AddAllocatedRegister(Location::RegisterLocation(RA));
+}
 
 void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
   if (GetCompilerOptions().CountHotnessInCompiledCode()) {
@@ -2659,13 +2689,13 @@ void CodeGeneratorLOONGARCH64::InvokeRuntimeWithoutRecordingPcInfo(int32_t entry
 
 void CodeGeneratorLOONGARCH64::IncreaseFrame(size_t adjustment) {
   int32_t adjustment32 = dchecked_integral_cast<int32_t>(adjustment);
-  __ AddConst32(SP, SP, -adjustment32);
+  __ AddConst64(SP, SP, -adjustment32);
   GetAssembler()->cfi().AdjustCFAOffset(adjustment32);
 }
 
 void CodeGeneratorLOONGARCH64::DecreaseFrame(size_t adjustment) {
   int32_t adjustment32 = dchecked_integral_cast<int32_t>(adjustment);
-  __ AddConst32(SP, SP, adjustment32);
+  __ AddConst64(SP, SP, adjustment32);
   GetAssembler()->cfi().AdjustCFAOffset(-adjustment32);
 }
 
@@ -2676,8 +2706,12 @@ void CodeGeneratorLOONGARCH64::GenerateImplicitNullCheck(HNullCheck* instruction
   LOG(FATAL) << "Unimplemented";
 }
 void CodeGeneratorLOONGARCH64::GenerateExplicitNullCheck(HNullCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  SlowPathCodeLOONGARCH64* slow_path = new (GetScopedAllocator()) NullCheckSlowPathLOONGARCH64(instruction);
+  AddSlowPath(slow_path);
+
+  Location obj = instruction->GetLocations()->InAt(0);
+
+  __ Beqz(obj.AsRegister<XRegister>(), slow_path->GetEntryLabel());
 }
 
 HLoadString::LoadKind CodeGeneratorLOONGARCH64::GetSupportedLoadStringKind(
