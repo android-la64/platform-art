@@ -219,7 +219,7 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
   void DivRemByPowerOfTwo(HBinaryOperation* instruction);
   void GenerateDivRemWithAnyConstant(HBinaryOperation* instruction);
   void GenerateDivRemIntegral(HBinaryOperation* instruction);
-  void GenerateIntLongCompare(IfCondition cond, bool is64bit, LocationSummary* locations);
+  void GenerateIntLongCondition(IfCondition cond, LocationSummary* locations);
   // When the function returns `false` it means that the condition holds if `dst` is non-zero
   // and doesn't hold if `dst` is zero. If it returns `true`, the roles of zero and non-zero
   // `dst` are exchanged.
@@ -231,7 +231,7 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
                                        bool is64bit,
                                        LocationSummary* locations,
                                        Loongarch64Label* label);
-  void GenerateFpCompare(IfCondition cond,
+  void GenerateFpCondition(IfCondition cond,
                          bool gt_bias,
                          DataType::Type type,
                          LocationSummary* locations);
@@ -302,15 +302,17 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   size_t GetSIMDRegisterWidth() const override;
 
   uintptr_t GetAddressOf(HBasicBlock* block) override {
-    UNUSED(block);
-    LOG(FATAL) << "CodeGeneratorLOONGARCH64::GetAddressOf is unimplemented";
-    UNREACHABLE();
+    return assembler_.GetLabelLocation(GetLabelOf(block));
   };
 
-  void Initialize() override { LOG(FATAL) << "unimplemented"; }
+  Loongarch64Label* GetLabelOf(HBasicBlock* block) const {
+    return CommonGetLabelOf<Loongarch64Label>(block_labels_, block);
+  }
+
+  void Initialize() override { block_labels_ = CommonInitializeLabels<Loongarch64Label>(); }
 
   void MoveConstant(Location destination, int32_t value) override;
-  void MoveLocation(Location dst, Location src, DataType::Type dst_type) override;
+  void MoveLocation(Location destination, Location source, DataType::Type dst_type) override;
   void AddLocationAsTemp(Location location, LocationSummary* locations) override;
 
   HGraphVisitor* GetInstructionVisitor() override {
@@ -398,11 +400,15 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
 
   void MaybeIncrementHotness(bool is_frame_entry);
 
+  bool CanUseImplicitSuspendCheck() const;
+
 private:
   Loongarch64Assembler assembler_;
   LocationsBuilderLOONGARCH64 location_builder_;
   Loongarch64Label frame_entry_label_;
 
+  // Labels for each block that will be compiled.
+  Loongarch64Label* block_labels_;  // Indexed by block id.
 };
 
 }  // namespace loongarch64

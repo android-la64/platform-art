@@ -25,10 +25,11 @@
 #include "intrinsics_list.h"
 #include "jit/profiling_info.h"
 #include "optimizing/nodes.h"
+#include "stack_map_stream.h"
 #include "utils/label.h"
+#include "utils/loongarch64/assembler_loongarch64.h"
 #include "utils/stack_checks.h"
 #include "runtime.h"
-#include "thread-current-inl.h"
 
 namespace art {
 namespace loongarch64 {
@@ -145,6 +146,45 @@ class CompileOptimizedSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
   DISALLOW_COPY_AND_ASSIGN(CompileOptimizedSlowPathLOONGARCH64);
 };
 
+class SuspendCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  SuspendCheckSlowPathLOONGARCH64(HSuspendCheck* instruction, HBasicBlock* successor)
+      : SlowPathCodeLOONGARCH64(instruction), successor_(successor) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    LocationSummary* locations = instruction_->GetLocations();
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    __ Bind(GetEntryLabel());
+    SaveLiveRegisters(codegen, locations);  // Only saves live vector registers for SIMD.
+    loongarch64_codegen->InvokeRuntime(kQuickTestSuspend, instruction_, instruction_->GetDexPc(), this);
+    CheckEntrypointTypes<kQuickTestSuspend, void, void>();
+    RestoreLiveRegisters(codegen, locations);  // Only restores live vector registers for SIMD.
+    if (successor_ == nullptr) {
+      __ B(GetReturnLabel());
+    } else {
+      __ B(loongarch64_codegen->GetLabelOf(successor_));
+    }
+  }
+
+  Loongarch64Label* GetReturnLabel() {
+    DCHECK(successor_ == nullptr);
+    return &return_label_;
+  }
+
+  const char* GetDescription() const override { return "SuspendCheckSlowPathLOONGARCH64"; }
+
+  HBasicBlock* GetSuccessor() const { return successor_; }
+
+ private:
+  // If not null, the block to branch to after the suspend check.
+  HBasicBlock* const successor_;
+
+  // If `successor_` is null, the label to branch to after the suspend check.
+  Loongarch64Label return_label_;
+
+  DISALLOW_COPY_AND_ASSIGN(SuspendCheckSlowPathLOONGARCH64);
+};
+
 #undef __
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
 
@@ -170,9 +210,39 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateBitstringTypeCheckCompare(
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateSuspendCheck(HSuspendCheck* instruction,
                                                            HBasicBlock* successor) {
-  UNUSED(instruction);
-  UNUSED(successor);
-  LOG(FATAL) << "Unimplemented";
+  if (codegen_->CanUseImplicitSuspendCheck()) {
+    LOG(FATAL) << "Unimplemented ImplicitSuspendCheck";
+    return;
+  }
+
+  SuspendCheckSlowPathLOONGARCH64* slow_path =
+      down_cast<SuspendCheckSlowPathLOONGARCH64*>(instruction->GetSlowPath());
+
+  if (slow_path == nullptr) {
+    slow_path =
+        new (codegen_->GetScopedAllocator()) SuspendCheckSlowPathLOONGARCH64(instruction, successor);
+    instruction->SetSlowPath(slow_path);
+    codegen_->AddSlowPath(slow_path);
+    if (successor != nullptr) {
+      DCHECK(successor->IsLoopHeader());
+    }
+  } else {
+    DCHECK_EQ(slow_path->GetSuccessor(), successor);
+  }
+
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister tmp = srs.AllocateXRegister();
+  __ Load_H(tmp, TR, Thread::ThreadFlagsOffset<kLoongarch64PointerSize>().SizeValue());
+  // Shift out other bits. Use an instruction that can be 16-bit with the "C" Standard Extension.
+  //__ Slli_d(tmp, tmp, CLZ(static_cast<uint64_t>(Thread::SuspendOrCheckpointRequestFlags())));
+  if (successor == nullptr) {
+    __ Bnez(tmp, slow_path->GetEntryLabel());
+    __ Bind(slow_path->GetReturnLabel());
+  } else {
+    __ Beqz(tmp, codegen_->GetLabelOf(successor));
+    __ B(slow_path->GetEntryLabel());
+    // slow_path will return to GetLabelOf(successor).
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateMinMaxInt(LocationSummary* locations, bool is_min) {
@@ -272,13 +342,96 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateDivRemIntegral(HBinaryOperatio
   LOG(FATAL) << "Unimplemented";
 }
 
-void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCompare(IfCondition cond,
-                                                             bool is_64bit,
+void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition cond,
                                                              LocationSummary* locations) {
-  UNUSED(cond);
-  UNUSED(is_64bit);
-  UNUSED(locations);
-  LOG(FATAL) << "Unimplemented";
+  XRegister rd = locations->Out().AsRegister<XRegister>();
+  XRegister rs1 = locations->InAt(0).AsRegister<XRegister>();
+  Location rs2_location = locations->InAt(1);
+  bool use_imm = rs2_location.IsConstant();
+  int64_t imm = use_imm ? CodeGenerator::GetInt64ValueOf(rs2_location.GetConstant()) : 0;
+  XRegister rs2 = use_imm ? kNoXRegister : rs2_location.AsRegister<XRegister>();
+  switch (cond) {
+    case kCondEQ:
+    case kCondNE:
+      if (!use_imm) {
+        __ Sub_d(rd, rs1, rs2);  // SUB is OK here even for 32-bit comparison.
+      } else if (imm != 0) {
+        DCHECK(IsInt<12>(-imm));
+        __ Addi_D(rd, rs1, -imm);  // ADDI is OK here even for 32-bit comparison.
+      }  // else test `rs1` directly without subtraction for `use_imm && imm == 0`.
+      if (cond == kCondEQ) {
+        __ Sltui(rd, (use_imm && imm == 0) ? rs1 : rd, 1); // seqz
+      } else {
+        __ Sltu(rd, Zero, (use_imm && imm == 0) ? rs1 : rd); // snez
+      }
+      break;
+
+    case kCondLT:
+    case kCondGE:
+      if (use_imm) {
+        DCHECK(IsInt<12>(imm));
+        __ Slti(rd, rs1, imm);
+      } else {
+        __ Slt(rd, rs1, rs2);
+      }
+      if (cond == kCondGE) {
+        // Calculate `rs1 >= rhs` as `!(rs1 < rhs)` since there's only the SLT but no SGE.
+        __ Xori(rd, rd, 1);
+      }
+      break;
+
+    case kCondLE:
+    case kCondGT:
+      if (use_imm) {
+        // Calculate `rs1 <= imm` as `rs1 < imm + 1`.
+        DCHECK(IsInt<12>(imm + 1));  // The value that overflows would fail this check.
+        __ Slti(rd, rs1, imm + 1);
+      } else {
+        __ Slt(rd, rs2, rs1);
+      }
+      if ((cond == kCondGT) == use_imm) {
+        // Calculate `rs1 > imm` as `!(rs1 < imm + 1)` and calculate
+        // `rs1 <= rs2` as `!(rs2 < rs1)` since there's only the SLT but no SGE.
+        __ Xori(rd, rd, 1);
+      }
+      break;
+
+    case kCondB:
+    case kCondAE:
+      if (use_imm) {
+        // Sltiu sign-extends its 12-bit immediate operand before the comparison
+        // and thus lets us compare directly with unsigned values in the ranges
+        // [0, 0x7ff] and [0x[ffffffff]fffff800, 0x[ffffffff]ffffffff].
+        DCHECK(IsInt<12>(imm));
+        __ Sltui(rd, rs1, imm);
+      } else {
+        __ Sltu(rd, rs1, rs2);
+      }
+      if (cond == kCondAE) {
+        // Calculate `rs1 AE rhs` as `!(rs1 B rhs)` since there's only the SLTU but no SGEU.
+        __ Xori(rd, rd, 1);
+      }
+      break;
+
+    case kCondBE:
+    case kCondA:
+      if (use_imm) {
+        // Calculate `rs1 BE imm` as `rs1 B imm + 1`.
+        // Sltiu sign-extends its 12-bit immediate operand before the comparison
+        // and thus lets us compare directly with unsigned values in the ranges
+        // [0, 0x7ff] and [0x[ffffffff]fffff800, 0x[ffffffff]ffffffff].
+        DCHECK(IsInt<12>(imm + 1));  // The value that overflows would fail this check.
+        __ Sltui(rd, rs1, imm + 1);
+      } else {
+        __ Sltu(rd, rs2, rs1);
+      }
+      if ((cond == kCondA) == use_imm) {
+        // Calculate `rs1 A imm` as `!(rs1 B imm + 1)` and calculate
+        // `rs1 BE rs2` as `!(rs2 B rs1)` since there's only the SLTU but no SGEU.
+        __ Xori(rd, rd, 1);
+      }
+      break;
+  }
 }
 
 bool InstructionCodeGeneratorLOONGARCH64::MaterializeIntLongCompare(IfCondition cond,
@@ -304,7 +457,7 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCompareAndBranch(IfCond
   LOG(FATAL) << "UniMplemented";
 }
 
-void InstructionCodeGeneratorLOONGARCH64::GenerateFpCompare(IfCondition cond,
+void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
                                                         bool gt_bias,
                                                         DataType::Type type,
                                                         LocationSummary* locations) {
@@ -344,8 +497,26 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateFpCompareAndBranch(IfCondition
 
 void InstructionCodeGeneratorLOONGARCH64::HandleGoto(HInstruction* instruction,
                                                  HBasicBlock* successor) {
-  UNUSED(instruction);
-  UNUSED(successor);
+  if (successor->IsExitBlock()) {
+    DCHECK(instruction->GetPrevious()->AlwaysThrows());
+    return;  // no code needed
+  }
+
+  HBasicBlock* block = instruction->GetBlock();
+  HInstruction* previous = instruction->GetPrevious();
+  HLoopInformation* info = block->GetLoopInformation();
+
+  if (info != nullptr && info->IsBackEdge(*block) && info->HasSuspendCheck()) {
+    codegen_->MaybeIncrementHotness(/*is_frame_entry=*/ false);
+    GenerateSuspendCheck(info->GetSuspendCheck(), successor);
+    return;  // `GenerateSuspendCheck()` emitted the jump.
+  }
+  if (block->IsEntryBlock() && previous != nullptr && previous->IsSuspendCheck()) {
+    GenerateSuspendCheck(previous->AsSuspendCheck(), nullptr);
+  }
+  if (!codegen_->GoesToNextBlock(block, successor)) {
+    __ B(codegen_->GetLabelOf(successor));
+  }
   LOG(FATAL) << "Unimplemented";
 }
 
@@ -490,13 +661,68 @@ void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instr
 }
 
 void LocationsBuilderLOONGARCH64::HandleCondition(HCondition* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  switch (instruction->InputAt(0)->GetType()) {
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetInAt(1, Location::RequiresFpuRegister());
+      break;
+
+    default: {
+      locations->SetInAt(0, Location::RequiresRegister());
+      HInstruction* rhs = instruction->InputAt(1);
+      bool use_imm = false;
+      if (rhs->IsConstant()) {
+        int64_t imm = CodeGenerator::GetInt64ValueOf(rhs->AsConstant());
+        switch (instruction->GetCondition()) {
+          case kCondEQ:
+          case kCondNE:
+            imm = -imm;
+            break;
+          case kCondLE:
+          case kCondGT:
+          case kCondBE:
+          case kCondA:
+            imm += 1;
+            break;
+          default:
+            break;
+        }
+        // Constants that cannot be embedded in an instruction's 12-bit immediate shall be
+        // materialized. This simplifies the code and avoids cases with arithmetic overflow.
+        use_imm = IsInt<12>(imm);
+      }
+      if (use_imm) {
+        locations->SetInAt(1, Location::ConstantLocation(rhs->AsConstant()));
+      } else {
+        locations->SetInAt(1, Location::RequiresRegister());
+      }
+      break;
+    }
+  }
+  if (!instruction->IsEmittedAtUseSite()) {
+    locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::HandleCondition(HCondition* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  if (instruction->IsEmittedAtUseSite()) {
+    return;
+  }
+
+  DataType::Type type = instruction->InputAt(0)->GetType();
+  LocationSummary* locations = instruction->GetLocations();
+  switch (type) {
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      GenerateFpCondition(instruction->GetCondition(), instruction->IsGtBias(), type, locations);
+      return;
+    default:
+      // Integral types.
+      GenerateIntLongCondition(instruction->GetCondition(), locations);
+      return;
+  }
 }
 
 void LocationsBuilderLOONGARCH64::HandleShift(HBinaryOperation* instruction) {
@@ -648,33 +874,73 @@ void InstructionCodeGeneratorLOONGARCH64::HandleFieldGet(HInstruction* instructi
 }
 
 void LocationsBuilderLOONGARCH64::VisitAbove(HAbove* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitAbove(HAbove* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitAboveOrEqual(HAboveOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitAboveOrEqual(HAboveOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
-void LocationsBuilderLOONGARCH64::VisitAbs(HAbs* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void LocationsBuilderLOONGARCH64::VisitAbs(HAbs* abs) {
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(abs);
+  switch (abs->GetResultType()) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      break;
+    default:
+      LOG(FATAL) << "Unexpected abs type " << abs->GetResultType();
+  }
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitAbs(HAbs* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitAbs(HAbs* abs) {
+  LocationSummary* locations = abs->GetLocations();
+  switch (abs->GetResultType()) {
+    case DataType::Type::kInt32: {
+      XRegister in = locations->InAt(0).AsRegister<XRegister>();
+      XRegister out = locations->Out().AsRegister<XRegister>();
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      __ Srai_w(tmp, in, 31);
+      __ Xor(out, in, tmp);
+      __ Sub_w(out, out, tmp);
+      break;
+    }
+    case DataType::Type::kInt64: {
+      XRegister in = locations->InAt(0).AsRegister<XRegister>();
+      XRegister out = locations->Out().AsRegister<XRegister>();
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      __ Srai_d(tmp, in, 63);
+      __ Xor(out, in, tmp);
+      __ Sub_d(out, out, tmp);
+      break;
+    }
+    case DataType::Type::kFloat32: {
+      LOG(FATAL) << "Unexpected abs type kFloat32.";
+      break;
+    }
+    case DataType::Type::kFloat64: {
+      LOG(FATAL) << "Unexpected abs type kFloat64.";
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected abs type " << abs->GetResultType();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitAdd(HAdd* instruction) {
@@ -728,23 +994,19 @@ void InstructionCodeGeneratorLOONGARCH64::VisitArraySet(HArraySet* instruction) 
 }
 
 void LocationsBuilderLOONGARCH64::VisitBelow(HBelow* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitBelow(HBelow* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitBelowOrEqual(HBelowOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitBelowOrEqual(HBelowOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitBooleanNot(HBooleanNot* instruction) {
@@ -897,13 +1159,11 @@ void LocationsBuilderLOONGARCH64::VisitDoubleConstant(HDoubleConstant* instructi
 void InstructionCodeGeneratorLOONGARCH64::VisitDoubleConstant([[maybe_unused]] HDoubleConstant* instruction) {}
 
 void LocationsBuilderLOONGARCH64::VisitEqual(HEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitEqual(HEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitExit(HExit* instruction) {
@@ -923,33 +1183,27 @@ void InstructionCodeGeneratorLOONGARCH64::VisitFloatConstant([[maybe_unused]] HF
 }
 
 void LocationsBuilderLOONGARCH64::VisitGoto(HGoto* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  instruction->SetLocations(nullptr);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitGoto(HGoto* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleGoto(instruction, instruction->GetSuccessor());
 }
 
 void LocationsBuilderLOONGARCH64::VisitGreaterThan(HGreaterThan* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitGreaterThan(HGreaterThan* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitGreaterThanOrEqual(HGreaterThanOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitGreaterThanOrEqual(HGreaterThanOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitIf(HIf* instruction) {
@@ -1086,23 +1340,19 @@ void InstructionCodeGeneratorLOONGARCH64::VisitInvokeCustom(HInvokeCustom* instr
 }
 
 void LocationsBuilderLOONGARCH64::VisitLessThan(HLessThan* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitLessThan(HLessThan* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitLessThanOrEqual(HLessThanOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitLessThanOrEqual(HLessThanOrEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadClass(HLoadClass* instruction) {
@@ -1295,13 +1545,11 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNot(HNot* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitNotEqual(HNotEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNotEqual(HNotEqual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleCondition(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitNullConstant(HNullConstant* instruction) {
@@ -1355,23 +1603,31 @@ void InstructionCodeGeneratorLOONGARCH64::VisitParallelMove(HParallelMove* instr
 }
 
 void LocationsBuilderLOONGARCH64::VisitParameterValue(HParameterValue* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  Location location = parameter_visitor_.GetNextLocation(instruction->GetType());
+  if (location.IsStackSlot()) {
+    location = Location::StackSlot(location.GetStackIndex() + codegen_->GetFrameSize());
+  } else if (location.IsDoubleStackSlot()) {
+    location = Location::DoubleStackSlot(location.GetStackIndex() + codegen_->GetFrameSize());
+  }
+  locations->SetOut(location);
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitParameterValue(HParameterValue* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitParameterValue(
+    [[maybe_unused]] HParameterValue* instruction) {
+  // Nothing to do, the parameter is already at its location.
 }
 
 void LocationsBuilderLOONGARCH64::VisitPhi(HPhi* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  for (size_t i = 0, e = locations->GetInputCount(); i < e; ++i) {
+    locations->SetInAt(i, Location::Any());
+  }
+  locations->SetOut(Location::Any());
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitPhi(HPhi* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitPhi([[maybe_unused]] HPhi* instruction) {
+  LOG(FATAL) << "Unreachable";
 }
 
 void LocationsBuilderLOONGARCH64::VisitRem(HRem* instruction) {
@@ -1385,23 +1641,30 @@ void InstructionCodeGeneratorLOONGARCH64::VisitRem(HRem* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitReturn(HReturn* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  DataType::Type return_type = instruction->InputAt(0)->GetType();
+  DCHECK_NE(return_type, DataType::Type::kVoid);
+  locations->SetInAt(0, Loongarch64ReturnLocation(return_type));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitReturn(HReturn* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitReturn([[maybe_unused]] HReturn* instruction) {
+  //if (GetGraph()->IsCompilingOsr()) {
+  //  // To simplify callers of an OSR method, we put a floating point return value
+  //  // in both floating point and core return registers.
+  //  switch (instruction->InputAt(0)->GetType()) {
+  //    default:
+  //      break;
+  //  }
+  //}
+  codegen_->GenerateFrameExit();
 }
 
 void LocationsBuilderLOONGARCH64::VisitReturnVoid(HReturnVoid* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  instruction->SetLocations(nullptr);
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitReturnVoid(HReturnVoid* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitReturnVoid([[maybe_unused]] HReturnVoid* instruction) {
+  codegen_->GenerateFrameExit();
 }
 
 void LocationsBuilderLOONGARCH64::VisitRor(HRor* instruction) {
@@ -1533,13 +1796,27 @@ void InstructionCodeGeneratorLOONGARCH64::VisitSub(HSub* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitSuspendCheck(HSuspendCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator())
+      LocationSummary(instruction, LocationSummary::kCallOnSlowPath);
+  // In suspend check slow path, usually there are no caller-save registers at all.
+  // If SIMD instructions are present, however, we force spilling all live SIMD
+  // registers in full width (since the runtime only saves/restores lower part).
+  locations->SetCustomSlowPathCallerSaves(GetGraph()->HasSIMD() ? RegisterSet::AllFpu() :
+                                                                  RegisterSet::Empty());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitSuspendCheck(HSuspendCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HBasicBlock* block = instruction->GetBlock();
+  if (block->GetLoopInformation() != nullptr) {
+    DCHECK(block->GetLoopInformation()->GetSuspendCheck() == instruction);
+    // The back edge will generate the suspend check.
+    return;
+  }
+  if (block->IsEntryBlock() && instruction->GetNext()->IsGoto()) {
+    // The goto will generate the suspend check.
+    return;
+  }
+  GenerateSuspendCheck(instruction, nullptr);
 }
 
 void LocationsBuilderLOONGARCH64::VisitThrow(HThrow* instruction) {
@@ -1948,9 +2225,8 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
                     stats),
       assembler_(graph->GetAllocator(),
                  compiler_options.GetInstructionSetFeatures()->AsLoongarch64InstructionSetFeatures()),
-      location_builder_(graph, this) {
-  LOG(FATAL) << "Unimplemented";
-}
+      location_builder_(graph, this),
+      block_labels_(nullptr) {}
 
 void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
   if (GetCompilerOptions().CountHotnessInCompiledCode()) {
@@ -1993,6 +2269,11 @@ void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
     __ St_H(counter, tmp, ProfilingInfo::BaselineHotnessCountOffset().Int32Value());
     __ Bind(slow_path->GetExitLabel());
   }
+}
+
+bool CodeGeneratorLOONGARCH64::CanUseImplicitSuspendCheck() const {
+  // TODO(loongarch64): Implement implicit suspend checks to reduce code size.
+  return false;
 }
 
 void CodeGeneratorLOONGARCH64::GenerateMemoryBarrier(MemBarrierKind kind) {
@@ -2091,29 +2372,150 @@ void CodeGeneratorLOONGARCH64::GenerateFrameExit() {
   __ cfi().DefCFAOffset(GetFrameSize());
 }
 
-void CodeGeneratorLOONGARCH64::Bind(HBasicBlock* block) {
-  UNUSED(block);
-  LOG(FATAL) << "Unimplemented";
-}
-
-size_t CodeGeneratorLOONGARCH64::GetSIMDRegisterWidth() const {
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
-}
+void CodeGeneratorLOONGARCH64::Bind(HBasicBlock* block) {  __ Bind(GetLabelOf(block)); }
 
 void CodeGeneratorLOONGARCH64::MoveConstant(Location destination, int32_t value) {
-  UNUSED(destination);
-  UNUSED(value);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  DCHECK(destination.IsRegister());
+  __ LoadConst32(destination.AsRegister<XRegister>(), value);
 }
-void CodeGeneratorLOONGARCH64::MoveLocation(Location dst, Location src, DataType::Type dst_type) {
-  UNUSED(dst);
-  UNUSED(src);
-  UNUSED(dst_type);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+
+void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location source, DataType::Type dst_type) {
+  if (source.Equals(destination)) {
+    return;
+  }
+
+  // A valid move type can always be inferred from the destination and source locations.
+  // When moving from and to a register, the `dst_type` can be used to generate 32-bit instead
+  // of 64-bit moves but it's generally OK to use 64-bit moves for 32-bit values in registers.
+  bool unspecified_type = (dst_type == DataType::Type::kVoid);
+  // TODO(loongarch64): Is the destination type known in all cases?
+  // TODO(loongarch64): Can unspecified `dst_type` move 32-bit GPR to FPR without NaN-boxing?
+  CHECK(!unspecified_type);
+
+  if (destination.IsRegister() || destination.IsFpuRegister()) {
+    if (unspecified_type) {
+      HConstant* src_cst = source.IsConstant() ? source.GetConstant() : nullptr;
+      if (source.IsStackSlot() ||
+          (src_cst != nullptr &&
+           (src_cst->IsIntConstant() || src_cst->IsFloatConstant() || src_cst->IsNullConstant()))) {
+        // For stack slots and 32-bit constants, a 32-bit type is appropriate.
+        dst_type = destination.IsRegister() ? DataType::Type::kInt32 : DataType::Type::kFloat32;
+      } else {
+        // If the source is a double stack slot or a 64-bit constant, a 64-bit type
+        // is appropriate. Else the source is a register, and since the type has not
+        // been specified, we chose a 64-bit type to force a 64-bit move.
+        dst_type = destination.IsRegister() ? DataType::Type::kInt64 : DataType::Type::kFloat64;
+      }
+    }
+    DCHECK((destination.IsFpuRegister() && DataType::IsFloatingPointType(dst_type)) ||
+           (destination.IsRegister() && !DataType::IsFloatingPointType(dst_type)));
+
+    if (source.IsStackSlot() || source.IsDoubleStackSlot()) {
+      // Move to GPR/FPR from stack
+      // TODO: support FP
+     } else {
+        if (DataType::Is64BitType(dst_type)) {
+          __ Load_D(destination.AsRegister<XRegister>(), SP, source.GetStackIndex());
+        } else if (dst_type == DataType::Type::kReference) {
+          __ Load_WU(destination.AsRegister<XRegister>(), SP, source.GetStackIndex());
+        } else {
+          __ Load_W(destination.AsRegister<XRegister>(), SP, source.GetStackIndex());
+        }
+      }
+  } else if (source.IsConstant()) {
+    // Move to GPR/FPR from constant
+    // TODO(loongarch64): Consider using literals for difficult-to-materialize 64-bit constants.
+    int64_t value = GetInt64ValueOf(source.GetConstant()->AsConstant());
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister gpr = DataType::IsFloatingPointType(dst_type)
+        ? srs.AllocateXRegister()
+        : destination.AsRegister<XRegister>();
+    if (DataType::IsFloatingPointType(dst_type) && value == 0) {
+      gpr = Zero;  // Note: The scratch register allocated above shall not be used.
+    } else {
+      // Note: For `float` we load the sign-extended value here as it can sometimes yield
+      // a shorter instruction sequence. The higher 32 bits shall be ignored during the
+      // transfer to FP reg and the result shall be correctly NaN-boxed.
+      __ LoadConst64(gpr, value);
+    }
+    // TODO: support FP
+  } else if (source.IsRegister()) {
+    if (destination.IsRegister()) {
+      // Move to GPR from GPR
+      __ Move(destination.AsRegister<XRegister>(), source.AsRegister<XRegister>());
+    } else {
+      // TODO: support FP
+    }
+  } else if (source.IsFpuRegister()) {
+    if (destination.IsFpuRegister()) {
+      if (GetGraph()->HasSIMD()) {
+        LOG(FATAL) << "Vector extension is unsupported";
+        UNREACHABLE();
+      } else {
+        // Move to FPR from FPR
+        // TODO: support FP
+      }
+    } else {
+      DCHECK(destination.IsRegister());
+      // TODO: support FP
+    }
+  } else if (destination.IsSIMDStackSlot()) {
+    LOG(FATAL) << "SIMD is unsupported";
+    UNREACHABLE();
+  } else {  // The destination is not a register. It must be a stack slot.
+    DCHECK(destination.IsStackSlot() || destination.IsDoubleStackSlot());
+    if (source.IsRegister() || source.IsFpuRegister()) {
+      if (unspecified_type) {
+        if (source.IsRegister()) {
+          dst_type = destination.IsStackSlot() ? DataType::Type::kInt32 : DataType::Type::kInt64;
+        } else {
+          dst_type =
+              destination.IsStackSlot() ? DataType::Type::kFloat32 : DataType::Type::kFloat64;
+        }
+      }
+      DCHECK((destination.IsDoubleStackSlot() == DataType::Is64BitType(dst_type)) &&
+             (source.IsFpuRegister() == DataType::IsFloatingPointType(dst_type)));
+      // Move to stack from GPR/FPR
+      if (DataType::Is64BitType(dst_type)) {
+        if (source.IsRegister()) {
+          __ Store_D(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
+        }
+      } else {
+        if (source.IsRegister()) {
+          __ Store_W(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
+        }
+      }
+    } else if (source.IsConstant()) {
+      // Move to stack from constant
+      int64_t value = GetInt64ValueOf(source.GetConstant());
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister gpr = (value != 0) ? srs.AllocateXRegister() : Zero;
+      if (value != 0) {
+        __ LoadConst64(gpr, value);
+      }
+      if (destination.IsStackSlot()) {
+        __ Store_W(gpr, SP, destination.GetStackIndex());
+      } else {
+        DCHECK(destination.IsDoubleStackSlot());
+        __ Store_D(gpr, SP, destination.GetStackIndex());
+      }
+    } else {
+      DCHECK(source.IsStackSlot() || source.IsDoubleStackSlot());
+      DCHECK_EQ(source.IsDoubleStackSlot(), destination.IsDoubleStackSlot());
+      // Move to stack from stack
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      if (destination.IsStackSlot()) {
+        __ Load_W(tmp, SP, source.GetStackIndex());
+        __ Store_W(tmp, SP, destination.GetStackIndex());
+      } else {
+        __ Load_D(tmp, SP, source.GetStackIndex());
+        __ Store_D(tmp, SP, destination.GetStackIndex());
+      }
+    }
+  }
 }
+
 void CodeGeneratorLOONGARCH64::AddLocationAsTemp(Location location, LocationSummary* locations) {
   if (location.IsRegister()) {
     locations->AddTemp(location);
@@ -2146,17 +2548,13 @@ void CodeGeneratorLOONGARCH64::SetupBlockedRegisters() const {
 }
 
 size_t CodeGeneratorLOONGARCH64::SaveCoreRegister(size_t stack_index, uint32_t reg_id) {
-  UNUSED(stack_index);
-  UNUSED(reg_id);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  __ Store_D(XRegister(reg_id), SP, stack_index);
+  return kLoongarch64DoublewordSize;
 }
 
 size_t CodeGeneratorLOONGARCH64::RestoreCoreRegister(size_t stack_index, uint32_t reg_id) {
-  UNUSED(stack_index);
-  UNUSED(reg_id);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  __ Load_D(XRegister(reg_id), SP, stack_index);
+  return kLoongarch64DoublewordSize;
 }
 
 size_t CodeGeneratorLOONGARCH64::SaveFloatingPointRegister(size_t stack_index, uint32_t reg_id) {
@@ -2182,9 +2580,34 @@ void CodeGeneratorLOONGARCH64::DumpFloatingPointRegister(std::ostream& stream, i
 }
 
 void CodeGeneratorLOONGARCH64::Finalize(CodeAllocator* allocator) {
-  UNUSED(allocator);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  // Ensure that we fix up branches and literal loads and emit the literal pool.
+  __ FinalizeCode();
+
+  // Adjust native pc offsets in stack maps.
+  StackMapStream* stack_map_stream = GetStackMapStream();
+  for (size_t i = 0, num = stack_map_stream->GetNumberOfStackMaps(); i != num; ++i) {
+    uint32_t old_position = stack_map_stream->GetStackMapNativePcOffset(i);
+    uint32_t new_position = __ GetAdjustedPosition(old_position);
+    DCHECK_GE(new_position, old_position);
+    stack_map_stream->SetStackMapNativePcOffset(i, new_position);
+  }
+
+  // Adjust pc offsets for the disassembly information.
+  if (disasm_info_ != nullptr) {
+    GeneratedCodeInterval* frame_entry_interval = disasm_info_->GetFrameEntryInterval();
+    frame_entry_interval->start = __ GetAdjustedPosition(frame_entry_interval->start);
+    frame_entry_interval->end = __ GetAdjustedPosition(frame_entry_interval->end);
+    for (auto& entry : *disasm_info_->GetInstructionIntervals()) {
+      entry.second.start = __ GetAdjustedPosition(entry.second.start);
+      entry.second.end = __ GetAdjustedPosition(entry.second.end);
+    }
+    for (auto& entry : *disasm_info_->GetSlowPathIntervals()) {
+      entry.code_interval.start = __ GetAdjustedPosition(entry.code_interval.start);
+      entry.code_interval.end = __ GetAdjustedPosition(entry.code_interval.end);
+    }
+  }
+
+  CodeGenerator::Finalize(allocator);
 }
 
 // Generate code to invoke a runtime entry point.
@@ -2235,24 +2658,52 @@ void CodeGeneratorLOONGARCH64::GenerateExplicitNullCheck(HNullCheck* instruction
 
 HLoadString::LoadKind CodeGeneratorLOONGARCH64::GetSupportedLoadStringKind(
     HLoadString::LoadKind desired_string_load_kind) {
-  UNUSED(desired_string_load_kind);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  switch (desired_string_load_kind) {
+    case HLoadString::LoadKind::kBootImageLinkTimePcRelative:
+    case HLoadString::LoadKind::kBootImageRelRo:
+    case HLoadString::LoadKind::kBssEntry:
+      DCHECK(!Runtime::Current()->UseJitCompilation());
+      break;
+    case HLoadString::LoadKind::kJitBootImageAddress:
+    case HLoadString::LoadKind::kJitTableAddress:
+      DCHECK(Runtime::Current()->UseJitCompilation());
+      break;
+    case HLoadString::LoadKind::kRuntimeCall:
+      break;
+  }
+  return desired_string_load_kind;
 }
 
 HLoadClass::LoadKind CodeGeneratorLOONGARCH64::GetSupportedLoadClassKind(
     HLoadClass::LoadKind desired_class_load_kind) {
-  UNUSED(desired_class_load_kind);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  switch (desired_class_load_kind) {
+    case HLoadClass::LoadKind::kInvalid:
+      LOG(FATAL) << "UNREACHABLE";
+      UNREACHABLE();
+    case HLoadClass::LoadKind::kReferrersClass:
+      break;
+    case HLoadClass::LoadKind::kBootImageLinkTimePcRelative:
+    case HLoadClass::LoadKind::kBootImageRelRo:
+    case HLoadClass::LoadKind::kBssEntry:
+    case HLoadClass::LoadKind::kBssEntryPublic:
+    case HLoadClass::LoadKind::kBssEntryPackage:
+      DCHECK(!Runtime::Current()->UseJitCompilation());
+      break;
+    case HLoadClass::LoadKind::kJitBootImageAddress:
+    case HLoadClass::LoadKind::kJitTableAddress:
+      DCHECK(Runtime::Current()->UseJitCompilation());
+      break;
+    case HLoadClass::LoadKind::kRuntimeCall:
+      break;
+  }
+  return desired_class_load_kind;
 }
 
 HInvokeStaticOrDirect::DispatchInfo CodeGeneratorLOONGARCH64::GetSupportedInvokeStaticOrDirectDispatch(
     const HInvokeStaticOrDirect::DispatchInfo& desired_dispatch_info, ArtMethod* method) {
-  UNUSED(desired_dispatch_info);
   UNUSED(method);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  // On LOONGARCH64 we support all dispatch types.
+  return desired_dispatch_info;
 }
 
 void CodeGeneratorLOONGARCH64::LoadMethod(MethodLoadKind load_kind, Location temp, HInvoke* invoke) {
@@ -2281,9 +2732,20 @@ void CodeGeneratorLOONGARCH64::GenerateVirtualCall(HInvokeVirtual* invoke,
 }
 
 void CodeGeneratorLOONGARCH64::MoveFromReturnRegister(Location trg, DataType::Type type) {
-  UNUSED(trg);
-  UNUSED(type);
-  LOG(FATAL) << "Unimplemented";
+  if (!trg.IsValid()) {
+    DCHECK_EQ(type, DataType::Type::kVoid);
+    return;
+  }
+
+  DCHECK_NE(type, DataType::Type::kVoid);
+
+  if (DataType::IsIntegralType(type) || type == DataType::Type::kReference) {
+    XRegister trg_reg = trg.AsRegister<XRegister>();
+    XRegister res_reg = Loongarch64ReturnLocation(type).AsRegister<XRegister>();
+    if (trg_reg != res_reg) {
+      __ Move(trg_reg, res_reg);
+    }
+  } 
 }
 
 }  // namespace loongarch64

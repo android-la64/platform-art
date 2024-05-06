@@ -50,6 +50,7 @@ enum class FPRoundingMode : uint32_t {
 static constexpr size_t kLoongarch64HalfwordSize = 2;
 static constexpr size_t kLoongarch64WordSize = 4;
 static constexpr size_t kLoongarch64DoublewordSize = 8;
+static constexpr size_t kLoongarch64FloatRegSizeInBytes = 8;
 
 class Loongarch64Label : public Label {
   public:
