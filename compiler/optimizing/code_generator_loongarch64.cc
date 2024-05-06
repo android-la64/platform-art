@@ -22,8 +22,10 @@
 #include "arch/loongarch64/registers_loongarch64.h"
 #include "base/macros.h"
 #include "dwarf/register.h"
+#include "heap_poisoning.h"
 #include "intrinsics_list.h"
 #include "jit/profiling_info.h"
+#include "mirror/class-inl.h"
 #include "optimizing/nodes.h"
 #include "stack_map_stream.h"
 #include "utils/label.h"
@@ -44,6 +46,21 @@ static constexpr FRegister kFpuCalleeSaves[] = {
 };
 
 #define QUICK_ENTRY_POINT(x) QUICK_ENTRYPOINT_OFFSET(kLoongarch64PointerSize, x).Int32Value()
+
+Location RegisterOrZeroBitPatternLocation(HInstruction* instruction) {
+  return IsZeroBitPattern(instruction)
+      ? Location::ConstantLocation(instruction->AsConstant())
+      : Location::RequiresRegister();
+}
+
+XRegister InputXRegisterOrZero(Location location) {
+  if (location.IsConstant()) {
+    DCHECK(location.GetConstant()->IsZeroBitPattern());
+    return Zero;
+  } else {
+    return location.AsRegister<XRegister>();
+  }
+}
 
 Location Loongarch64ReturnLocation(DataType::Type return_type) {
   switch (return_type) {
@@ -1010,13 +1027,14 @@ void InstructionCodeGeneratorLOONGARCH64::VisitBelowOrEqual(HBelowOrEqual* instr
 }
 
 void LocationsBuilderLOONGARCH64::VisitBooleanNot(HBooleanNot* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitBooleanNot(HBooleanNot* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  __ Xori(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsRegister<XRegister>(), 1);
 }
 
 void LocationsBuilderLOONGARCH64::VisitBoundsCheck(HBoundsCheck* instruction) {
@@ -1054,19 +1072,22 @@ void LocationsBuilderLOONGARCH64::VisitClassTableGet(HClassTableGet* instruction
   LOG(FATAL) << "Unimplemented";
 }
 
+static int32_t GetExceptionTlsOffset() {
+  return Thread::ExceptionOffset<kLoongarch64PointerSize>().Int32Value();
+}
+
 void InstructionCodeGeneratorLOONGARCH64::VisitClassTableGet(HClassTableGet* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
 }
 
 void LocationsBuilderLOONGARCH64::VisitClearException(HClearException* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitClearException(HClearException* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitClearException(
+    [[maybe_unused]] HClearException* instruction) {
+  __ Store_D(Zero, TR, GetExceptionTlsOffset());
 }
 
 void LocationsBuilderLOONGARCH64::VisitClinitCheck(HClinitCheck* instruction) {
@@ -1090,13 +1111,12 @@ void InstructionCodeGeneratorLOONGARCH64::VisitCompare(HCompare* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitConstructorFence(HConstructorFence* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  instruction->SetLocations(nullptr);
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitConstructorFence(HConstructorFence* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitConstructorFence(
+    [[maybe_unused]] HConstructorFence* instruction) {
+  codegen_->GenerateMemoryBarrier(MemBarrierKind::kStoreStore);
 }
 
 void LocationsBuilderLOONGARCH64::VisitCurrentMethod(HCurrentMethod* instruction) {
@@ -1259,13 +1279,12 @@ void InstructionCodeGeneratorLOONGARCH64::VisitInstanceOf(HInstanceOf* instructi
 }
 
 void LocationsBuilderLOONGARCH64::VisitIntConstant(HIntConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetOut(Location::ConstantLocation(instruction));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitIntConstant(HIntConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitIntConstant([[maybe_unused]] HIntConstant* instruction) {
+  // Will be generated at use site.
 }
 
 void LocationsBuilderLOONGARCH64::VisitIntermediateAddress(HIntermediateAddress* instruction) {
@@ -2615,11 +2634,17 @@ void CodeGeneratorLOONGARCH64::InvokeRuntime(QuickEntrypointEnum entrypoint,
                                          HInstruction* instruction,
                                          uint32_t dex_pc,
                                          SlowPathCode* slow_path) {
-  UNUSED(entrypoint);
-  UNUSED(instruction);
-  UNUSED(dex_pc);
-  UNUSED(slow_path);
-  LOG(FATAL) << "Unimplemented";
+  ValidateInvokeRuntime(entrypoint, instruction, slow_path);
+
+  ThreadOffset64 entrypoint_offset = GetThreadOffset<kLoongarch64PointerSize>(entrypoint);
+
+  // TODO(loongarch64): Reduce code size for AOT by using shared trampolines for slow path
+  // runtime calls across the entire oat file.
+  __ Load_D(TMP, TR, entrypoint_offset.Int32Value());
+  __ Jirl(RA, TMP, 0);
+  if (EntrypointRequiresStackMap(entrypoint)) {
+    RecordPcInfo(instruction, dex_pc, slow_path);
+  }
 }
 
 // Generate code to invoke a runtime entry point, but do not record
@@ -2627,10 +2652,9 @@ void CodeGeneratorLOONGARCH64::InvokeRuntime(QuickEntrypointEnum entrypoint,
 void CodeGeneratorLOONGARCH64::InvokeRuntimeWithoutRecordingPcInfo(int32_t entry_point_offset,
                                                                HInstruction* instruction,
                                                                SlowPathCode* slow_path) {
-  UNUSED(entry_point_offset);
-  UNUSED(instruction);
-  UNUSED(slow_path);
-  LOG(FATAL) << "Unimplemented";
+  ValidateInvokeRuntimeWithoutRecordingPcInfo(instruction, slow_path);
+  __ Load_D(TMP, TR, entry_point_offset);
+  __ Jirl(RA, TMP, 0);
 }
 
 void CodeGeneratorLOONGARCH64::IncreaseFrame(size_t adjustment) {
@@ -2645,7 +2669,7 @@ void CodeGeneratorLOONGARCH64::DecreaseFrame(size_t adjustment) {
   GetAssembler()->cfi().AdjustCFAOffset(-adjustment32);
 }
 
-void CodeGeneratorLOONGARCH64::GenerateNop() { LOG(FATAL) << "Unimplemented"; }
+void CodeGeneratorLOONGARCH64::GenerateNop() { __ Nop(); }
 
 void CodeGeneratorLOONGARCH64::GenerateImplicitNullCheck(HNullCheck* instruction) {
   UNUSED(instruction);
@@ -2722,13 +2746,70 @@ void CodeGeneratorLOONGARCH64::GenerateStaticOrDirectCall(HInvokeStaticOrDirect*
   LOG(FATAL) << "Unimplemented";
 }
 
+void CodeGeneratorLOONGARCH64::MaybeGenerateInlineCacheCheck(HInstruction* instruction,
+                                                         XRegister klass) {
+  // We know the destination of an intrinsic, so no need to record inline caches.
+  if (!instruction->GetLocations()->Intrinsified() &&
+      GetGraph()->IsCompilingBaseline() &&
+      !Runtime::Current()->IsAotCompiler()) {
+    DCHECK(!instruction->GetEnvironment()->IsFromInlinedInvoke());
+    ScopedProfilingInfoUse spiu(
+        Runtime::Current()->GetJit(), GetGraph()->GetArtMethod(), Thread::Current());
+    ProfilingInfo* info = spiu.GetProfilingInfo();
+    DCHECK(info != nullptr);
+    InlineCache* cache = info->GetInlineCache(instruction->GetDexPc());
+    uint64_t address = reinterpret_cast64<uint64_t>(cache);
+    Loongarch64Label done;
+    {
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      __ LoadConst64(tmp, address);
+      __ Load_D(tmp, tmp, InlineCache::ClassesOffset().Int32Value());
+      // Fast path for a monomorphic cache.
+      __ Beq(klass, tmp, &done);
+    }
+    InvokeRuntime(kQuickUpdateInlineCache, instruction, instruction->GetDexPc());
+    __ Bind(&done);
+  }
+}
+
 void CodeGeneratorLOONGARCH64::GenerateVirtualCall(HInvokeVirtual* invoke,
-                                               Location temp,
+                                               Location temp_location,
                                                SlowPathCode* slow_path) {
-  UNUSED(temp);
-  UNUSED(invoke);
-  UNUSED(slow_path);
-  LOG(FATAL) << "Unimplemented";
+  // Use the calling convention instead of the location of the receiver, as
+  // intrinsics may have put the receiver in a different register. In the intrinsics
+  // slow path, the arguments have been moved to the right place, so here we are
+  // guaranteed that the receiver is the first register of the calling convention.
+  InvokeDexCallingConvention calling_convention;
+  XRegister receiver = calling_convention.GetRegisterAt(0);
+  XRegister temp = temp_location.AsRegister<XRegister>();
+  MemberOffset method_offset =
+      mirror::Class::EmbeddedVTableEntryOffset(invoke->GetVTableIndex(), kLoongarch64PointerSize);
+  MemberOffset class_offset = mirror::Object::ClassOffset();
+  Offset entry_point = ArtMethod::EntryPointFromQuickCompiledCodeOffset(kLoongarch64PointerSize);
+
+  // temp = object->GetClass();
+  __ Load_WU(temp, receiver, class_offset.Int32Value());
+  MaybeRecordImplicitNullCheck(invoke);
+  // Instead of simply (possibly) unpoisoning `temp` here, we should
+  // emit a read barrier for the previous class reference load.
+  // However this is not required in practice, as this is an
+  // intermediate/temporary reference and because the current
+  // concurrent copying collector keeps the from-space memory
+  // intact/accessible until the end of the marking phase (the
+  // concurrent copying collector may not in the future).
+  MaybeUnpoisonHeapReference(temp);
+
+  // If we're compiling baseline, update the inline cache.
+  MaybeGenerateInlineCacheCheck(invoke, temp);
+
+  // temp = temp->GetMethodAt(method_offset);
+  __ Load_D(temp, temp, method_offset.Int32Value());
+  // RA = temp->GetEntryPoint();
+  __ Load_D(TMP, temp, entry_point.Int32Value());
+  // RA();
+  __ Jirl(RA, TMP, 0);
+  RecordPcInfo(invoke, invoke->GetDexPc(), slow_path);
 }
 
 void CodeGeneratorLOONGARCH64::MoveFromReturnRegister(Location trg, DataType::Type type) {
@@ -2746,6 +2827,26 @@ void CodeGeneratorLOONGARCH64::MoveFromReturnRegister(Location trg, DataType::Ty
       __ Move(trg_reg, res_reg);
     }
   } 
+}
+
+void CodeGeneratorLOONGARCH64::PoisonHeapReference(XRegister reg) {
+  __ Sub_d(reg, Zero, reg);  // Negate the ref.
+}
+
+void CodeGeneratorLOONGARCH64::UnpoisonHeapReference(XRegister reg) {
+  __ Sub_d(reg, Zero, reg);  // Negate the ref.
+}
+
+inline void CodeGeneratorLOONGARCH64::MaybePoisonHeapReference(XRegister reg) {
+  if (kPoisonHeapReferences) {
+    PoisonHeapReference(reg);
+  }
+}
+
+inline void CodeGeneratorLOONGARCH64::MaybeUnpoisonHeapReference(XRegister reg) {
+  if (kPoisonHeapReferences) {
+    UnpoisonHeapReference(reg);
+  }
 }
 
 }  // namespace loongarch64

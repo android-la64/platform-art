@@ -299,7 +299,10 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
     UNREACHABLE();
   };
 
-  size_t GetSIMDRegisterWidth() const override;
+  size_t GetSIMDRegisterWidth() const override {
+    LOG(FATAL) << "Vector is not unimplemented";
+    UNREACHABLE();
+  };
 
   uintptr_t GetAddressOf(HBasicBlock* block) override {
     return assembler_.GetLabelLocation(GetLabelOf(block));
@@ -324,6 +327,8 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   const Loongarch64Assembler& GetAssembler() const override { return assembler_; }
 
   HGraphVisitor* GetLocationBuilder() override { return &location_builder_; }
+
+  void MaybeGenerateInlineCacheCheck(HInstruction* instruction, XRegister klass);
 
   void SetupBlockedRegisters() const override;
 
@@ -401,6 +406,22 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   void MaybeIncrementHotness(bool is_frame_entry);
 
   bool CanUseImplicitSuspendCheck() const;
+
+  //
+  // Heap poisoning.
+  //
+
+  // Poison a heap reference contained in `reg`.
+  void PoisonHeapReference(XRegister reg);
+
+  // Unpoison a heap reference contained in `reg`.
+  void UnpoisonHeapReference(XRegister reg);
+
+  // Poison a heap reference contained in `reg` if heap poisoning is enabled.
+  void MaybePoisonHeapReference(XRegister reg);
+
+  // Unpoison a heap reference contained in `reg` if heap poisoning is enabled.
+  void MaybeUnpoisonHeapReference(XRegister reg);
 
 private:
   Loongarch64Assembler assembler_;
