@@ -56,6 +56,21 @@ static const XRegister kArtMethodRegister = A0;
 
 class CodeGeneratorLOONGARCH64;
 
+class InvokeRuntimeCallingConvention : public CallingConvention<XRegister, FRegister> {
+ public:
+  InvokeRuntimeCallingConvention()
+      : CallingConvention(kRuntimeParameterCoreRegisters,
+                          kRuntimeParameterCoreRegistersLength,
+                          kRuntimeParameterFpuRegisters,
+                          kRuntimeParameterFpuRegistersLength,
+                          kLoongarch64PointerSize) {}
+
+  Location GetReturnLocation(DataType::Type return_type);
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeRuntimeCallingConvention);
+};
+
 class InvokeDexCallingConvention : public CallingConvention<XRegister, FRegister> {
  public:
   InvokeDexCallingConvention()

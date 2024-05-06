@@ -227,6 +227,44 @@ class NullCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
   DISALLOW_COPY_AND_ASSIGN(NullCheckSlowPathLOONGARCH64);
 };
 
+class BoundsCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  explicit BoundsCheckSlowPathLOONGARCH64(HBoundsCheck* instruction)
+      : SlowPathCodeLOONGARCH64(instruction) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    LocationSummary* locations = instruction_->GetLocations();
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    __ Bind(GetEntryLabel());
+    if (instruction_->CanThrowIntoCatchBlock()) {
+      // Live registers will be restored in the catch block if caught.
+      SaveLiveRegisters(codegen, instruction_->GetLocations());
+    }
+    // We're moving two locations to locations that could overlap, so we need a parallel
+    // move resolver.
+    InvokeRuntimeCallingConvention calling_convention;
+    codegen->EmitParallelMoves(locations->InAt(0),
+                               Location::RegisterLocation(calling_convention.GetRegisterAt(0)),
+                               DataType::Type::kInt32,
+                               locations->InAt(1),
+                               Location::RegisterLocation(calling_convention.GetRegisterAt(1)),
+                               DataType::Type::kInt32);
+    QuickEntrypointEnum entrypoint = instruction_->AsBoundsCheck()->IsStringCharAt() ?
+                                         kQuickThrowStringBounds :
+                                         kQuickThrowArrayBounds;
+    loongarch64_codegen->InvokeRuntime(entrypoint, instruction_, instruction_->GetDexPc(), this);
+    CheckEntrypointTypes<kQuickThrowStringBounds, void, int32_t, int32_t>();
+    CheckEntrypointTypes<kQuickThrowArrayBounds, void, int32_t, int32_t>();
+  }
+
+  bool IsFatal() const override { return true; }
+
+  const char* GetDescription() const override { return "BoundsCheckSlowPathLOONGARCH64"; }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(BoundsCheckSlowPathLOONGARCH64);
+};
+
 #undef __
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
 
@@ -1181,13 +1219,22 @@ void InstructionCodeGeneratorLOONGARCH64::VisitArrayGet(HArrayGet* instruction) 
 }
 
 void LocationsBuilderLOONGARCH64::VisitArrayLength(HArrayLength* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitArrayLength(HArrayLength* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  uint32_t offset = CodeGenerator::GetArrayLengthOffset(instruction);
+  XRegister obj = locations->InAt(0).AsRegister<XRegister>();
+  XRegister out = locations->Out().AsRegister<XRegister>();
+  __ Load_WU(out, obj, offset);  // Unsigned for string length; does not matter for other arrays.
+  codegen_->MaybeRecordImplicitNullCheck(instruction);
+  // Mask out compression flag from String's array length.
+  if (mirror::kUseStringCompression && instruction->IsStringLength()) {
+    __ Srli_d(out, out, 1u);
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitArraySet(HArraySet* instruction) {
@@ -1228,23 +1275,101 @@ void InstructionCodeGeneratorLOONGARCH64::VisitBooleanNot(HBooleanNot* instructi
 }
 
 void LocationsBuilderLOONGARCH64::VisitBoundsCheck(HBoundsCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  RegisterSet caller_saves = RegisterSet::Empty();
+  InvokeRuntimeCallingConvention calling_convention;
+  caller_saves.Add(Location::RegisterLocation(calling_convention.GetRegisterAt(0)));
+  caller_saves.Add(Location::RegisterLocation(calling_convention.GetRegisterAt(1)));
+  LocationSummary* locations = codegen_->CreateThrowingSlowPathLocations(instruction, caller_saves);
+
+  HInstruction* index = instruction->InputAt(0);
+  HInstruction* length = instruction->InputAt(1);
+
+  bool const_index = false;
+  bool const_length = false;
+
+  if (length->IsConstant()) {
+    if (index->IsConstant()) {
+      const_index = true;
+      const_length = true;
+    } else {
+      int32_t length_value = length->AsIntConstant()->GetValue();
+      if (length_value == 0 || length_value == 1) {
+        const_length = true;
+      }
+    }
+  } else if (index->IsConstant()) {
+    int32_t index_value = index->AsIntConstant()->GetValue();
+    if (index_value <= 0) {
+      const_index = true;
+    }
+  }
+
+  locations->SetInAt(
+      0,
+      const_index ? Location::ConstantLocation(index->AsConstant()) : Location::RequiresRegister());
+  locations->SetInAt(1,
+                     const_length ? Location::ConstantLocation(length->AsConstant()) :
+                                    Location::RequiresRegister());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitBoundsCheck(HBoundsCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  Location index_loc = locations->InAt(0);
+  Location length_loc = locations->InAt(1);
+
+  if (length_loc.IsConstant()) {
+    int32_t length = length_loc.GetConstant()->AsIntConstant()->GetValue();
+    if (index_loc.IsConstant()) {
+      int32_t index = index_loc.GetConstant()->AsIntConstant()->GetValue();
+      if (index < 0 || index >= length) {
+        BoundsCheckSlowPathLOONGARCH64* slow_path =
+            new (codegen_->GetScopedAllocator()) BoundsCheckSlowPathLOONGARCH64(instruction);
+        codegen_->AddSlowPath(slow_path);
+        __ B(slow_path->GetEntryLabel());
+      } else {
+        // Nothing to be done.
+      }
+      return;
+    }
+
+    BoundsCheckSlowPathLOONGARCH64* slow_path =
+        new (codegen_->GetScopedAllocator()) BoundsCheckSlowPathLOONGARCH64(instruction);
+    codegen_->AddSlowPath(slow_path);
+    XRegister index = index_loc.AsRegister<XRegister>();
+    if (length == 0) {
+      __ B(slow_path->GetEntryLabel());
+    } else {
+      DCHECK_EQ(length, 1);
+      __ Bnez(index, slow_path->GetEntryLabel());
+    }
+  } else {
+    XRegister length = length_loc.AsRegister<XRegister>();
+    BoundsCheckSlowPathLOONGARCH64* slow_path =
+        new (codegen_->GetScopedAllocator()) BoundsCheckSlowPathLOONGARCH64(instruction);
+    codegen_->AddSlowPath(slow_path);
+    if (index_loc.IsConstant()) {
+      int32_t index = index_loc.GetConstant()->AsIntConstant()->GetValue();
+      if (index < 0) {
+        __ B(slow_path->GetEntryLabel());
+      } else {
+        DCHECK_EQ(index, 0);
+        __ Bge(Zero, length, slow_path->GetEntryLabel());
+      }
+    } else {
+      XRegister index = index_loc.AsRegister<XRegister>();
+      __ Bgeu(index, length, slow_path->GetEntryLabel());
+    }
+  }
 }
 
-void LocationsBuilderLOONGARCH64::VisitBoundType(HBoundType* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void LocationsBuilderLOONGARCH64::VisitBoundType([[maybe_unused]] HBoundType* instruction) {
+  // Nothing to do, this should be removed during prepare for register allocator.
+  LOG(FATAL) << "Unreachable";
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitBoundType(HBoundType* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitBoundType([[maybe_unused]] HBoundType* instruction) {
+  // Nothing to do, this should be removed during prepare for register allocator.
+  LOG(FATAL) << "Unreachable";
 }
 
 void LocationsBuilderLOONGARCH64::VisitCheckCast(HCheckCast* instruction) {
@@ -1310,13 +1435,14 @@ void InstructionCodeGeneratorLOONGARCH64::VisitConstructorFence(
 }
 
 void LocationsBuilderLOONGARCH64::VisitCurrentMethod(HCurrentMethod* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  locations->SetOut(Location::RegisterLocation(kArtMethodRegister));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitCurrentMethod(HCurrentMethod* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitCurrentMethod(
+    [[maybe_unused]] HCurrentMethod* instruction) {
+  // Nothing to do, the method is already at its location.
 }
 
 void LocationsBuilderLOONGARCH64::VisitShouldDeoptimizeFlag(HShouldDeoptimizeFlag* instruction) {
@@ -1626,13 +1752,13 @@ void InstructionCodeGeneratorLOONGARCH64::VisitLoadString(HLoadString* instructi
 }
 
 void LocationsBuilderLOONGARCH64::VisitLongConstant(HLongConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetOut(Location::ConstantLocation(instruction));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitLongConstant(HLongConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitLongConstant(
+    [[maybe_unused]] HLongConstant* instruction) {
+  // Will be generated at use site.
 }
 
 void LocationsBuilderLOONGARCH64::VisitMax(HMax* instruction) {
