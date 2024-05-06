@@ -23,6 +23,7 @@
 #include "code_generator.h"
 #include "driver/compiler_options.h"
 #include "optimizing/locations.h"
+#include "parallel_move_resolver.h"
 #include "optimizing/nodes.h"
 #include "utils/loongarch64/assembler_loongarch64.h"
 
@@ -96,6 +97,26 @@ class SlowPathCodeLOONGARCH64 : public SlowPathCode {
   Loongarch64Label exit_label_;
 
   DISALLOW_COPY_AND_ASSIGN(SlowPathCodeLOONGARCH64);
+};
+
+class ParallelMoveResolverLOONGARCH64 : public ParallelMoveResolverWithSwap {
+ public:
+  ParallelMoveResolverLOONGARCH64(ArenaAllocator* allocator, CodeGeneratorLOONGARCH64* codegen)
+      : ParallelMoveResolverWithSwap(allocator), codegen_(codegen) {}
+
+  void EmitMove(size_t index) override;
+  void EmitSwap(size_t index) override;
+  void SpillScratch(int reg) override;
+  void RestoreScratch(int reg) override;
+
+  void Exchange(int index1, int index2, bool double_slot);
+
+  Loongarch64Assembler* GetAssembler() const;
+
+ private:
+  CodeGeneratorLOONGARCH64* const codegen_;
+
+  DISALLOW_COPY_AND_ASSIGN(ParallelMoveResolverLOONGARCH64);
 };
 
 class LocationsBuilderLOONGARCH64 : public HGraphVisitor {
@@ -220,34 +241,14 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
   void GenerateDivRemWithAnyConstant(HBinaryOperation* instruction);
   void GenerateDivRemIntegral(HBinaryOperation* instruction);
   void GenerateIntLongCondition(IfCondition cond, LocationSummary* locations);
-  // When the function returns `false` it means that the condition holds if `dst` is non-zero
-  // and doesn't hold if `dst` is zero. If it returns `true`, the roles of zero and non-zero
-  // `dst` are exchanged.
-  bool MaterializeIntLongCompare(IfCondition cond,
-                                 bool is64bit,
-                                 LocationSummary* input_locations,
-                                 XRegister dst);
   void GenerateIntLongCompareAndBranch(IfCondition cond,
-                                       bool is64bit,
                                        LocationSummary* locations,
                                        Loongarch64Label* label);
   void GenerateFpCondition(IfCondition cond,
                          bool gt_bias,
                          DataType::Type type,
-                         LocationSummary* locations);
-  // When the function returns `false` it means that the condition holds if `dst` is non-zero
-  // and doesn't hold if `dst` is zero. If it returns `true`, the roles of zero and non-zero
-  // `dst` are exchanged.
-  bool MaterializeFpCompare(IfCondition cond,
-                            bool gt_bias,
-                            DataType::Type type,
-                            LocationSummary* input_locations,
-                            XRegister dst);
-  void GenerateFpCompareAndBranch(IfCondition cond,
-                                  bool gt_bias,
-                                  DataType::Type type,
-                                  LocationSummary* locations,
-                                  Loongarch64Label* label);
+                         LocationSummary* locations,
+                         Loongarch64Label* label = nullptr);
   void HandleGoto(HInstruction* got, HBasicBlock* successor);
   void GenPackedSwitchWithCompares(XRegister value_reg,
                                    int32_t lower_bound,
@@ -357,11 +358,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
                                            HInstruction* instruction,
                                            SlowPathCode* slow_path);
 
-  // TODO(riscv64): Add ParallelMoveResolverRISCV64 Later
-  ParallelMoveResolver* GetMoveResolver() override {
-    LOG(FATAL) << "Unimplemented";
-    UNREACHABLE();
-  }
+  ParallelMoveResolver* GetMoveResolver() override { return &move_resolver_; }
 
   bool NeedsTwoRegisters([[maybe_unused]] DataType::Type type) const override { return false; }
 
@@ -419,6 +416,8 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   // Unpoison a heap reference contained in `reg` if heap poisoning is enabled.
   void MaybeUnpoisonHeapReference(XRegister reg);
 
+  void SwapLocations(Location loc1, Location loc2, DataType::Type type);
+
 private:
   Loongarch64Assembler assembler_;
   LocationsBuilderLOONGARCH64 location_builder_;
@@ -427,6 +426,8 @@ private:
 
   // Labels for each block that will be compiled.
   Loongarch64Label* block_labels_;  // Indexed by block id.
+
+  ParallelMoveResolverLOONGARCH64 move_resolver_;
 };
 
 }  // namespace loongarch64

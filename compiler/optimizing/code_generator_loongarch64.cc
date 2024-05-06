@@ -21,6 +21,7 @@
 #include "thread.h"
 #include "arch/loongarch64/registers_loongarch64.h"
 #include "base/macros.h"
+#include "code_generator_utils.h"
 #include "dwarf/register.h"
 #include "heap_poisoning.h"
 #include "intrinsics_list.h"
@@ -229,6 +230,74 @@ class NullCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
 #undef __
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
 
+Loongarch64Assembler* ParallelMoveResolverLOONGARCH64::GetAssembler() const {
+  return codegen_->GetAssembler();
+}
+
+void ParallelMoveResolverLOONGARCH64::EmitMove(size_t index) {
+  MoveOperands* move = moves_[index];
+  codegen_->MoveLocation(move->GetDestination(), move->GetSource(), move->GetType());
+}
+
+void ParallelMoveResolverLOONGARCH64::EmitSwap(size_t index) {
+  MoveOperands* move = moves_[index];
+  codegen_->SwapLocations(move->GetDestination(), move->GetSource(), move->GetType());
+}
+
+void ParallelMoveResolverLOONGARCH64::SpillScratch([[maybe_unused]] int reg) {
+  LOG(FATAL) << "Unimplemented";
+  UNREACHABLE();
+}
+
+void ParallelMoveResolverLOONGARCH64::RestoreScratch([[maybe_unused]] int reg) {
+  LOG(FATAL) << "Unimplemented";
+  UNREACHABLE();
+}
+
+void ParallelMoveResolverLOONGARCH64::Exchange(int index1, int index2, bool double_slot) {
+  // We have 2 scratch X registers and 1 scratch F register that we can use. We prefer
+  // to use X registers for the swap but if both offsets are too big, we need to reserve
+  // one of the X registers for address adjustment and use an F register.
+  bool use_fp_tmp2 = false;
+  if (!IsInt<12>(index2)) {
+    if (!IsInt<12>(index1)) {
+      use_fp_tmp2 = true;
+    } else {
+      std::swap(index1, index2);
+    }
+  }
+  // DCHECK_IMPLIES(!IsInt<12>(index2), use_fp_tmp2);
+
+  Location loc1(double_slot ? Location::DoubleStackSlot(index1) : Location::StackSlot(index1));
+  Location loc2(double_slot ? Location::DoubleStackSlot(index2) : Location::StackSlot(index2));
+  loongarch64::ScratchRegisterScope srs(GetAssembler());
+  Location tmp = Location::RegisterLocation(srs.AllocateXRegister());
+  DataType::Type tmp_type = double_slot ? DataType::Type::kInt64 : DataType::Type::kInt32;
+  Location tmp2 = use_fp_tmp2
+      ? Location::FpuRegisterLocation(srs.AllocateFRegister())
+      : Location::RegisterLocation(srs.AllocateXRegister());
+  DataType::Type tmp2_type = use_fp_tmp2
+      ? (double_slot ? DataType::Type::kFloat64 : DataType::Type::kFloat32)
+      : tmp_type;
+
+  codegen_->MoveLocation(tmp, loc1, tmp_type);
+  codegen_->MoveLocation(tmp2, loc2, tmp2_type);
+  if (use_fp_tmp2) {
+    codegen_->MoveLocation(loc2, tmp, tmp_type);
+  } else {
+    // We cannot use `Stored()` or `Storew()` via `MoveLocation()` because we have
+    // no more scratch registers available. Use `Sd()` or `Sw()` explicitly.
+    DCHECK(IsInt<12>(index2));
+    if (double_slot) {
+      __ St_D(tmp.AsRegister<XRegister>(), SP, index2);
+    } else {
+      __ St_W(tmp.AsRegister<XRegister>(), SP, index2);
+    }
+    srs.FreeXRegister(tmp.AsRegister<XRegister>());  // Free a temporary for `MoveLocation()`.
+  }
+  codegen_->MoveLocation(loc1, tmp2, tmp2_type);
+}
+
 InstructionCodeGeneratorLOONGARCH64::InstructionCodeGeneratorLOONGARCH64(HGraph* graph,
                                                                  CodeGeneratorLOONGARCH64* codegen)
     : InstructionCodeGenerator(graph, codegen),
@@ -356,11 +425,74 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateTestAndBranch(HInstruction* in
                                                             size_t condition_input_index,
                                                             Loongarch64Label* true_target,
                                                             Loongarch64Label* false_target) {
-  UNUSED(instruction);
-  UNUSED(condition_input_index);
-  UNUSED(true_target);
-  UNUSED(false_target);
-  LOG(FATAL) << "Unimplemented";
+  HInstruction* cond = instruction->InputAt(condition_input_index);
+
+  if (true_target == nullptr && false_target == nullptr) {
+    // Nothing to do. The code always falls through.
+    return;
+  } else if (cond->IsIntConstant()) {
+    // Constant condition, statically compared against "true" (integer value 1).
+    if (cond->AsIntConstant()->IsTrue()) {
+      if (true_target != nullptr) {
+        __ B(true_target);
+      }
+    } else {
+      DCHECK(cond->AsIntConstant()->IsFalse()) << cond->AsIntConstant()->GetValue();
+      if (false_target != nullptr) {
+        __ B(false_target);
+      }
+    }
+    return;
+  }
+
+  // The following code generates these patterns:
+  //  (1) true_target == nullptr && false_target != nullptr
+  //        - opposite condition true => branch to false_target
+  //  (2) true_target != nullptr && false_target == nullptr
+  //        - condition true => branch to true_target
+  //  (3) true_target != nullptr && false_target != nullptr
+  //        - condition true => branch to true_target
+  //        - branch to false_target
+  if (IsBooleanValueOrMaterializedCondition(cond)) {
+    // The condition instruction has been materialized, compare the output to 0.
+    Location cond_val = instruction->GetLocations()->InAt(condition_input_index);
+    DCHECK(cond_val.IsRegister());
+    if (true_target == nullptr) {
+      __ Beqz(cond_val.AsRegister<XRegister>(), false_target);
+    } else {
+      __ Bnez(cond_val.AsRegister<XRegister>(), true_target);
+    }
+  } else {
+    // The condition instruction has not been materialized, use its inputs as
+    // the comparison and its condition as the branch condition.
+    HCondition* condition = cond->AsCondition();
+    DataType::Type type = condition->InputAt(0)->GetType();
+    LocationSummary* locations = condition->GetLocations();
+    IfCondition if_cond = condition->GetCondition();
+    Loongarch64Label* branch_target = true_target;
+
+    if (true_target == nullptr) {
+      if_cond = condition->GetOppositeCondition();
+      branch_target = false_target;
+    }
+
+    switch (type) {
+      case DataType::Type::kFloat32:
+      case DataType::Type::kFloat64:
+        GenerateFpCondition(if_cond, condition->IsGtBias(), type, locations, branch_target);
+        break;
+      default:
+        // Integral types and reference equality.
+        GenerateIntLongCompareAndBranch(if_cond, locations, branch_target);
+        break;
+    }
+  }
+
+  // If neither branch falls through (case 3), the conditional branch to `true_target`
+  // was already emitted (case 2) and we need to emit a jump to `false_target`.
+  if (true_target != nullptr && false_target != nullptr) {
+    __ B(false_target);
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::DivRemOneOrMinusOne(HBinaryOperation* instruction) {
@@ -475,59 +607,82 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition c
   }
 }
 
-bool InstructionCodeGeneratorLOONGARCH64::MaterializeIntLongCompare(IfCondition cond,
-                                                                bool is_64bit,
-                                                                LocationSummary* locations,
-                                                                XRegister dest) {
-  UNUSED(cond);
-  UNUSED(is_64bit);
-  UNUSED(locations);
-  UNUSED(dest);
-  LOG(FATAL) << "UniMplemented";
-  UNREACHABLE();
-}
-
 void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCompareAndBranch(IfCondition cond,
-                                                                      bool is_64bit,
                                                                       LocationSummary* locations,
                                                                       Loongarch64Label* label) {
-  UNUSED(cond);
-  UNUSED(is_64bit);
-  UNUSED(locations);
-  UNUSED(label);
-  LOG(FATAL) << "UniMplemented";
+  XRegister left = locations->InAt(0).AsRegister<XRegister>();
+  Location right_location = locations->InAt(1);
+  if (right_location.IsConstant()) {
+    DCHECK_EQ(CodeGenerator::GetInt64ValueOf(right_location.GetConstant()), 0);
+    switch (cond) {
+      case kCondEQ:
+      case kCondBE:  // <= 0 if zero
+        __ Beqz(left, label);
+        break;
+      case kCondNE:
+      case kCondA:  // > 0 if non-zero
+        __ Bnez(left, label);
+        break;
+      case kCondLT:
+        __ Blt(left, Zero, label);
+        break;
+      case kCondGE:
+        __ Bge(left, Zero, label);
+        break;
+      case kCondLE:
+        __ Bge(Zero, left, label);
+        break;
+      case kCondGT:
+        __ Blt(Zero, left, label);
+        break;
+      case kCondB:  // always false
+        break;
+      case kCondAE:  // always true
+        __ B(label);
+        break;
+    }
+  } else {
+    XRegister right_reg = right_location.AsRegister<XRegister>();
+    switch (cond) {
+      case kCondEQ:
+        __ Beq(left, right_reg, label);
+        break;
+      case kCondNE:
+        __ Bne(left, right_reg, label);
+        break;
+      case kCondLT:
+        __ Blt(left, right_reg, label);
+        break;
+      case kCondGE:
+        __ Bge(left, right_reg, label);
+        break;
+      case kCondLE:
+        __ Bge(right_reg, left, label);
+        break;
+      case kCondGT:
+        __ Blt(right_reg, left, label);
+        break;
+      case kCondB:
+        __ Bltu(left, right_reg, label);
+        break;
+      case kCondAE:
+        __ Bgeu(left, right_reg, label);
+        break;
+      case kCondBE:
+        __ Bgeu(right_reg, left, label);
+        break;
+      case kCondA:
+        __ Bltu(right_reg, left, label);
+        break;
+    }
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
                                                         bool gt_bias,
                                                         DataType::Type type,
-                                                        LocationSummary* locations) {
-  UNUSED(cond);
-  UNUSED(gt_bias);
-  UNUSED(type);
-  UNUSED(locations);
-  LOG(FATAL) << "Unimplemented";
-}
-
-bool InstructionCodeGeneratorLOONGARCH64::MaterializeFpCompare(IfCondition cond,
-                                                           bool gt_bias,
-                                                           DataType::Type type,
-                                                           LocationSummary* locations,
-                                                           XRegister dest) {
-  UNUSED(cond);
-  UNUSED(gt_bias);
-  UNUSED(type);
-  UNUSED(locations);
-  UNUSED(dest);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
-}
-
-void InstructionCodeGeneratorLOONGARCH64::GenerateFpCompareAndBranch(IfCondition cond,
-                                                                 bool gt_bias,
-                                                                 DataType::Type type,
-                                                                 LocationSummary* locations,
-                                                                 Loongarch64Label* label) {
+                                                        LocationSummary* locations,
+                                                        Loongarch64Label* label) {
   UNUSED(cond);
   UNUSED(gt_bias);
   UNUSED(type);
@@ -716,23 +871,34 @@ void LocationsBuilderLOONGARCH64::HandleCondition(HCondition* instruction) {
       bool use_imm = false;
       if (rhs->IsConstant()) {
         int64_t imm = CodeGenerator::GetInt64ValueOf(rhs->AsConstant());
-        switch (instruction->GetCondition()) {
-          case kCondEQ:
-          case kCondNE:
-            imm = -imm;
-            break;
-          case kCondLE:
-          case kCondGT:
-          case kCondBE:
-          case kCondA:
-            imm += 1;
-            break;
-          default:
-            break;
+        if (instruction->IsEmittedAtUseSite()) {
+          // For `HIf`, materialize all non-zero constants with an `HParallelMove`.
+          // Note: For certain constants and conditions, the code could be improved.
+          // For example, 2048 takes two instructions to materialize but the negative
+          // -2048 could be embedded in ADDI for EQ/NE comparison.
+          use_imm = (imm == 0);
+        } else {
+          // Constants that cannot be embedded in an instruction's 12-bit immediate shall be
+          // materialized with an `HParallelMove`. This simplifies the code and avoids cases
+          // with arithmetic overflow. Adjust the `imm` if needed for a particular instruction.
+          switch (instruction->GetCondition()) {
+            case kCondEQ:
+            case kCondNE:
+              imm = -imm; // ADDI with negative immediate (there is no SUBI).
+              break;
+            case kCondLE:
+            case kCondGT:
+            case kCondBE:
+            case kCondA:
+              imm += 1; // SLTI/SLTIU with adjusted immediate (there is no SLEI/SLEIU).
+              break;
+            default:
+              break;
+          }
+          // Constants that cannot be embedded in an instruction's 12-bit immediate shall be
+          // materialized. This simplifies the code and avoids cases with arithmetic overflow.
+          use_imm = IsInt<12>(imm);
         }
-        // Constants that cannot be embedded in an instruction's 12-bit immediate shall be
-        // materialized. This simplifies the code and avoids cases with arithmetic overflow.
-        use_imm = IsInt<12>(imm);
       }
       if (use_imm) {
         locations->SetInAt(1, Location::ConstantLocation(rhs->AsConstant()));
@@ -760,7 +926,7 @@ void InstructionCodeGeneratorLOONGARCH64::HandleCondition(HCondition* instructio
       GenerateFpCondition(instruction->GetCondition(), instruction->IsGtBias(), type, locations);
       return;
     default:
-      // Integral types.
+      // Integral types and reference equality.
       GenerateIntLongCondition(instruction->GetCondition(), locations);
       return;
   }
@@ -1253,13 +1419,22 @@ void InstructionCodeGeneratorLOONGARCH64::VisitGreaterThanOrEqual(HGreaterThanOr
 }
 
 void LocationsBuilderLOONGARCH64::VisitIf(HIf* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  if (IsBooleanValueOrMaterializedCondition(instruction->InputAt(0))) {
+    locations->SetInAt(0, Location::RequiresRegister());
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitIf(HIf* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HBasicBlock* true_successor = instruction->IfTrueSuccessor();
+  HBasicBlock* false_successor = instruction->IfFalseSuccessor();
+  Loongarch64Label* true_target = codegen_->GoesToNextBlock(instruction->GetBlock(), true_successor)
+      ? nullptr
+      : codegen_->GetLabelOf(true_successor);
+  Loongarch64Label* false_target = codegen_->GoesToNextBlock(instruction->GetBlock(), false_successor)
+      ? nullptr
+      : codegen_->GetLabelOf(false_successor);
+  GenerateTestAndBranch(instruction, /* condition_input_index= */ 0, true_target, false_target);
 }
 
 void LocationsBuilderLOONGARCH64::VisitInstanceFieldGet(HInstanceFieldGet* instruction) {
@@ -1637,14 +1812,19 @@ void InstructionCodeGeneratorLOONGARCH64::VisitPackedSwitch(HPackedSwitch* instr
   LOG(FATAL) << "Unimplemented";
 }
 
-void LocationsBuilderLOONGARCH64::VisitParallelMove(HParallelMove* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void LocationsBuilderLOONGARCH64::VisitParallelMove([[maybe_unused]] HParallelMove* instruction) {
+  LOG(FATAL) << "Unreachable";
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitParallelMove(HParallelMove* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  if (instruction->GetNext()->IsSuspendCheck() &&
+      instruction->GetBlock()->GetLoopInformation() != nullptr) {
+    HSuspendCheck* suspend_check = instruction->GetNext()->AsSuspendCheck();
+    // The back edge will generate the suspend check.
+    codegen_->ClearSpillSlotsFromLoopPhisInStackMap(suspend_check, instruction);
+  }
+
+  codegen_->GetMoveResolver()->EmitNativeCode(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitParameterValue(HParameterValue* instruction) {
@@ -2272,7 +2452,8 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
                  compiler_options.GetInstructionSetFeatures()->AsLoongarch64InstructionSetFeatures()),
       location_builder_(graph, this),
       instruction_visitor_(graph, this),
-      block_labels_(nullptr) {
+      block_labels_(nullptr),
+      move_resolver_(graph->GetAllocator(), this) {
   // Always mark the RA register to be saved.
   AddAllocatedRegister(Location::RegisterLocation(RA));
 }
@@ -2880,6 +3061,48 @@ inline void CodeGeneratorLOONGARCH64::MaybePoisonHeapReference(XRegister reg) {
 inline void CodeGeneratorLOONGARCH64::MaybeUnpoisonHeapReference(XRegister reg) {
   if (kPoisonHeapReferences) {
     UnpoisonHeapReference(reg);
+  }
+}
+
+void CodeGeneratorLOONGARCH64::SwapLocations(Location loc1, Location loc2, DataType::Type type) {
+  DCHECK(!loc1.IsConstant());
+  DCHECK(!loc2.IsConstant());
+
+  if (loc1.Equals(loc2)) {
+    return;
+  }
+
+  bool is_slot1 = loc1.IsStackSlot() || loc1.IsDoubleStackSlot();
+  bool is_slot2 = loc2.IsStackSlot() || loc2.IsDoubleStackSlot();
+  bool is_simd1 = loc1.IsSIMDStackSlot();
+  bool is_simd2 = loc2.IsSIMDStackSlot();
+  bool is_fp_reg1 = loc1.IsFpuRegister();
+  bool is_fp_reg2 = loc2.IsFpuRegister();
+
+  if ((is_slot1 != is_slot2) ||
+      (loc2.IsRegister() && loc1.IsRegister()) ||
+      (is_fp_reg2 && is_fp_reg1)) {
+    if ((is_fp_reg2 && is_fp_reg1) && GetGraph()->HasSIMD()) {
+      LOG(FATAL) << "Unsupported";
+      UNREACHABLE();
+    }
+    ScratchRegisterScope srs(GetAssembler());
+    Location tmp = (is_fp_reg2 || is_fp_reg1)
+        ? Location::FpuRegisterLocation(srs.AllocateFRegister())
+        : Location::RegisterLocation(srs.AllocateXRegister());
+    MoveLocation(tmp, loc1, type);
+    MoveLocation(loc1, loc2, type);
+    MoveLocation(loc2, tmp, type);
+  } else if (is_slot1 && is_slot2) {
+    move_resolver_.Exchange(loc1.GetStackIndex(), loc2.GetStackIndex(), loc1.IsDoubleStackSlot());
+  } else if (is_simd1 && is_simd2) {
+    // TODO(loongarch64): Add VECTOR/SIMD later.
+    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
+  } else if ((is_fp_reg1 && is_simd2) || (is_fp_reg2 && is_simd1)) {
+    // TODO(loongarch64): Add VECTOR/SIMD later.
+    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
+  } else {
+    LOG(FATAL) << "Unimplemented swap between locations " << loc1 << " and " << loc2;
   }
 }
 
