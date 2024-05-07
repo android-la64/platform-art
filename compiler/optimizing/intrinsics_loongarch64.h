@@ -19,6 +19,7 @@
 
 #include "base/macros.h"
 #include "intrinsics.h"
+#include "intrinsics_list.h"
 
 namespace art {
 
@@ -39,11 +40,14 @@ class IntrinsicLocationsBuilderLOONGARCH64 final : public IntrinsicVisitor {
 
   // Define visitor methods.
 
-#define OPTIMIZING_INTRINSICS(Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
-  void Visit ## Name(HInvoke* invoke) override;
-#include "intrinsics_list.h"
+  // TODO(loongarch64): Implement in `intrinsics_loongarch64.cc`.
+#define OPTIMIZING_INTRINSICS(                                             \
+    Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
+  void Visit##Name(HInvoke* invoke) override {                             \
+    UNUSED(invoke);                                                        \
+    LOG(FATAL) << "Unimplemented";                                         \
+  }
   INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
-#undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
 
   // Check whether an invoke is an intrinsic, and if so, create a location summary. Returns whether
@@ -71,11 +75,14 @@ class IntrinsicCodeGeneratorLOONGARCH64 final : public IntrinsicVisitor {
 
   // Define visitor methods.
 
-#define OPTIMIZING_INTRINSICS(Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
-  void Visit ## Name(HInvoke* invoke) override;
-#include "intrinsics_list.h"
+  // TODO(loongarch64): Implement in `intrinsics_loongarch64.cc`.
+#define OPTIMIZING_INTRINSICS(                                             \
+    Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
+  void Visit##Name(HInvoke* invoke) override {                             \
+    UNUSED(invoke);                                                        \
+    LOG(FATAL) << "Unimplemented";                                         \
+  }
   INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
-#undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
 
  private:
