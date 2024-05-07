@@ -26,6 +26,7 @@
 #include "dwarf/register.h"
 #include "heap_poisoning.h"
 #include "intrinsics_list.h"
+#include "intrinsics_loongarch64.h"
 #include "jit/profiling_info.h"
 #include "mirror/class-inl.h"
 #include "optimizing/nodes.h"
@@ -199,8 +200,8 @@ Location CriticalNativeCallingConventionVisitorLoongarch64::GetMethodLocation() 
 #define __ down_cast<CodeGeneratorLOONGARCH64*>(codegen)->GetAssembler()->  // NOLINT
 
 void LocationsBuilderLOONGARCH64::HandleInvoke(HInvoke* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  InvokeDexCallingConventionVisitorLOONGARCH64 calling_convention_visitor;
+  CodeGenerator::CreateCommonInvokeLocationSummary(instruction, &calling_convention_visitor);
 }
 
 Location LocationsBuilderLOONGARCH64::RegisterOrZeroConstant(HInstruction* instruction) {
@@ -1550,17 +1551,30 @@ void InstructionCodeGeneratorLOONGARCH64::VisitCheckCast(HCheckCast* instruction
 }
 
 void LocationsBuilderLOONGARCH64::VisitClassTableGet(HClassTableGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+}
+
+void InstructionCodeGeneratorLOONGARCH64::VisitClassTableGet(HClassTableGet* instruction) {
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister in = locations->InAt(0).AsRegister<XRegister>();
+  XRegister out = locations->Out().AsRegister<XRegister>();
+  if (instruction->GetTableKind() == HClassTableGet::TableKind::kVTable) {
+    MemberOffset method_offset =
+        mirror::Class::EmbeddedVTableEntryOffset(instruction->GetIndex(), kLoongarch64PointerSize);
+    __ Load_D(out, in, method_offset.SizeValue());
+  } else {
+    uint32_t method_offset = dchecked_integral_cast<uint32_t>(
+        ImTable::OffsetOfElement(instruction->GetIndex(), kLoongarch64PointerSize));
+    __ Load_D(out, in, mirror::Class::ImtPtrOffset(kLoongarch64PointerSize).Uint32Value());
+    __ Load_D(out, out, method_offset);
+  }
 }
 
 static int32_t GetExceptionTlsOffset() {
   return Thread::ExceptionOffset<kLoongarch64PointerSize>().Int32Value();
-}
-
-void InstructionCodeGeneratorLOONGARCH64::VisitClassTableGet(HClassTableGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
 }
 
 void LocationsBuilderLOONGARCH64::VisitClearException(HClearException* instruction) {
@@ -1790,13 +1804,13 @@ void InstructionCodeGeneratorLOONGARCH64::VisitIntermediateAddress(HIntermediate
 }
 
 void LocationsBuilderLOONGARCH64::VisitInvokeUnresolved(HInvokeUnresolved* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  // The trampoline uses the same calling convention as dex calling conventions, except
+  // instead of loading arg0/A0 with the target Method*, arg0/A0 will contain the method_idx.
+  HandleInvoke(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInvokeUnresolved(HInvokeUnresolved* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->GenerateInvokeUnresolvedRuntimeCall(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitInvokeInterface(HInvokeInterface* instruction) {
