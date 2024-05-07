@@ -2579,7 +2579,21 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
       location_builder_(graph, this),
       instruction_visitor_(graph, this),
       block_labels_(nullptr),
-      move_resolver_(graph->GetAllocator(), this) {
+      move_resolver_(graph->GetAllocator(), this),
+      uint32_literals_(std::less<uint32_t>(),
+                       graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      uint64_literals_(std::less<uint64_t>(),
+                       graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      boot_image_method_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      method_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      boot_image_type_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      type_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      public_type_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      package_type_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      boot_image_string_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      string_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      boot_image_jni_entrypoint_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      boot_image_other_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)) {
   // Always mark the RA register to be saved.
   AddAllocatedRegister(Location::RegisterLocation(RA));
 }
@@ -3071,11 +3085,176 @@ HInvokeStaticOrDirect::DispatchInfo CodeGeneratorLOONGARCH64::GetSupportedInvoke
   return desired_dispatch_info;
 }
 
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageIntrinsicPatch(
+    uint32_t intrinsic_data, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(
+      /* dex_file= */ nullptr, intrinsic_data, info_high, &boot_image_other_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageRelRoPatch(
+    uint32_t boot_image_offset, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(
+      /* dex_file= */ nullptr, boot_image_offset, info_high, &boot_image_other_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageMethodPatch(
+    MethodReference target_method, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(
+      target_method.dex_file, target_method.index, info_high, &boot_image_method_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewMethodBssEntryPatch(
+    MethodReference target_method, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(
+      target_method.dex_file, target_method.index, info_high, &method_bss_entry_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageTypePatch(
+    const DexFile& dex_file, dex::TypeIndex type_index, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(&dex_file, type_index.index_, info_high, &boot_image_type_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageJniEntrypointPatch(
+    MethodReference target_method, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(
+      target_method.dex_file, target_method.index, info_high, &boot_image_jni_entrypoint_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewTypeBssEntryPatch(
+    HLoadClass* load_class,
+    const PcRelativePatchInfo* info_high) {
+  const DexFile& dex_file = load_class->GetDexFile();
+  dex::TypeIndex type_index = load_class->GetTypeIndex();
+  ArenaDeque<PcRelativePatchInfo>* patches = nullptr;
+  switch (load_class->GetLoadKind()) {
+    case HLoadClass::LoadKind::kBssEntry:
+      patches = &type_bss_entry_patches_;
+      break;
+    case HLoadClass::LoadKind::kBssEntryPublic:
+      patches = &public_type_bss_entry_patches_;
+      break;
+    case HLoadClass::LoadKind::kBssEntryPackage:
+      patches = &package_type_bss_entry_patches_;
+      break;
+    default:
+      LOG(FATAL) << "Unexpected load kind: " << load_class->GetLoadKind();
+      UNREACHABLE();
+  }
+  return NewPcRelativePatch(&dex_file, type_index.index_, info_high, patches);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageStringPatch(
+    const DexFile& dex_file, dex::StringIndex string_index, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(&dex_file, string_index.index_, info_high, &boot_image_string_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewStringBssEntryPatch(
+    const DexFile& dex_file, dex::StringIndex string_index, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(&dex_file, string_index.index_, info_high, &string_bss_entry_patches_);
+}
+
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewPcRelativePatch(
+    const DexFile* dex_file,
+    uint32_t offset_or_index,
+    const PcRelativePatchInfo* info_high,
+    ArenaDeque<PcRelativePatchInfo>* patches) {
+  patches->emplace_back(dex_file, offset_or_index, info_high);
+  return &patches->back();
+}
+
+Literal* CodeGeneratorLOONGARCH64::DeduplicateUint32Literal(uint32_t value) {
+  return uint32_literals_.GetOrCreate(value,
+                                      [this, value]() { return __ NewLiteral<uint32_t>(value); });
+}
+
+Literal* CodeGeneratorLOONGARCH64::DeduplicateUint64Literal(uint64_t value) {
+  return uint64_literals_.GetOrCreate(value,
+                                      [this, value]() { return __ NewLiteral<uint64_t>(value); });
+}
+
+Literal* CodeGeneratorLOONGARCH64::DeduplicateBootImageAddressLiteral(uint64_t address) {
+  return DeduplicateUint32Literal(dchecked_integral_cast<uint32_t>(address));
+}
+
+void CodeGeneratorLOONGARCH64::EmitPcRelativePcaddu12iPlaceholder(PcRelativePatchInfo* info_high,
+                                                          XRegister out) {
+  DCHECK(info_high->patch_info_high == nullptr);
+  __ Bind(&info_high->label);
+  __ Pcaddu12i(out, /*imm20=*/ 0x12345);  // Placeholder `imm20` patched at link time.
+}
+
+void CodeGeneratorLOONGARCH64::EmitPcRelativeAddi_dPlaceholder(PcRelativePatchInfo* info_low,
+                                                         XRegister rd,
+                                                         XRegister rs1) {
+  DCHECK(info_low->patch_info_high != nullptr);
+  __ Bind(&info_low->label);
+  __ Addi_D(rd, rs1, /*imm12=*/ 0x678);  // Placeholder `imm12` patched at link time.
+}
+
+void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_wuPlaceholder(PcRelativePatchInfo* info_low,
+                                                        XRegister rd,
+                                                        XRegister rs1) {
+  DCHECK(info_low->patch_info_high != nullptr);
+  __ Bind(&info_low->label);
+  __ Ld_WU(rd, rs1, /*offset=*/ 0x678);  // Placeholder `offset` patched at link time.
+}
+
+void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_dPlaceholder(PcRelativePatchInfo* info_low,
+                                                       XRegister rd,
+                                                       XRegister rs1) {
+  DCHECK(info_low->patch_info_high != nullptr);
+  __ Bind(&info_low->label);
+  __ Ld_D(rd, rs1, /*offset=*/ 0x678);  // Placeholder `offset` patched at link time.
+}
+
 void CodeGeneratorLOONGARCH64::LoadMethod(MethodLoadKind load_kind, Location temp, HInvoke* invoke) {
-  UNUSED(load_kind);
-  UNUSED(temp);
-  UNUSED(invoke);
-  LOG(FATAL) << "Unimplemented";
+    switch (load_kind) {
+    case MethodLoadKind::kBootImageLinkTimePcRelative: {
+      DCHECK(GetCompilerOptions().IsBootImage() || GetCompilerOptions().IsBootImageExtension());
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_high =
+          NewBootImageMethodPatch(invoke->GetResolvedMethodReference());
+      EmitPcRelativePcaddu12iPlaceholder(info_high, temp.AsRegister<XRegister>());
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_low =
+          NewBootImageMethodPatch(invoke->GetResolvedMethodReference(), info_high);
+      EmitPcRelativeAddi_dPlaceholder(
+          info_low, temp.AsRegister<XRegister>(), temp.AsRegister<XRegister>());
+      break;
+    }
+    // Read-only data area in Boot Image
+    case MethodLoadKind::kBootImageRelRo: {
+      // get the method offset in Boot Image
+      uint32_t boot_image_offset = GetBootImageOffset(invoke);
+      PcRelativePatchInfo* info_high = NewBootImageRelRoPatch(boot_image_offset);
+      EmitPcRelativePcaddu12iPlaceholder(info_high, temp.AsRegister<XRegister>());
+      PcRelativePatchInfo* info_low = NewBootImageRelRoPatch(boot_image_offset, info_high);
+      // Note: Boot image is in the low 4GiB and the entry is 32-bit, so emit a 32-bit load.
+      EmitPcRelativeLd_wuPlaceholder(
+          info_low, temp.AsRegister<XRegister>(), temp.AsRegister<XRegister>());
+      break;
+    }
+    case MethodLoadKind::kBssEntry: {
+      PcRelativePatchInfo* info_high = NewMethodBssEntryPatch(invoke->GetMethodReference());
+      EmitPcRelativePcaddu12iPlaceholder(info_high, temp.AsRegister<XRegister>());
+      PcRelativePatchInfo* info_low =
+          NewMethodBssEntryPatch(invoke->GetMethodReference(), info_high);
+      EmitPcRelativeLd_dPlaceholder(
+          info_low, temp.AsRegister<XRegister>(), temp.AsRegister<XRegister>());
+      break;
+    }
+    case MethodLoadKind::kJitDirectAddress: {
+      __ LoadConst64(temp.AsRegister<XRegister>(),
+                     reinterpret_cast<uint64_t>(invoke->GetResolvedMethod()));
+      break;
+    }
+    case MethodLoadKind::kRuntimeCall: {
+      // Test situation, don't do anything.
+      break;
+    }
+    default: {
+      LOG(FATAL) << "Load kind should have already been handled " << load_kind;
+      UNREACHABLE();
+    }
+  }
 }
 
 void CodeGeneratorLOONGARCH64::GenerateStaticOrDirectCall(HInvokeStaticOrDirect* invoke,

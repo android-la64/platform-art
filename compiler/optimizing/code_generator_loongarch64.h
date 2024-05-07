@@ -400,6 +400,66 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   HInvokeStaticOrDirect::DispatchInfo GetSupportedInvokeStaticOrDirectDispatch(
       const HInvokeStaticOrDirect::DispatchInfo& desired_dispatch_info, ArtMethod* method) override;
 
+  // The PcRelativePatchInfo is used for PC-relative addressing of methods/strings/types,
+  // whether through .data.bimg.rel.ro, .bss, or directly in the boot image.
+  //
+  // The 20-bit and 12-bit parts of the 32-bit PC-relative offset are patched separately,
+  // necessitating two patches/infos. There can be more than two patches/infos if the
+  // instruction supplying the high part is shared with e.g. a slow path, while the low
+  // part is supplied by separate instructions, e.g.:
+  //     pcaddu12i $r1, high  // patch
+  //     ld.wu $r2, $r1, low  // patch
+  //     beqz  $r2, slow_path
+  //   back:
+  //     ...
+  //   slow_path:
+  //     ...
+  //     st.w    $r2, $r1, low    // patch
+  //     b     back
+  struct PcRelativePatchInfo : PatchInfo<Loongarch64Label> {
+    PcRelativePatchInfo(const DexFile* dex_file,
+                        uint32_t off_or_idx,
+                        const PcRelativePatchInfo* info_high)
+        : PatchInfo<Loongarch64Label>(dex_file, off_or_idx), patch_info_high(info_high) {}
+
+    // Pointer to the info for the high part patch or nullptr if this is the high part patch info.
+    const PcRelativePatchInfo* patch_info_high;
+
+   private:
+    PcRelativePatchInfo(PcRelativePatchInfo&& other) = delete;
+    DISALLOW_COPY_AND_ASSIGN(PcRelativePatchInfo);
+  };
+
+  PcRelativePatchInfo* NewBootImageIntrinsicPatch(uint32_t intrinsic_data,
+                                                  const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewBootImageRelRoPatch(uint32_t boot_image_offset,
+                                              const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewBootImageMethodPatch(MethodReference target_method,
+                                               const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewMethodBssEntryPatch(MethodReference target_method,
+                                              const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewBootImageJniEntrypointPatch(
+      MethodReference target_method, const PcRelativePatchInfo* info_high = nullptr);
+
+  PcRelativePatchInfo* NewBootImageTypePatch(const DexFile& dex_file,
+                                             dex::TypeIndex type_index,
+                                             const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewTypeBssEntryPatch(HLoadClass* load_class,
+                                            const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewBootImageStringPatch(const DexFile& dex_file,
+                                               dex::StringIndex string_index,
+                                               const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewStringBssEntryPatch(const DexFile& dex_file,
+                                              dex::StringIndex string_index,
+                                              const PcRelativePatchInfo* info_high = nullptr);
+
+  void EmitPcRelativePcaddu12iPlaceholder(PcRelativePatchInfo* info_high, XRegister out);
+  void EmitPcRelativeAddi_dPlaceholder(PcRelativePatchInfo* info_low, XRegister rd, XRegister rs1);
+  void EmitPcRelativeLd_wuPlaceholder(PcRelativePatchInfo* info_low, XRegister rd, XRegister rs1);
+  void EmitPcRelativeLd_dPlaceholder(PcRelativePatchInfo* info_low, XRegister rd, XRegister rs1);
+
+  Literal* DeduplicateBootImageAddressLiteral(uint64_t address);
+
   void LoadMethod(MethodLoadKind load_kind, Location temp, HInvoke* invoke);
   void GenerateStaticOrDirectCall(HInvokeStaticOrDirect* invoke,
                                   Location temp,
@@ -434,6 +494,19 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   void SwapLocations(Location loc1, Location loc2, DataType::Type type);
 
 private:
+  using Uint32ToLiteralMap = ArenaSafeMap<uint32_t, Literal*>;
+  using Uint64ToLiteralMap = ArenaSafeMap<uint64_t, Literal*>;
+  using StringToLiteralMap =
+      ArenaSafeMap<StringReference, Literal*, StringReferenceValueComparator>;
+  using TypeToLiteralMap = ArenaSafeMap<TypeReference, Literal*, TypeReferenceValueComparator>;
+
+  Literal* DeduplicateUint32Literal(uint32_t value);
+  Literal* DeduplicateUint64Literal(uint64_t value);
+
+  PcRelativePatchInfo* NewPcRelativePatch(const DexFile* dex_file,
+                                          uint32_t offset_or_index,
+                                          const PcRelativePatchInfo* info_high,
+                                          ArenaDeque<PcRelativePatchInfo>* patches);
   Loongarch64Assembler assembler_;
   LocationsBuilderLOONGARCH64 location_builder_;
   InstructionCodeGeneratorLOONGARCH64 instruction_visitor_;
@@ -443,6 +516,34 @@ private:
   Loongarch64Label* block_labels_;  // Indexed by block id.
 
   ParallelMoveResolverLOONGARCH64 move_resolver_;
+
+  // Deduplication map for 32-bit literals, used for non-patchable boot image addresses.
+  Uint32ToLiteralMap uint32_literals_;
+  // Deduplication map for 64-bit literals, used for non-patchable method address or method code
+  // address.
+  Uint64ToLiteralMap uint64_literals_;
+
+  // PC-relative method patch info for kBootImageLinkTimePcRelative.
+  ArenaDeque<PcRelativePatchInfo> boot_image_method_patches_;
+  // PC-relative method patch info for kBssEntry.
+  ArenaDeque<PcRelativePatchInfo> method_bss_entry_patches_;
+  // PC-relative type patch info for kBootImageLinkTimePcRelative.
+  ArenaDeque<PcRelativePatchInfo> boot_image_type_patches_;
+  // PC-relative type patch info for kBssEntry.
+  ArenaDeque<PcRelativePatchInfo> type_bss_entry_patches_;
+  // PC-relative public type patch info for kBssEntryPublic.
+  ArenaDeque<PcRelativePatchInfo> public_type_bss_entry_patches_;
+  // PC-relative package type patch info for kBssEntryPackage.
+  ArenaDeque<PcRelativePatchInfo> package_type_bss_entry_patches_;
+  // PC-relative String patch info for kBootImageLinkTimePcRelative.
+  ArenaDeque<PcRelativePatchInfo> boot_image_string_patches_;
+  // PC-relative String patch info for kBssEntry.
+  ArenaDeque<PcRelativePatchInfo> string_bss_entry_patches_;
+  // PC-relative method patch info for kBootImageLinkTimePcRelative+kCallCriticalNative.
+  ArenaDeque<PcRelativePatchInfo> boot_image_jni_entrypoint_patches_;
+  // PC-relative patch info for IntrinsicObjects for the boot image,
+  // and for method/type/string patches for kBootImageRelRo otherwise.
+  ArenaDeque<PcRelativePatchInfo> boot_image_other_patches_;
 };
 
 }  // namespace loongarch64
