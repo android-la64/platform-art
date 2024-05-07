@@ -40,13 +40,8 @@ class IntrinsicLocationsBuilderLOONGARCH64 final : public IntrinsicVisitor {
 
   // Define visitor methods.
 
-  // TODO(loongarch64): Implement in `intrinsics_loongarch64.cc`.
-#define OPTIMIZING_INTRINSICS(                                             \
-    Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
-  void Visit##Name(HInvoke* invoke) override {                             \
-    UNUSED(invoke);                                                        \
-    LOG(FATAL) << "Unimplemented";                                         \
-  }
+#define OPTIMIZING_INTRINSICS(Name, ...) \
+  void Visit##Name(HInvoke* invoke) override;
   INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef OPTIMIZING_INTRINSICS
 
@@ -75,13 +70,8 @@ class IntrinsicCodeGeneratorLOONGARCH64 final : public IntrinsicVisitor {
 
   // Define visitor methods.
 
-  // TODO(loongarch64): Implement in `intrinsics_loongarch64.cc`.
-#define OPTIMIZING_INTRINSICS(                                             \
-    Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
-  void Visit##Name(HInvoke* invoke) override {                             \
-    UNUSED(invoke);                                                        \
-    LOG(FATAL) << "Unimplemented";                                         \
-  }
+#define OPTIMIZING_INTRINSICS(Name, ...) \
+  void Visit##Name(HInvoke* invoke);
   INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef OPTIMIZING_INTRINSICS
 
