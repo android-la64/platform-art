@@ -1824,44 +1824,78 @@ void InstructionCodeGeneratorLOONGARCH64::VisitInvokeInterface(HInvokeInterface*
 }
 
 void LocationsBuilderLOONGARCH64::VisitInvokeStaticOrDirect(HInvokeStaticOrDirect* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  // Explicit clinit checks triggered by static invokes must have been pruned by
+  // art::PrepareForRegisterAllocation.
+  DCHECK(!instruction->IsStaticWithExplicitClinitCheck());
+
+  IntrinsicLocationsBuilderLOONGARCH64 intrinsic(GetGraph()->GetAllocator(), codegen_);
+  if (intrinsic.TryDispatch(instruction)) {
+    return;
+  }
+
+  if (instruction->GetCodePtrLocation() == CodePtrLocation::kCallCriticalNative) {
+    CriticalNativeCallingConventionVisitorLoongarch64 calling_convention_visitor(
+        /*for_register_allocation=*/ true);
+    CodeGenerator::CreateCommonInvokeLocationSummary(instruction, &calling_convention_visitor);
+  } else {
+    HandleInvoke(instruction);
+  }
+}
+
+static bool TryGenerateIntrinsicCode(HInvoke* invoke, CodeGeneratorLOONGARCH64* codegen) {
+  // TODO(loongarch64): Implement intrinsics later
+  UNUSED(invoke);
+  UNUSED(codegen);
+  return false;
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInvokeStaticOrDirect(
     HInvokeStaticOrDirect* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  // Explicit clinit checks triggered by static invokes must have been pruned by
+  // art::PrepareForRegisterAllocation.
+  DCHECK(!instruction->IsStaticWithExplicitClinitCheck());
+
+  if (TryGenerateIntrinsicCode(instruction, codegen_)) {
+    return;
+  }
+
+  LocationSummary* locations = instruction->GetLocations();
+  codegen_->GenerateStaticOrDirectCall(
+      instruction, locations->HasTemps() ? locations->GetTemp(0) : Location::NoLocation());
 }
 
 void LocationsBuilderLOONGARCH64::VisitInvokeVirtual(HInvokeVirtual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  IntrinsicLocationsBuilderLOONGARCH64 intrinsic(GetGraph()->GetAllocator(), codegen_);
+  if (intrinsic.TryDispatch(instruction)) {
+    return;
+  }
+
+  HandleInvoke(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInvokeVirtual(HInvokeVirtual* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  if (TryGenerateIntrinsicCode(instruction, codegen_)) {
+    return;
+  }
+
+  codegen_->GenerateVirtualCall(instruction, instruction->GetLocations()->GetTemp(0));
+  DCHECK(!codegen_->IsLeafMethod());
 }
 
 void LocationsBuilderLOONGARCH64::VisitInvokePolymorphic(HInvokePolymorphic* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleInvoke(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInvokePolymorphic(HInvokePolymorphic* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->GenerateInvokePolymorphicCall(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitInvokeCustom(HInvokeCustom* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleInvoke(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInvokeCustom(HInvokeCustom* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->GenerateInvokeCustomCall(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitLessThan(HLessThan* instruction) {
@@ -1901,13 +1935,13 @@ void InstructionCodeGeneratorLOONGARCH64::VisitLoadException(HLoadException* ins
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadMethodHandle(HLoadMethodHandle* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  InvokeRuntimeCallingConvention calling_convention;
+  Location loc = Location::RegisterLocation(calling_convention.GetRegisterAt(0));
+  CodeGenerator::CreateLoadMethodHandleRuntimeCallLocationSummary(instruction, loc, loc);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitLoadMethodHandle(HLoadMethodHandle* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->GenerateLoadMethodHandleRuntimeCall(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadMethodType(HLoadMethodType* instruction) {
@@ -2001,13 +2035,43 @@ void InstructionCodeGeneratorLOONGARCH64::VisitMonitorOperation(HMonitorOperatio
 }
 
 void LocationsBuilderLOONGARCH64::VisitMul(HMul* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  switch (instruction->GetResultType()) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, Location::RequiresRegister());
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetInAt(1, Location::RequiresFpuRegister());
+      locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      break;
+
+    default:
+      LOG(FATAL) << "Unexpected mul type " << instruction->GetResultType();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitMul(HMul* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  switch (instruction->GetResultType()) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      __ Mul_d(locations->Out().AsRegister<XRegister>(),
+               locations->InAt(0).AsRegister<XRegister>(),
+               locations->InAt(1).AsRegister<XRegister>());
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+    default:
+      LOG(FATAL) << "Unexpected mul type " << instruction->GetResultType();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitNeg(HNeg* instruction) {
