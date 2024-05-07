@@ -101,14 +101,6 @@ static constexpr size_t kRuntimeParameterFpuRegistersLength =
   V(SystemArrayCopyChar)                        \
   V(SystemArrayCopy)                            \
   V(ThreadCurrentThread)                        \
-  V(MemoryPeekByte)                             \
-  V(MemoryPeekIntNative)                        \
-  V(MemoryPeekLongNative)                       \
-  V(MemoryPeekShortNative)                      \
-  V(MemoryPokeByte)                             \
-  V(MemoryPokeIntNative)                        \
-  V(MemoryPokeLongNative)                       \
-  V(MemoryPokeShortNative)                      \
   V(FP16Ceil)                                   \
   V(FP16Floor)                                  \
   V(FP16Rint)                                   \

@@ -1944,9 +1944,11 @@ void LocationsBuilderLOONGARCH64::VisitInvokeStaticOrDirect(HInvokeStaticOrDirec
 }
 
 static bool TryGenerateIntrinsicCode(HInvoke* invoke, CodeGeneratorLOONGARCH64* codegen) {
-  // TODO(loongarch64): Implement intrinsics later
-  UNUSED(invoke);
-  UNUSED(codegen);
+  if (invoke->GetLocations()->Intrinsified()) {
+    IntrinsicCodeGeneratorLOONGARCH64 intrinsic(codegen);
+    intrinsic.Dispatch(invoke);
+    return true;
+  }
   return false;
 }
 

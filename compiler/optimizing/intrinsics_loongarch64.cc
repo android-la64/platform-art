@@ -21,6 +21,111 @@
 namespace art {
 namespace loongarch64 {
 
+bool IntrinsicLocationsBuilderLOONGARCH64::TryDispatch(HInvoke* invoke) {
+  Dispatch(invoke);
+  LocationSummary* res = invoke->GetLocations();
+  if (res == nullptr) {
+    return false;
+  }
+  return res->Intrinsified();
+}
+
+Loongarch64Assembler* IntrinsicCodeGeneratorLOONGARCH64::GetAssembler() {
+  return codegen_->GetAssembler();
+}
+
+#define __ GetAssembler()->
+
+static void CreateIntToIntLocations(ArenaAllocator* allocator, HInvoke* invoke) {
+  LocationSummary* locations =
+      new (allocator) LocationSummary(invoke, LocationSummary::kNoCall, kIntrinsified);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+}
+
+template <typename EmitOp>
+void EmitMemoryPeek(HInvoke* invoke, EmitOp&& emit_op) {
+  LocationSummary* locations = invoke->GetLocations();
+  emit_op(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsRegister<XRegister>());
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPeekByte(HInvoke* invoke) {
+  CreateIntToIntLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPeekByte(HInvoke* invoke) {
+  EmitMemoryPeek(invoke, [&](XRegister rd, XRegister rs1) { __ Ld_D(rd, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPeekIntNative(HInvoke* invoke) {
+  CreateIntToIntLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPeekIntNative(HInvoke* invoke) {
+  EmitMemoryPeek(invoke, [&](XRegister rd, XRegister rs1) { __ Ld_W(rd, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPeekLongNative(HInvoke* invoke) {
+  CreateIntToIntLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPeekLongNative(HInvoke* invoke) {
+  EmitMemoryPeek(invoke, [&](XRegister rd, XRegister rs1) { __ Ld_D(rd, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPeekShortNative(HInvoke* invoke) {
+  CreateIntToIntLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPeekShortNative(HInvoke* invoke) {
+  EmitMemoryPeek(invoke, [&](XRegister rd, XRegister rs1) { __ Ld_H(rd, rs1, 0); });
+}
+
+static void CreateIntIntToVoidLocations(ArenaAllocator* allocator, HInvoke* invoke) {
+  LocationSummary* locations =
+      new (allocator) LocationSummary(invoke, LocationSummary::kNoCall, kIntrinsified);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetInAt(1, Location::RequiresRegister());
+}
+
+template <typename EmitOp>
+void EmitMemoryPoke(HInvoke* invoke, EmitOp&& emit_op) {
+  LocationSummary* locations = invoke->GetLocations();
+  emit_op(locations->InAt(1).AsRegister<XRegister>(), locations->InAt(0).AsRegister<XRegister>());
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPokeByte(HInvoke* invoke) {
+  CreateIntIntToVoidLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPokeByte(HInvoke* invoke) {
+  EmitMemoryPoke(invoke, [&](XRegister rs2, XRegister rs1) { __ St_B(rs2, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPokeIntNative(HInvoke* invoke) {
+  CreateIntIntToVoidLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPokeIntNative(HInvoke* invoke) {
+  EmitMemoryPoke(invoke, [&](XRegister rs2, XRegister rs1) { __ St_W(rs2, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPokeLongNative(HInvoke* invoke) {
+  CreateIntIntToVoidLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPokeLongNative(HInvoke* invoke) {
+  EmitMemoryPoke(invoke, [&](XRegister rs2, XRegister rs1) { __ St_D(rs2, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPokeShortNative(HInvoke* invoke) {
+  CreateIntIntToVoidLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPokeShortNative(HInvoke* invoke) {
+  EmitMemoryPoke(invoke, [&](XRegister rs2, XRegister rs1) { __ St_H(rs2, rs1, 0); });
+}
+
 #define MARK_UNIMPLEMENTED(Name) UNIMPLEMENTED_INTRINSIC(LOONGARCH64, Name)
 UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(MARK_UNIMPLEMENTED);
 #undef MARK_UNIMPLEMENTED
