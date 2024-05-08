@@ -29,6 +29,7 @@
 #include "intrinsics_list.h"
 #include "intrinsics_loongarch64.h"
 #include "jit/profiling_info.h"
+#include "linker/linker_patch.h"
 #include "mirror/class-inl.h"
 #include "optimizing/nodes.h"
 #include "stack_map_stream.h"
@@ -2110,13 +2111,21 @@ void InstructionCodeGeneratorLOONGARCH64::VisitMin(HMin* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitMonitorOperation(HMonitorOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(
+      instruction, LocationSummary::kCallOnMainOnly);
+  InvokeRuntimeCallingConvention calling_convention;
+  locations->SetInAt(0, Location::RegisterLocation(calling_convention.GetRegisterAt(0)));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitMonitorOperation(HMonitorOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->InvokeRuntime(instruction->IsEnter() ? kQuickLockObject : kQuickUnlockObject,
+                          instruction,
+                          instruction->GetDexPc());
+  if (instruction->IsEnter()) {
+    CheckEntrypointTypes<kQuickLockObject, void, mirror::Object*>();
+  } else {
+    CheckEntrypointTypes<kQuickUnlockObject, void, mirror::Object*>();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitMul(HMul* instruction) {
@@ -2160,21 +2169,52 @@ void InstructionCodeGeneratorLOONGARCH64::VisitMul(HMul* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitNeg(HNeg* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  switch (instruction->GetResultType()) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      break;
+
+    default:
+      LOG(FATAL) << "Unexpected neg type " << instruction->GetResultType();
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNeg(HNeg* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  switch (instruction->GetResultType()) {
+    case DataType::Type::kInt32:
+      __ Sub_w(locations->Out().AsRegister<XRegister>(), Zero, locations->InAt(0).AsRegister<XRegister>());
+      break;
+
+    case DataType::Type::kInt64:
+      __ Sub_d(locations->Out().AsRegister<XRegister>(), Zero, locations->InAt(0).AsRegister<XRegister>());
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      LOG(FATAL) << "Unsupported neg type " << instruction->GetResultType();
+      UNREACHABLE();
+    default:
+      LOG(FATAL) << "Unexpected neg type " << instruction->GetResultType();
+      UNREACHABLE();
+  }
 }
 
-void LocationsBuilderLOONGARCH64::VisitNop(HNop* info) {
-  UNUSED(info);
-  LOG(FATAL) << "Unimplemented";
+void LocationsBuilderLOONGARCH64::VisitNop(HNop* instruction) {
+  new (GetGraph()->GetAllocator()) LocationSummary(instruction);
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitNop(HNop*) {
+void InstructionCodeGeneratorLOONGARCH64::VisitNop([[maybe_unused]] HNop* instruction) {
   // The environment recording already happened in CodeGenerator::Compile.
 }
 
@@ -2199,13 +2239,23 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNewInstance(HNewInstance* instruc
 }
 
 void LocationsBuilderLOONGARCH64::VisitNot(HNot* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNot(HNot* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  switch (instruction->GetResultType()) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      __ Xori(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsRegister<XRegister>(), -1);
+      break;
+
+    default:
+      LOG(FATAL) << "Unexpected type for not operation " << instruction->GetResultType();
+      UNREACHABLE();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitNotEqual(HNotEqual* instruction) {
@@ -3574,7 +3624,7 @@ Literal* CodeGeneratorLOONGARCH64::DeduplicateBootImageAddressLiteral(uint64_t a
 
 void CodeGeneratorLOONGARCH64::EmitPcRelativePcaddu12iPlaceholder(PcRelativePatchInfo* info_high,
                                                           XRegister out) {
-  DCHECK(info_high->patch_info_high == nullptr);
+  DCHECK(info_high->pc_insn_label == &info_high->label);
   __ Bind(&info_high->label);
   __ Pcaddu12i(out, /*imm20=*/ 0x12345);  // Placeholder `imm20` patched at link time.
 }
@@ -3582,7 +3632,7 @@ void CodeGeneratorLOONGARCH64::EmitPcRelativePcaddu12iPlaceholder(PcRelativePatc
 void CodeGeneratorLOONGARCH64::EmitPcRelativeAddi_dPlaceholder(PcRelativePatchInfo* info_low,
                                                          XRegister rd,
                                                          XRegister rs1) {
-  DCHECK(info_low->patch_info_high != nullptr);
+  DCHECK(info_low->pc_insn_label != &info_low->label);
   __ Bind(&info_low->label);
   __ Addi_D(rd, rs1, /*imm12=*/ 0x678);  // Placeholder `imm12` patched at link time.
 }
@@ -3590,7 +3640,7 @@ void CodeGeneratorLOONGARCH64::EmitPcRelativeAddi_dPlaceholder(PcRelativePatchIn
 void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_wuPlaceholder(PcRelativePatchInfo* info_low,
                                                         XRegister rd,
                                                         XRegister rs1) {
-  DCHECK(info_low->patch_info_high != nullptr);
+  DCHECK(info_low->pc_insn_label != &info_low->label);
   __ Bind(&info_low->label);
   __ Ld_WU(rd, rs1, /*offset=*/ 0x678);  // Placeholder `offset` patched at link time.
 }
@@ -3598,9 +3648,78 @@ void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_wuPlaceholder(PcRelativePatchInf
 void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_dPlaceholder(PcRelativePatchInfo* info_low,
                                                        XRegister rd,
                                                        XRegister rs1) {
-  DCHECK(info_low->patch_info_high != nullptr);
+  DCHECK(info_low->pc_insn_label != &info_low->label);
   __ Bind(&info_low->label);
   __ Ld_D(rd, rs1, /*offset=*/ 0x678);  // Placeholder `offset` patched at link time.
+}
+
+template <linker::LinkerPatch (*Factory)(size_t, const DexFile*, uint32_t, uint32_t)>
+inline void CodeGeneratorLOONGARCH64::EmitPcRelativeLinkerPatches(
+    const ArenaDeque<PcRelativePatchInfo>& infos,
+    ArenaVector<linker::LinkerPatch>* linker_patches) {
+  for (const PcRelativePatchInfo& info : infos) {
+    linker_patches->push_back(Factory(__ GetLabelLocation(&info.label),
+                                      info.target_dex_file,
+                                      __ GetLabelLocation(info.pc_insn_label),
+                                      info.offset_or_index));
+  }
+}
+
+template <linker::LinkerPatch (*Factory)(size_t, uint32_t, uint32_t)>
+linker::LinkerPatch NoDexFileAdapter(size_t literal_offset,
+                                     const DexFile* target_dex_file,
+                                     uint32_t pc_insn_offset,
+                                     uint32_t boot_image_offset) {
+  DCHECK(target_dex_file == nullptr);  // Unused for these patches, should be null.
+  return Factory(literal_offset, pc_insn_offset, boot_image_offset);
+}
+
+void CodeGeneratorLOONGARCH64::EmitLinkerPatches(ArenaVector<linker::LinkerPatch>* linker_patches) {
+  DCHECK(linker_patches->empty());
+  size_t size =
+      boot_image_method_patches_.size() +
+      method_bss_entry_patches_.size() +
+      boot_image_type_patches_.size() +
+      type_bss_entry_patches_.size() +
+      public_type_bss_entry_patches_.size() +
+      package_type_bss_entry_patches_.size() +
+      boot_image_string_patches_.size() +
+      string_bss_entry_patches_.size() +
+      boot_image_jni_entrypoint_patches_.size() +
+      boot_image_other_patches_.size();
+  linker_patches->reserve(size);
+  if (GetCompilerOptions().IsBootImage() || GetCompilerOptions().IsBootImageExtension()) {
+    EmitPcRelativeLinkerPatches<linker::LinkerPatch::RelativeMethodPatch>(
+        boot_image_method_patches_, linker_patches);
+    EmitPcRelativeLinkerPatches<linker::LinkerPatch::RelativeTypePatch>(
+        boot_image_type_patches_, linker_patches);
+    EmitPcRelativeLinkerPatches<linker::LinkerPatch::RelativeStringPatch>(
+        boot_image_string_patches_, linker_patches);
+  } else {
+    DCHECK(boot_image_method_patches_.empty());
+    DCHECK(boot_image_type_patches_.empty());
+    DCHECK(boot_image_string_patches_.empty());
+  }
+  if (GetCompilerOptions().IsBootImage()) {
+    EmitPcRelativeLinkerPatches<NoDexFileAdapter<linker::LinkerPatch::IntrinsicReferencePatch>>(
+        boot_image_other_patches_, linker_patches);
+  } else {
+    EmitPcRelativeLinkerPatches<NoDexFileAdapter<linker::LinkerPatch::BootImageRelRoPatch>>(
+        boot_image_other_patches_, linker_patches);
+  }
+  EmitPcRelativeLinkerPatches<linker::LinkerPatch::MethodBssEntryPatch>(
+      method_bss_entry_patches_, linker_patches);
+  EmitPcRelativeLinkerPatches<linker::LinkerPatch::TypeBssEntryPatch>(
+      type_bss_entry_patches_, linker_patches);
+  EmitPcRelativeLinkerPatches<linker::LinkerPatch::PublicTypeBssEntryPatch>(
+      public_type_bss_entry_patches_, linker_patches);
+  EmitPcRelativeLinkerPatches<linker::LinkerPatch::PackageTypeBssEntryPatch>(
+      package_type_bss_entry_patches_, linker_patches);
+  EmitPcRelativeLinkerPatches<linker::LinkerPatch::StringBssEntryPatch>(
+      string_bss_entry_patches_, linker_patches);
+  EmitPcRelativeLinkerPatches<linker::LinkerPatch::RelativeJniEntrypointPatch>(
+      boot_image_jni_entrypoint_patches_, linker_patches);
+  DCHECK_EQ(size, linker_patches->size());
 }
 
 void CodeGeneratorLOONGARCH64::LoadMethod(MethodLoadKind load_kind, Location temp, HInvoke* invoke) {

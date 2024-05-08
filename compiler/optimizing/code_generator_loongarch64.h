@@ -640,10 +640,13 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
     PcRelativePatchInfo(const DexFile* dex_file,
                         uint32_t off_or_idx,
                         const PcRelativePatchInfo* info_high)
-        : PatchInfo<Loongarch64Label>(dex_file, off_or_idx), patch_info_high(info_high) {}
+        : PatchInfo<Loongarch64Label>(dex_file, off_or_idx),
+          pc_insn_label(info_high != nullptr ? &info_high->label : &label) {
+      DCHECK_IMPLIES(info_high != nullptr, info_high->pc_insn_label == &info_high->label);
+    }
 
     // Pointer to the info for the high part patch or nullptr if this is the high part patch info.
-    const PcRelativePatchInfo* patch_info_high;
+    const Loongarch64Label* pc_insn_label;
 
    private:
     PcRelativePatchInfo(PcRelativePatchInfo&& other) = delete;
@@ -677,6 +680,8 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   void EmitPcRelativeAddi_dPlaceholder(PcRelativePatchInfo* info_low, XRegister rd, XRegister rs1);
   void EmitPcRelativeLd_wuPlaceholder(PcRelativePatchInfo* info_low, XRegister rd, XRegister rs1);
   void EmitPcRelativeLd_dPlaceholder(PcRelativePatchInfo* info_low, XRegister rd, XRegister rs1);
+
+  void EmitLinkerPatches(ArenaVector<linker::LinkerPatch>* linker_patches) override;
 
   Literal* DeduplicateBootImageAddressLiteral(uint64_t address);
 
@@ -727,6 +732,11 @@ private:
                                           uint32_t offset_or_index,
                                           const PcRelativePatchInfo* info_high,
                                           ArenaDeque<PcRelativePatchInfo>* patches);
+
+  template <linker::LinkerPatch (*Factory)(size_t, const DexFile*, uint32_t, uint32_t)>
+  void EmitPcRelativeLinkerPatches(const ArenaDeque<PcRelativePatchInfo>& infos,
+                                   ArenaVector<linker::LinkerPatch>* linker_patches);
+
   Loongarch64Assembler assembler_;
   LocationsBuilderLOONGARCH64 location_builder_;
   InstructionCodeGeneratorLOONGARCH64 instruction_visitor_;
