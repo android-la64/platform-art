@@ -569,27 +569,6 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateSuspendCheck(HSuspendCheck* in
   }
 }
 
-void InstructionCodeGeneratorLOONGARCH64::GenerateMinMaxInt(LocationSummary* locations, bool is_min) {
-  UNUSED(locations);
-  UNUSED(is_min);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorLOONGARCH64::GenerateMinMaxFP(LocationSummary* locations,
-                                                       bool is_min,
-                                                       DataType::Type type) {
-  UNUSED(locations);
-  UNUSED(is_min);
-  UNUSED(type);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorLOONGARCH64::GenerateMinMax(HBinaryOperation* instruction, bool is_min) {
-  UNUSED(instruction);
-  UNUSED(is_min);
-  LOG(FATAL) << "Unimplemented";
-}
-
 void InstructionCodeGeneratorLOONGARCH64::GenerateReferenceLoadOneRegister(
     HInstruction* instruction,
     Location out,
@@ -1020,7 +999,9 @@ void LocationsBuilderLOONGARCH64::HandleBinaryOp(HBinaryOperation* instruction) 
       locations->SetInAt(0, Location::RequiresRegister());
       HInstruction* right = instruction->InputAt(1);
       bool can_use_imm = false;
-      if (right->IsConstant()) {
+      if (instruction->IsMin() || instruction->IsMax()) {
+        can_use_imm = IsZeroBitPattern(instruction);
+      } else if (right->IsConstant()) {
         int64_t imm = CodeGenerator::GetInt64ValueOf(right->AsConstant());
         can_use_imm = IsInt<12>(instruction->IsSub() ? -imm : imm);
       }
@@ -1079,8 +1060,7 @@ void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instr
         } else {
           __ Xor(rd, rs1, rs2);
         }
-      } else {
-        DCHECK(instruction->IsAdd() || instruction->IsSub());
+      } else if (instruction->IsAdd() || instruction->IsSub()) {
         if (type == DataType::Type::kInt32) {
           if (use_imm) {
             __ Addi_W(rd, rs1, instruction->IsSub() ? -imm : imm);
@@ -1100,6 +1080,11 @@ void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instr
             __ Sub_d(rd, rs1, rs2);
           }
         }
+      } else if (instruction->IsMin()) {
+        __ Min(rd, rs1, use_imm ? Zero : rs2);
+      } else {
+        DCHECK(instruction->IsMax());
+        __ Max(rd, rs1, use_imm ? Zero : rs2);
       }
       break;
     }
@@ -2079,13 +2064,11 @@ void InstructionCodeGeneratorLOONGARCH64::VisitLongConstant(
 }
 
 void LocationsBuilderLOONGARCH64::VisitMax(HMax* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitMax(HMax* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitMemoryBarrier(HMemoryBarrier* instruction) {
@@ -2119,13 +2102,11 @@ void InstructionCodeGeneratorLOONGARCH64::VisitMethodExitHook(HMethodExitHook* i
 }
 
 void LocationsBuilderLOONGARCH64::VisitMin(HMin* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitMin(HMin* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitMonitorOperation(HMonitorOperation* instruction) {
