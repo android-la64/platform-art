@@ -611,6 +611,23 @@ void Loongarch64Assembler::Li(XRegister rd, int64_t imm) {
   LoadImmediate(rd, imm);
 }
 
+void Loongarch64Assembler::Max(XRegister rd, XRegister rs1, XRegister rs2) {
+  // rd = Max(rs1, rs2)
+  Sub_d(rd, rs1, rs2);
+  Bge(rd, Zero ,3);
+  Add_d(rd, Zero, rs2);
+  B(2);
+  Add_d(rd, Zero, rs1);
+}
+
+void Loongarch64Assembler::Min(XRegister rd, XRegister rs1, XRegister rs2) {
+  // rd = Min(rs1, rs2)
+  Sub_d(rd, rs1, rs2);
+  Bge(rd, Zero ,3);
+  Add_d(rd, Zero, rs1);
+  B(2);
+  Add_d(rd, Zero, rs2);
+}
 /////////////////////////////// LOONGARCH64 barrier Instructions ///////////////////////////////
 void Loongarch64Assembler::Dbar(uint32_t imm15) {
   EmitI15(0x70e4, imm15);
