@@ -21,15 +21,16 @@ if [[ ! -d $log_dir ]]; then
 fi
 
 ## run tests
-all_tests="KernelLibcutilsTest libcutils_test_static libcutils_test libcutils_sockets_test libstatspush_compat_test bootstat_tests charger_test libhealthd_charger_test libutils_test storaged-unit-tests sync-unit-tests libkeyutils-tests libpackagelistparser_test libstatspush_compat_test libappfuse_test"
-all_tests2="libstatspull_lazy_test  libstatssocket_lazy_test"
-# secure-storage-unit-tes , init_kill_services_test: will added later
+all_tests="iorapd-tests libapexutil_tests flattened_apex_test ApexTestCases logd-unit-tests liblog-unit-tests libprofile-extras-test memory_replay_tests memunreachable_test memunreachable_unit_test memunreachable_binder_test  hwbinderThroughputTest libhwbinder_latency"
+# logcat-unit-tests: logcat.blocking
+
+all_tests2="CtsApexSharedLibrariesTestCases"
 
 time_stamp=`date +%m%d_%H%M%S`
 idx=1
 for test in $all_tests; do
   echo "Testing ... $test"
-  adb shell "${NATIVE_TEST_DIR}/nativetest64/$test/$test " | tee "$log_dir/${time_stamp}_gtest_${idx}_$test.log"
+  adb shell "${NATIVE_TEST_DIR}/nativetest64/$test/$test" | tee "$log_dir/${time_stamp}_gtest_${idx}_$test.log"
   idx=$(( $idx + 1 ))
 done
 for test in $all_tests2; do
@@ -37,3 +38,4 @@ for test in $all_tests2; do
   adb shell "${NATIVE_TEST_DIR}/nativetest64/$test/${test}64" | tee "$log_dir/${time_stamp}_gtest_${idx}_$test.log"
   idx=$(( $idx + 1 ))
 done
+
