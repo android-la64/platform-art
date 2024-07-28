@@ -1,6 +1,7 @@
 . build/envsetup.sh
 lunch aosp_loongarch64-eng
 
-export ANDROID_SERIAL=emulator-5554
+export ANDROID_SERIAL=192.168.3.10:5555
+#export ANDROID_SERIAL=emulator-5554
 
 # lunch sdk_phone64_loongarch64
