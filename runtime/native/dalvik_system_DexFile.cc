@@ -505,8 +505,8 @@ static jint GetDexOptNeeded(JNIEnv* env,
                             const char* instruction_set,
                             const char* compiler_filter_name,
                             const char* class_loader_context,
-                            bool profile_changed,
-                            bool downgrade) {
+                            bool profile_changed ATTRIBUTE_UNUSED,
+                            bool downgrade ATTRIBUTE_UNUSED) {
   if ((filename == nullptr) || !OS::FileExists(filename)) {
     LOG(ERROR) << "DexFile_getDexOptNeeded file '" << filename << "' does not exist";
     ScopedLocalRef<jclass> fnfe(env, env->FindClass("java/io/FileNotFoundException"));
@@ -548,6 +548,9 @@ static jint GetDexOptNeeded(JNIEnv* env,
                           /*only_read_checksums*/ true);
   }
 
+  return OatFileAssistant::kNoDexOptNeeded;
+
+  #if 0
   // TODO: Verify the dex location is well formed, and throw an IOException if
   // not?
 
@@ -564,6 +567,7 @@ static jint GetDexOptNeeded(JNIEnv* env,
   return oat_file_assistant.GetDexOptNeeded(filter,
                                             profile_changed,
                                             downgrade);
+  #endif
 }
 
 static jstring DexFile_getDexFileStatus(JNIEnv* env,
