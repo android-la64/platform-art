@@ -45,6 +45,8 @@ void LinearizeTest::TestCode(const std::vector<uint16_t>& data,
   std::unique_ptr<CompilerOptions> compiler_options =
       CommonCompilerTest::CreateCompilerOptions(kRuntimeISA, "default");
   std::unique_ptr<CodeGenerator> codegen = CodeGenerator::Create(graph, *compiler_options);
+  ASSERT_TRUE(codegen);  // Check if the code generator has been implemented
+
   SsaLivenessAnalysis liveness(graph, codegen.get(), GetScopedAllocator());
   liveness.Analyze();
 

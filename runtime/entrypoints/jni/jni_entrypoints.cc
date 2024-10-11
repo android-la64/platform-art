@@ -22,6 +22,7 @@
 #include "arch/riscv64/jni_frame_riscv64.h"
 #include "arch/x86/jni_frame_x86.h"
 #include "arch/x86_64/jni_frame_x86_64.h"
+#include "arch/loongarch64/jni_frame_loongarch64.h"
 #include "art_method-inl.h"
 #include "dex/dex_instruction-inl.h"
 #include "dex/method_reference.h"
@@ -147,6 +148,8 @@ extern "C" size_t artCriticalNativeFrameSize(ArtMethod* method, uintptr_t caller
         return arm::GetCriticalNativeStubFrameSize(shorty);
       case InstructionSet::kArm64:
         return arm64::GetCriticalNativeStubFrameSize(shorty);
+      case InstructionSet::kLoongarch64:
+        return loongarch64::GetCriticalNativeStubFrameSize(shorty);
       case InstructionSet::kRiscv64:
         return riscv64::GetCriticalNativeStubFrameSize(shorty);
       case InstructionSet::kX86:
@@ -184,6 +187,8 @@ extern "C" size_t artCriticalNativeFrameSize(ArtMethod* method, uintptr_t caller
         return arm::GetCriticalNativeDirectCallFrameSize(shorty);
       case InstructionSet::kArm64:
         return arm64::GetCriticalNativeDirectCallFrameSize(shorty);
+      case InstructionSet::kLoongarch64:
+        return loongarch64::GetCriticalNativeDirectCallFrameSize(shorty);
       case InstructionSet::kRiscv64:
         return riscv64::GetCriticalNativeDirectCallFrameSize(shorty);
       case InstructionSet::kX86:

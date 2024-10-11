@@ -29,6 +29,7 @@ void InstructionSetAbort(InstructionSet isa) {
     case InstructionSet::kArm:
     case InstructionSet::kThumb2:
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
@@ -47,6 +48,8 @@ const char* GetInstructionSetString(InstructionSet isa) {
       return "arm";
     case InstructionSet::kArm64:
       return "arm64";
+    case InstructionSet::kLoongarch64:
+      return "loongarch64";
     case InstructionSet::kRiscv64:
       return "riscv64";
     case InstructionSet::kX86:
@@ -67,12 +70,16 @@ InstructionSet GetInstructionSetFromString(const char* isa_str) {
     return InstructionSet::kArm;
   } else if (strcmp("arm64", isa_str) == 0) {
     return InstructionSet::kArm64;
+  } else if (strcmp("loongarch64", isa_str) == 0) {
+    return InstructionSet::kLoongarch64;
   } else if (strcmp("riscv64", isa_str) == 0) {
     return InstructionSet::kRiscv64;
   } else if (strcmp("x86", isa_str) == 0) {
     return InstructionSet::kX86;
   } else if (strcmp("x86_64", isa_str) == 0) {
     return InstructionSet::kX86_64;
+  } else if (strcmp("loongarch64", isa_str) == 0) {
+    return InstructionSet::kLoongarch64;
   }
 
   return InstructionSet::kNone;
@@ -134,6 +141,8 @@ static_assert(ART_FRAME_SIZE_LIMIT < kRiscv64StackOverflowReservedBytes,
 static_assert(ART_FRAME_SIZE_LIMIT < kX86StackOverflowReservedBytes,
               "Frame size limit too large");
 static_assert(ART_FRAME_SIZE_LIMIT < kX86_64StackOverflowReservedBytes,
+              "Frame size limit too large");
+static_assert(ART_FRAME_SIZE_LIMIT < kLoongarch64StackOverflowReservedBytes,
               "Frame size limit too large");
 
 NO_RETURN void GetStackOverflowReservedBytesFailure(const char* error_msg) {

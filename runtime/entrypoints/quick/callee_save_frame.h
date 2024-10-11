@@ -31,6 +31,7 @@
 #include "arch/riscv64/callee_save_frame_riscv64.h"
 #include "arch/x86/callee_save_frame_x86.h"
 #include "arch/x86_64/callee_save_frame_x86_64.h"
+#include "arch/loongarch64/callee_save_frame_loongarch64.h"
 
 namespace art HIDDEN {
 class ArtMethod;

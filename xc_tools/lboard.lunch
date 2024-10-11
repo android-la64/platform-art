@@ -1,0 +1,7 @@
+. build/envsetup.sh
+#lunch aosp_loongarch64-eng
+lunch loongson_3a5000-eng
+
+export ANDROID_SERIAL=emulator-5554
+
+# lunch sdk_phone64_loongarch64

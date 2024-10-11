@@ -207,6 +207,9 @@ cc_defaults {
         android_arm64: {
             ldflags: JIT_DEBUG_REGISTER_CODE_LDFLAGS,
         },
+        android_loongarch64: {
+            ldflags: JIT_DEBUG_REGISTER_CODE_LDFLAGS,
+        },
         android_x86: {
             ldflags: JIT_DEBUG_REGISTER_CODE_LDFLAGS,
         },
@@ -438,6 +441,8 @@ cc_defaults {
         "arch/arm/registers_arm.cc",
         "arch/arm64/instruction_set_features_arm64.cc",
         "arch/arm64/registers_arm64.cc",
+        "arch/loongarch64/instruction_set_features_loongarch64.cc",
+        "arch/loongarch64/registers_loongarch64.cc",
         "arch/riscv64/instruction_set_features_riscv64.cc",
         "arch/riscv64/registers_riscv64.cc",
         "arch/x86/instruction_set_features_x86.cc",
@@ -490,6 +495,19 @@ cc_defaults {
                 "arch/arm64/thread_arm64.cc",
                 "monitor_pool.cc",
                 "arch/arm64/fault_handler_arm64.cc",
+            ],
+        },
+        loongarch64: {
+            srcs: [
+                "interpreter/mterp/mterp_stub.cc",
+                "interpreter/mterp/nterp_stub.cc",
+                "arch/loongarch64/context_loongarch64.cc",
+                "arch/loongarch64/entrypoints_init_loongarch64.cc",
+                "arch/loongarch64/jni_entrypoints_loongarch64.S",
+                "arch/loongarch64/quick_entrypoints_loongarch64.S",
+                "arch/loongarch64/thread_loongarch64.cc",
+                "arch/loongarch64/fault_handler_loongarch64.cc",
+                "monitor_pool.cc",
             ],
         },
         riscv64: {
@@ -812,6 +830,11 @@ art_cc_library_static {
         android: {
             lto: {
                 thin: true,
+            },
+        },
+        android_loongarch64: {
+            strip: {
+                keep_symbols: true,
             },
         },
     },

@@ -56,6 +56,11 @@ art_cc_defaults {
                 "linker/arm64/relative_patcher_arm64.cc",
             ],
         },
+        loongarch64: {
+            srcs: [
+                "linker/loongarch64/relative_patcher_loongarch64.cc",
+            ],
+        },
         riscv64: {
             srcs: [
                 "linker/riscv64/relative_patcher_riscv64.cc",
@@ -473,6 +478,11 @@ art_cc_defaults {
         arm64: {
             srcs: [
                 "linker/arm64/relative_patcher_arm64_test.cc",
+            ],
+        },
+        loongarch64: {
+            srcs: [
+                "linker/loongarch64/relative_patcher_loongarch64_test.cc",
             ],
         },
         riscv64: {

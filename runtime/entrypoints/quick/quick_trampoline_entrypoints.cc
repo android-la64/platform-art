@@ -269,6 +269,46 @@ class QuickArgumentVisitor {
       UNREACHABLE();
     }
   }
+#elif defined(__loongarch__) && (__loongarch_grlen == 64)
+  // The callee save frame is pointed to by SP.
+  // | argN       |  |
+  // | ...        |  |
+  // | arg4       |  |
+  // | arg3 spill |  |  Caller's frame
+  // | arg2 spill |  |
+  // | arg1 spill |  |
+  // | Method*    | ---
+  // | RA         |
+  // | ...        |    callee saves
+  // | A7         |    arg7
+  // | A6         |    arg6
+  // | A5         |    arg5
+  // | A4         |    arg4
+  // | A3         |    arg3
+  // | A2         |    arg2
+  // | A1         |    arg1
+  // | FA7        |    f_arg7
+  // | FA6        |    f_arg6
+  // | FA5        |    f_arg5
+  // | FA4        |    f_arg4
+  // | FA3        |    f_arg3
+  // | FA2        |    f_arg2
+  // | FA1        |    f_arg1
+  // | FA0        |    f_arg0
+  // |            |    padding
+  // | A0/Method* |  <- sp
+  static constexpr bool kSplitPairAcrossRegisterAndStack = false;
+  static constexpr bool kAlignPairRegister = false;
+  static constexpr bool kQuickSoftFloatAbi = false;
+  static constexpr bool kQuickDoubleRegAlignedFloatBackFilled = false;
+  static constexpr bool kQuickSkipOddFpRegisters = false;
+  static constexpr size_t kNumQuickGprArgs = 7;  // 7 arguments passed in GPRs.
+  static constexpr size_t kNumQuickFprArgs = 8;  // 8 arguments passed in FPRs.
+  static constexpr bool kGprFprLockstep = false;
+
+  static size_t GprIndexToGprOffset(uint32_t gpr_index) {
+    return gpr_index * GetBytesPerGprSpillLocation(kRuntimeISA);
+  }
 #else
 #error "Unsupported architecture"
 #endif
@@ -1414,6 +1454,19 @@ template<class T> class BuildNativeCallFrameStateMachine {
   static constexpr size_t kRegistersNeededForDouble = 1;
   static constexpr bool kMultiRegistersAligned = false;
   static constexpr bool kMultiGPRegistersWidened = false;
+  static constexpr bool kAlignLongOnStack = false;
+  static constexpr bool kAlignDoubleOnStack = false;
+#elif defined(__loongarch__) && (__loongarch_grlen == 64)
+  static constexpr bool kNativeSoftFloatAbi = false;
+  static constexpr bool kNativeSoftFloatAfterHardFloat = true;
+  static constexpr size_t kNumNativeGprArgs = 8;
+  static constexpr size_t kNumNativeFprArgs = 8;
+
+  static constexpr size_t kRegistersNeededForLong = 1;
+  static constexpr size_t kRegistersNeededForDouble = 1;
+  static constexpr bool kMultiRegistersAligned = false;
+  static constexpr bool kMultiFPRegistersWidened = false;
+  static constexpr bool kMultiGPRegistersWidened = true;
   static constexpr bool kAlignLongOnStack = false;
   static constexpr bool kAlignDoubleOnStack = false;
 #else

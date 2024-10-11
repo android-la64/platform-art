@@ -29,6 +29,10 @@
 #include "jni/quick/arm64/calling_convention_arm64.h"
 #endif
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+#include "jni/quick/loongarch64/calling_convention_loongarch64.h"
+#endif
+
 #ifdef ART_ENABLE_CODEGEN_riscv64
 #include "jni/quick/riscv64/calling_convention_riscv64.h"
 #endif
@@ -63,6 +67,12 @@ std::unique_ptr<ManagedRuntimeCallingConvention> ManagedRuntimeCallingConvention
     case InstructionSet::kArm64:
       return std::unique_ptr<ManagedRuntimeCallingConvention>(
           new (allocator) arm64::Arm64ManagedRuntimeCallingConvention(
+              is_static, is_synchronized, shorty));
+#endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+    case InstructionSet::kLoongarch64:
+      return std::unique_ptr<ManagedRuntimeCallingConvention>(
+          new (allocator) loongarch64::Loongrach64ManagedRuntimeCallingConvention(
               is_static, is_synchronized, shorty));
 #endif
 #ifdef ART_ENABLE_CODEGEN_riscv64
@@ -164,6 +174,12 @@ std::unique_ptr<JniCallingConvention> JniCallingConvention::Create(ArenaAllocato
     case InstructionSet::kArm64:
       return std::unique_ptr<JniCallingConvention>(
           new (allocator) arm64::Arm64JniCallingConvention(
+              is_static, is_synchronized, is_fast_native, is_critical_native, shorty));
+#endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+    case InstructionSet::kLoongarch64:
+      return std::unique_ptr<JniCallingConvention>(
+          new (allocator) loongarch64::Loongarch64JniCallingConvention(
               is_static, is_synchronized, is_fast_native, is_critical_native, shorty));
 #endif
 #ifdef ART_ENABLE_CODEGEN_riscv64

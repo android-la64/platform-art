@@ -164,6 +164,30 @@ static void WriteCIE(InstructionSet isa, /*inout*/ std::vector<uint8_t>* buffer)
       WriteCIE(is64bit, return_reg, opcodes, buffer);
       return;
     }
+    case InstructionSet::kLoongarch64: {
+      dwarf::DebugFrameOpCodeWriter<> opcodes;
+      opcodes.DefCFA(Reg::Loongarch64Core(3), 0);  // R3(SP).
+      // core registers.
+      opcodes.SameValue(Reg::Loongarch64Core(2));
+      for (int reg = 4; reg < 32; reg++) {
+        if (((reg >= 4) && (reg <= 12)) || reg == 19 || reg == 20) {  // A*, T7/T8 reserved.
+          opcodes.Undefined(Reg::Loongarch64Core(reg));
+        } else {
+          opcodes.SameValue(Reg::Loongarch64Core(reg));
+        }
+      }
+      // fp registers.
+      for (int reg = 0; reg < 32; reg++) {
+        if ((reg >= 0) && (reg <= 23)) {  // FA*, FT*
+          opcodes.Undefined(Reg::Loongarch64Fp(reg));
+        } else {
+          opcodes.SameValue(Reg::Loongarch64Fp(reg));
+        }
+      }
+      auto return_reg = Reg::Loongarch64Core(1);  // R1(RA).
+      WriteCIE(is64bit, return_reg, opcodes, buffer);
+      return;
+    }
     case InstructionSet::kNone:
       break;
   }

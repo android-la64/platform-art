@@ -86,6 +86,10 @@ MacroAsm64UniquePtr JNIMacroAssembler<PointerSize::k64>::Create(
     case InstructionSet::kArm64:
       return MacroAsm64UniquePtr(new (allocator) arm64::Arm64JNIMacroAssembler(allocator));
 #endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+    case InstructionSet::kLoongarch64:
+      return MacroAsm64UniquePtr(new (allocator) loongarch64::Loongarch64JNIMacroAssembler(allocator));
+#endif
 #ifdef ART_ENABLE_CODEGEN_riscv64
     case InstructionSet::kRiscv64:
       return MacroAsm64UniquePtr(new (allocator) riscv64::Riscv64JNIMacroAssembler(allocator));

@@ -35,7 +35,7 @@ class SsaLivenessAnalysisTest : public OptimizingUnitTest {
     graph_ = CreateGraph();
     compiler_options_ = CommonCompilerTest::CreateCompilerOptions(kRuntimeISA, "default");
     codegen_ = CodeGenerator::Create(graph_, *compiler_options_);
-    CHECK(codegen_ != nullptr);
+    CHECK(codegen_ != nullptr);  // Check if the code generator has been implemented
     // Create entry block.
     entry_ = new (GetAllocator()) HBasicBlock(graph_);
     graph_->AddBlock(entry_);

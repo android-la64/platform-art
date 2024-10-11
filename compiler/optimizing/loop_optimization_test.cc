@@ -38,7 +38,7 @@ class LoopOptimizationTest : public OptimizingUnitTest {
     compiler_options_ = CommonCompilerTest::CreateCompilerOptions(kRuntimeISA, "default");
     DCHECK(compiler_options_ != nullptr);
     codegen_ = CodeGenerator::Create(graph_, *compiler_options_);
-    DCHECK(codegen_.get() != nullptr);
+    DCHECK(codegen_.get() != nullptr);  // Check if the code generator has been implemented
     loop_opt_ = new (GetAllocator()) HLoopOptimization(
         graph_, *codegen_.get(), iva_, /* stats= */ nullptr);
   }

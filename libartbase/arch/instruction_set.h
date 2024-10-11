@@ -31,6 +31,7 @@ enum class InstructionSet {
   kArm,
   kArm64,
   kThumb2,
+  kLoongarch64,
   kRiscv64,
   kX86,
   kX86_64,
@@ -42,6 +43,8 @@ std::ostream& operator<<(std::ostream& os, InstructionSet rhs);
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kArm;
 #elif defined(__aarch64__)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kArm64;
+#elif defined(__loongarch__) && (__loongarch_grlen == 64)
+static constexpr InstructionSet kRuntimeISA = InstructionSet::kLoongarch64;
 #elif defined (__riscv)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kRiscv64;
 #elif defined(__i386__)
@@ -55,9 +58,11 @@ static constexpr InstructionSet kRuntimeISA = InstructionSet::kNone;
 // Architecture-specific pointer sizes
 static constexpr PointerSize kArmPointerSize = PointerSize::k32;
 static constexpr PointerSize kArm64PointerSize = PointerSize::k64;
+static constexpr PointerSize kLoongarch64PointerSize = PointerSize::k64;
 static constexpr PointerSize kRiscv64PointerSize = PointerSize::k64;
 static constexpr PointerSize kX86PointerSize = PointerSize::k32;
 static constexpr PointerSize kX86_64PointerSize = PointerSize::k64;
+static constexpr PointerSize kLoongarch64PointerSize = PointerSize::k64;
 
 // ARM64 default SVE vector length.
 static constexpr size_t kArm64DefaultSVEVectorLength = 256;
@@ -67,6 +72,7 @@ static constexpr size_t kArm64DefaultSVEVectorLength = 256;
 // ARM processors require code to be 4-byte aligned, but ARM ELF requires 8.
 static constexpr size_t kArmCodeAlignment = 8;
 static constexpr size_t kArm64CodeAlignment = 16;
+static constexpr size_t kLoongarch64CodeAlignment = 16;
 static constexpr size_t kRiscv64CodeAlignment = 16;
 static constexpr size_t kX86CodeAlignment = 16;
 
@@ -118,6 +124,7 @@ constexpr bool IsValidInstructionSet(InstructionSet isa) {
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
+    case InstructionSet::kLoongarch64:
       return true;
 
     case InstructionSet::kNone:
@@ -199,6 +206,7 @@ constexpr bool Is64BitInstructionSet(InstructionSet isa) {
     case InstructionSet::kArm64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86_64:
+    case InstructionSet::kLoongarch64:
       return true;
 
     case InstructionSet::kNone:
@@ -259,13 +267,14 @@ std::vector<InstructionSet> GetSupportedInstructionSets(std::string* error_msg);
 namespace instruction_set_details {
 
 #if !defined(ART_STACK_OVERFLOW_GAP_arm) || !defined(ART_STACK_OVERFLOW_GAP_arm64) || \
-    !defined(ART_STACK_OVERFLOW_GAP_riscv64) || \
+    !defined(ART_STACK_OVERFLOW_GAP_riscv64) || !defined(ART_STACK_OVERFLOW_GAP_loongarch64) \
     !defined(ART_STACK_OVERFLOW_GAP_x86) || !defined(ART_STACK_OVERFLOW_GAP_x86_64)
 #error "Missing defines for stack overflow gap"
 #endif
 
 static constexpr size_t kArmStackOverflowReservedBytes     = ART_STACK_OVERFLOW_GAP_arm;
 static constexpr size_t kArm64StackOverflowReservedBytes   = ART_STACK_OVERFLOW_GAP_arm64;
+static constexpr size_t kLoongarch64StackOverflowReservedBytes = ART_STACK_OVERFLOW_GAP_loongarch64;
 static constexpr size_t kRiscv64StackOverflowReservedBytes = ART_STACK_OVERFLOW_GAP_riscv64;
 static constexpr size_t kX86StackOverflowReservedBytes     = ART_STACK_OVERFLOW_GAP_x86;
 static constexpr size_t kX86_64StackOverflowReservedBytes  = ART_STACK_OVERFLOW_GAP_x86_64;
@@ -284,6 +293,8 @@ constexpr size_t GetStackOverflowReservedBytes(InstructionSet isa) {
     case InstructionSet::kArm64:
       return instruction_set_details::kArm64StackOverflowReservedBytes;
 
+    case InstructionSet::kLoongarch64:
+      return instruction_set_details::kLoongarch64StackOverflowReservedBytes;
     case InstructionSet::kRiscv64:
       return instruction_set_details::kRiscv64StackOverflowReservedBytes;
 

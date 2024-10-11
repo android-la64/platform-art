@@ -50,6 +50,9 @@ class Reg {
   }
   static Reg X86_64Fp(int num) { return Reg(17 + num); }
 
+  static Reg Loongarch64Core(int num) { return Reg(num); }
+  static Reg Loongarch64Fp(int num) { return Reg(32 + num); }
+
  private:
   int num_;
 };

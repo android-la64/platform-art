@@ -27,6 +27,7 @@
 #include "riscv64/instruction_set_features_riscv64.h"
 #include "x86/instruction_set_features_x86.h"
 #include "x86_64/instruction_set_features_x86_64.h"
+#include "loongarch64/instruction_set_features_loongarch64.h"
 
 namespace art HIDDEN {
 
@@ -44,6 +45,8 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromVarian
       return X86InstructionSetFeatures::FromVariant(variant, error_msg);
     case InstructionSet::kX86_64:
       return X86_64InstructionSetFeatures::FromVariant(variant, error_msg);
+    case InstructionSet::kLoongarch64:
+      return Loongarch64InstructionSetFeatures::FromVariant(variant, error_msg);
 
     default:
       break;
@@ -99,6 +102,9 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromBitmap
     case InstructionSet::kX86_64:
       result = X86_64InstructionSetFeatures::FromBitmap(bitmap);
       break;
+    case InstructionSet::kLoongarch64:
+      result = Loongarch64InstructionSetFeatures::FromBitmap(bitmap);
+      break;
 
     default:
       UNIMPLEMENTED(FATAL) << isa;
@@ -121,6 +127,8 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromCppDef
       return X86InstructionSetFeatures::FromCppDefines();
     case InstructionSet::kX86_64:
       return X86_64InstructionSetFeatures::FromCppDefines();
+    case InstructionSet::kLoongarch64:
+      return Loongarch64InstructionSetFeatures::FromCppDefines();
 
     default:
       break;
@@ -153,6 +161,8 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromCpuInf
       return X86InstructionSetFeatures::FromCpuInfo();
     case InstructionSet::kX86_64:
       return X86_64InstructionSetFeatures::FromCpuInfo();
+    case InstructionSet::kLoongarch64:
+      return Loongarch64InstructionSetFeatures::FromCpuInfo();
 
     default:
       break;
@@ -174,6 +184,8 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromHwcap(
       return X86InstructionSetFeatures::FromHwcap();
     case InstructionSet::kX86_64:
       return X86_64InstructionSetFeatures::FromHwcap();
+    case InstructionSet::kLoongarch64:
+      return Loongarch64InstructionSetFeatures::FromHwcap();
 
     default:
       break;
@@ -195,6 +207,8 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromAssemb
       return X86InstructionSetFeatures::FromAssembly();
     case InstructionSet::kX86_64:
       return X86_64InstructionSetFeatures::FromAssembly();
+    case InstructionSet::kLoongarch64:
+      return Loongarch64InstructionSetFeatures::FromAssembly();
 
     default:
       break;
@@ -216,6 +230,8 @@ std::unique_ptr<const InstructionSetFeatures> InstructionSetFeatures::FromCpuFea
       return X86InstructionSetFeatures::FromCpuFeatures();
     case InstructionSet::kX86_64:
       return X86_64InstructionSetFeatures::FromCpuFeatures();
+    case InstructionSet::kLoongarch64:
+      return Loongarch64InstructionSetFeatures::FromCpuFeatures();
 
     default:
       break;
@@ -303,6 +319,11 @@ const X86InstructionSetFeatures* InstructionSetFeatures::AsX86InstructionSetFeat
 const X86_64InstructionSetFeatures* InstructionSetFeatures::AsX86_64InstructionSetFeatures() const {
   DCHECK_EQ(InstructionSet::kX86_64, GetInstructionSet());
   return down_cast<const X86_64InstructionSetFeatures*>(this);
+}
+
+const Loongarch64InstructionSetFeatures* InstructionSetFeatures::AsLoongarch64InstructionSetFeatures() const {
+  DCHECK_EQ(InstructionSet::kLoongarch64, GetInstructionSet());
+  return down_cast<const Loongarch64InstructionSetFeatures*>(this);
 }
 
 bool InstructionSetFeatures::FindVariantInArray(const char* const variants[], size_t num_variants,
