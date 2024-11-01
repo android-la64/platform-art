@@ -13,7 +13,6 @@ export NATIVE_TEST_DIR="/data/local/data"
 log_dir="./native-test-log"
 
 ## upload tests
-adb shell "mkdir -p $NATIVE_TEST_DIR/libbase_test"
 adb push ${OUT}/data/nativetest64/libbase_test "$NATIVE_TEST_DIR/nativetest64/"
 
 if [[ ! -d $log_dir ]]; then
