@@ -62,7 +62,6 @@ static constexpr PointerSize kLoongarch64PointerSize = PointerSize::k64;
 static constexpr PointerSize kRiscv64PointerSize = PointerSize::k64;
 static constexpr PointerSize kX86PointerSize = PointerSize::k32;
 static constexpr PointerSize kX86_64PointerSize = PointerSize::k64;
-static constexpr PointerSize kLoongarch64PointerSize = PointerSize::k64;
 
 // ARM64 default SVE vector length.
 static constexpr size_t kArm64DefaultSVEVectorLength = 256;
@@ -83,6 +82,7 @@ static constexpr size_t kX86CodeAlignment = 16;
 // than the usual 4-byte alignment requirement.
 static constexpr size_t kThumb2InstructionAlignment = 2;
 static constexpr size_t kArm64InstructionAlignment = 4;
+static constexpr size_t kLoongarch64InstructionAlignment = 4;
 static constexpr size_t kRiscv64InstructionAlignment = 2;
 static constexpr size_t kX86InstructionAlignment = 1;
 static constexpr size_t kX86_64InstructionAlignment = 1;
@@ -103,6 +103,8 @@ constexpr PointerSize GetInstructionSetPointerSize(InstructionSet isa) {
       return kArmPointerSize;
     case InstructionSet::kArm64:
       return kArm64PointerSize;
+    case InstructionSet::kLoongarch64:
+      return kLoongarch64PointerSize;
     case InstructionSet::kRiscv64:
       return kRiscv64PointerSize;
     case InstructionSet::kX86:
@@ -121,10 +123,10 @@ constexpr bool IsValidInstructionSet(InstructionSet isa) {
     case InstructionSet::kArm:
     case InstructionSet::kThumb2:
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
-    case InstructionSet::kLoongarch64:
       return true;
 
     case InstructionSet::kNone:
@@ -141,6 +143,8 @@ constexpr size_t GetInstructionSetInstructionAlignment(InstructionSet isa) {
       return kThumb2InstructionAlignment;
     case InstructionSet::kArm64:
       return kArm64InstructionAlignment;
+    case InstructionSet::kLoongarch64:
+      return kLoongarch64InstructionAlignment;
     case InstructionSet::kRiscv64:
       return kRiscv64InstructionAlignment;
     case InstructionSet::kX86:
@@ -162,6 +166,8 @@ constexpr size_t GetInstructionSetCodeAlignment(InstructionSet isa) {
       return kArmCodeAlignment;
     case InstructionSet::kArm64:
       return kArm64CodeAlignment;
+    case InstructionSet::kLoongarch64:
+      return kLoongarch64CodeAlignment;
     case InstructionSet::kRiscv64:
       return kRiscv64CodeAlignment;
     case InstructionSet::kX86:
@@ -181,6 +187,7 @@ constexpr size_t GetInstructionSetEntryPointAdjustment(InstructionSet isa) {
   switch (isa) {
     case InstructionSet::kArm:
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
@@ -204,9 +211,9 @@ constexpr bool Is64BitInstructionSet(InstructionSet isa) {
       return false;
 
     case InstructionSet::kArm64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86_64:
-    case InstructionSet::kLoongarch64:
       return true;
 
     case InstructionSet::kNone:
@@ -226,6 +233,8 @@ constexpr size_t GetBytesPerGprSpillLocation(InstructionSet isa) {
     case InstructionSet::kThumb2:
       return 4;
     case InstructionSet::kArm64:
+      return 8;
+    case InstructionSet::kLoongarch64:
       return 8;
     case InstructionSet::kRiscv64:
       return 8;
@@ -248,6 +257,8 @@ constexpr size_t GetBytesPerFprSpillLocation(InstructionSet isa) {
       return 4;
     case InstructionSet::kArm64:
       return 8;
+    case InstructionSet::kLoongarch64:
+      return 8;
     case InstructionSet::kRiscv64:
       return 8;
     case InstructionSet::kX86:
@@ -267,7 +278,7 @@ std::vector<InstructionSet> GetSupportedInstructionSets(std::string* error_msg);
 namespace instruction_set_details {
 
 #if !defined(ART_STACK_OVERFLOW_GAP_arm) || !defined(ART_STACK_OVERFLOW_GAP_arm64) || \
-    !defined(ART_STACK_OVERFLOW_GAP_riscv64) || !defined(ART_STACK_OVERFLOW_GAP_loongarch64) \
+    !defined(ART_STACK_OVERFLOW_GAP_riscv64) || !defined(ART_STACK_OVERFLOW_GAP_loongarch64) || \
     !defined(ART_STACK_OVERFLOW_GAP_x86) || !defined(ART_STACK_OVERFLOW_GAP_x86_64)
 #error "Missing defines for stack overflow gap"
 #endif
@@ -295,6 +306,7 @@ constexpr size_t GetStackOverflowReservedBytes(InstructionSet isa) {
 
     case InstructionSet::kLoongarch64:
       return instruction_set_details::kLoongarch64StackOverflowReservedBytes;
+
     case InstructionSet::kRiscv64:
       return instruction_set_details::kRiscv64StackOverflowReservedBytes;
 
