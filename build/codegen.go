@@ -62,14 +62,14 @@ func codegen(ctx android.LoadHookContext, c *codegenProperties, t moduleType) {
 			arch = &c.Codegen.Arm
 		case "arm64":
 			arch = &c.Codegen.Arm64
+		case "loongarch64":
+			arch = &c.Codegen.Loongarch64
 		case "riscv64":
 			arch = &c.Codegen.Riscv64
 		case "x86":
 			arch = &c.Codegen.X86
 		case "x86_64":
 			arch = &c.Codegen.X86_64
-		case "loongarch64":
-			arch = &c.Codegen.Loongarch64
 		default:
 			ctx.ModuleErrorf("Unknown codegen architecture %q", archName)
 		}
@@ -220,7 +220,7 @@ func defaultDeviceCodegenArches(ctx android.LoadHookContext) []string {
 		arches[s] = true
 		if s == "arm64" {
 			arches["arm"] = true
-        } else if s == "loongarch64" {
+		} else if s == "loongarch64" {
 			arches["loongarch64"] = true
 		} else if s == "riscv64" {
 			arches["riscv64"] = true

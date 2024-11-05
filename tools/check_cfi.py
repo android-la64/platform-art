@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Set, Tuple, Dict
 
 arch: str = ""
-ARCHES = ["i386", "x86_64", "arm", "aarch64", "riscv64"]
+ARCHES = ["i386", "x86_64", "arm", "aarch64", "riscv64", "loongarch64"]
 
 IGNORE : Dict[str, List[str]] = {
     # Aligns stack.
@@ -43,7 +43,7 @@ IGNORE : Dict[str, List[str]] = {
     "nterp_op_return": ["arm", "aarch64", "i386", "x86_64", "riscv64"],
 }
 
-SP = {"arm": "SP", "aarch64": "WSP", "i386": "ESP", "x86_64": "RSP", "riscv64": "X2"}
+SP = {"arm": "SP", "aarch64": "WSP", "i386": "ESP", "x86_64": "RSP", "riscv64": "X2", "loongarch64" : "$SP"}
 INITIAL_OFFSET = {"i386": 4, "x86_64": 8}
 
 @cache

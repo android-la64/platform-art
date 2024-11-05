@@ -243,7 +243,7 @@ def default_run(ctx, args, **kwargs):
   ANDROID_I18N_ROOT = args.android_i18n_root
   ANDROID_TZDATA_ROOT = args.android_tzdata_root
   ARCHITECTURES_32 = "(arm|x86|none)"
-  ARCHITECTURES_64 = "(arm64|x86_64|riscv64|none)"
+  ARCHITECTURES_64 = "(arm64|x86_64|riscv64|loongarch64|none)"
   ARCHITECTURES_PATTERN = ARCHITECTURES_32
   GET_DEVICE_ISA_BITNESS_FLAG = "--32"
   BOOT_IMAGE = args.boot
