@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ART_COMPILER_UTILS_RISCV64_JNI_MACRO_ASSEMBLER_RISCV64_H_
-#define ART_COMPILER_UTILS_RISCV64_JNI_MACRO_ASSEMBLER_RISCV64_H_
+#ifndef ART_COMPILER_UTILS_LOONGARCH64_JNI_MACRO_ASSEMBLER_LOONGARCH64_H_
+#define ART_COMPILER_UTILS_LOONGARCH64_JNI_MACRO_ASSEMBLER_LOONGARCH64_H_
 
 #include <stdint.h>
 #include <memory>
@@ -23,7 +23,7 @@
 
 #include <android-base/logging.h>
 
-#include "assembler_riscv64.h"
+#include "assembler_loongarch64.h"
 #include "base/arena_containers.h"
 #include "base/macros.h"
 #include "base/pointer_size.h"
@@ -32,13 +32,13 @@
 #include "utils/jni_macro_assembler.h"
 
 namespace art HIDDEN {
-namespace riscv64 {
+namespace loongarch64 {
 
-class Riscv64JNIMacroAssembler  : public JNIMacroAssemblerFwd<Riscv64Assembler, PointerSize::k64> {
+class Loongarch64JNIMacroAssembler  : public JNIMacroAssemblerFwd<Loongarch64Assembler, PointerSize::k64> {
  public:
-  explicit Riscv64JNIMacroAssembler(ArenaAllocator* allocator)
-      : JNIMacroAssemblerFwd<Riscv64Assembler, PointerSize::k64>(allocator) {}
-  ~Riscv64JNIMacroAssembler();
+  explicit Loongarch64JNIMacroAssembler(ArenaAllocator* allocator)
+      : JNIMacroAssemblerFwd<Loongarch64Assembler, PointerSize::k64>(allocator) {}
+  ~Loongarch64JNIMacroAssembler();
 
   // Finalize the code.
   void FinalizeCode() override;
@@ -148,20 +148,20 @@ class Riscv64JNIMacroAssembler  : public JNIMacroAssemblerFwd<Riscv64Assembler, 
                      ManagedRegister m_ref,
                      bool null_allowed);
 
-  ART_FRIEND_TEST(JniMacroAssemblerRiscv64Test, CreateJObject);
+  ART_FRIEND_TEST(JniMacroAssemblerLoongarch64Test, CreateJObject);
 };
 
-class Riscv64JNIMacroLabel final
-    : public JNIMacroLabelCommon<Riscv64JNIMacroLabel,
-                                 Riscv64Label,
-                                 InstructionSet::kRiscv64> {
+class Loongarch64JNIMacroLabel final
+    : public JNIMacroLabelCommon<Loongarch64JNIMacroLabel,
+                                 Loongarch64Label,
+                                 InstructionSet::kLoongarch64> {
  public:
-  Riscv64Label* AsRiscv64() {
+  Loongarch64Label* AsLoongarch64() {
     return AsPlatformLabel();
   }
 };
 
-}  // namespace riscv64
+}  // namespace loongarch64
 }  // namespace art
 
-#endif  // ART_COMPILER_UTILS_RISCV64_JNI_MACRO_ASSEMBLER_RISCV64_H_
+#endif  // ART_COMPILER_UTILS_LOONGARCH64_JNI_MACRO_ASSEMBLER_LOONGARCH64_H_

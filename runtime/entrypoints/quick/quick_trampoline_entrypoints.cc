@@ -304,6 +304,7 @@ class QuickArgumentVisitor {
   static constexpr bool kQuickSkipOddFpRegisters = false;
   static constexpr size_t kNumQuickGprArgs = 7;  // 7 arguments passed in GPRs.
   static constexpr size_t kNumQuickFprArgs = 8;  // 8 arguments passed in FPRs.
+  static constexpr bool kNaNBoxing = false;
   static constexpr bool kGprFprLockstep = false;
 
   static size_t GprIndexToGprOffset(uint32_t gpr_index) {

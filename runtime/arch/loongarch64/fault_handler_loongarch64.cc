@@ -16,7 +16,7 @@
 
 #include "fault_handler.h"
 
-#include <asm/ucontext.h>
+#include <sys/ucontext.h>
 
 #include "arch/instruction_set.h"
 #include "arch/loongarch64/callee_save_frame_loongarch64.h"
@@ -42,47 +42,23 @@ extern "C" void art_quick_throw_null_pointer_exception_from_signal();
 
 namespace art {
 
-void FaultManager::GetMethodAndReturnPcAndSp(siginfo_t* siginfo, void* context,
-                                             ArtMethod** out_method,
-                                             uintptr_t* out_return_pc,
-                                             uintptr_t* out_sp,
-                                             bool* out_is_stack_overflow) {
-  struct ucontext* uc = reinterpret_cast<struct ucontext*>(context);
-  struct sigcontext *sc = reinterpret_cast<struct sigcontext*>(&uc->uc_mcontext);
-  *out_sp = static_cast<uintptr_t>(sc->sc_regs[LARCH_REG_SP]);
-  VLOG(signals) << "sp: " << *out_sp;
-  if (*out_sp == 0) {
-    return;
+uintptr_t FaultManager::GetFaultPc(siginfo_t*, void* context) {
+  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  mcontext_t* mc = reinterpret_cast<mcontext_t*>(&uc->uc_mcontext);
+  if (mc->sc_regs[0x3] == 0) {
+    VLOG(signals) << "Missing SP";
+    return 0u;
   }
+  return mc->sc_pc;
+}
 
-  // In the case of a stack overflow, the stack is not valid and we can't
-  // get the method from the top of the stack.  However it's in r0.
-  uintptr_t* fault_addr = reinterpret_cast<uintptr_t*>(siginfo->si_addr);  // BVA addr
-  uintptr_t* overflow_addr = reinterpret_cast<uintptr_t*>(
-      reinterpret_cast<uint8_t*>(*out_sp) - GetStackOverflowReservedBytes(InstructionSet::kLoongarch64));
-  if (overflow_addr == fault_addr) {
-    *out_method = reinterpret_cast<ArtMethod*>(sc->sc_regs[LARCH_REG_A0]);
-    *out_is_stack_overflow = true;
-  } else {
-    // The method is at the top of the stack.
-    *out_method = *reinterpret_cast<ArtMethod**>(*out_sp);
-    *out_is_stack_overflow = false;
-  }
-
-  // Work out the return PC.  This will be the address of the instruction
-  // following the faulting ldr/str instruction.
-
-  VLOG(signals) << "pc: " << std::hex
-      << static_cast<void*>(reinterpret_cast<uint8_t*>(sc->sc_pc));
-
-  *out_return_pc = sc->sc_pc + 4;
+uintptr_t FaultManager::GetFaultSp(void* context) {
+  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  mcontext_t* mc = reinterpret_cast<mcontext_t*>(&uc->uc_mcontext);
+  return mc->sc_regs[0x3];
 }
 
 bool NullPointerHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info, void* context) {
-  // Same as arm64 implementation here.
-  if (!IsValidImplicitCheck(info)) {
-    return false;
-  }
   // The code that looks for the catch location needs to know the value of the
   // PC at the point of call.  For Null checks we insert a GC map that is immediately after
   // the load/store instruction that might cause the fault.
@@ -92,7 +68,6 @@ bool NullPointerHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info, void*
 
   // Decrement $sp by the frame size of the kSaveEverything method and store
   // the fault address in the padding right after the ArtMethod*.
-  assert(loongarch64::Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveEverything) == 496);
   sc->sc_regs[LARCH_REG_SP] -= loongarch64::Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveEverything);
   uintptr_t* padding = reinterpret_cast<uintptr_t*>(sc->sc_regs[LARCH_REG_SP]) + /* ArtMethod* */ 1;
   *padding = reinterpret_cast<uintptr_t>(info->si_addr);

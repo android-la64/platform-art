@@ -94,6 +94,10 @@ template <>
 struct CSFSelector<InstructionSet::kX86_64> {
   using type = x86_64::X86_64CalleeSaveFrame;
 };
+template <>
+struct CSFSelector<InstructionSet::kLoongarch64> {
+  using type = loongarch64::Loongarch64CalleeSaveFrame;
+};
 
 }  // namespace detail
 

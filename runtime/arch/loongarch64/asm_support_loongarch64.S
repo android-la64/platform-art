@@ -47,7 +47,7 @@
 .macro UNDEFINED name
     ENTRY \name
         //unimp
-        break
+        break 0
     END \name
 .endm
 
@@ -104,7 +104,6 @@
     addi.d $sp, $sp, (\frame_adjustment)
     .cfi_adjust_cfa_offset -(\frame_adjustment)
 .endm
-
 
 .macro SAVE_GPR_BASE base, reg, offset
     st.d \reg, \base, \offset
@@ -169,28 +168,28 @@
     SAVE_FPR $fa6, (7*8)
     SAVE_FPR $fa7, (8*8)
 
-    // a0 (x10) is the method pointer
-    SAVE_GPR $a1,  (9*8)   // x11
-    SAVE_GPR $a2,  (10*8)  // x12
-    SAVE_GPR $a3,  (11*8)  // x13
-    SAVE_GPR $a4,  (12*8)  // x14
-    SAVE_GPR $a5,  (13*8)  // x15
-    SAVE_GPR $a6,  (14*8)  // x16
-    SAVE_GPR $a7,  (15*8)  // x17
+    // a0 (r10) is the method pointer
+    SAVE_GPR $a1,  (9*8)   // r11
+    SAVE_GPR $a2,  (10*8)  // r12
+    SAVE_GPR $a3,  (11*8)  // r13
+    SAVE_GPR $a4,  (12*8)  // r14
+    SAVE_GPR $a5,  (13*8)  // r15
+    SAVE_GPR $a6,  (14*8)  // r16
+    SAVE_GPR $a7,  (15*8)  // r17
 
-    SAVE_GPR $fp,  (16*8)  // x22, s9, frame pointer
+    SAVE_GPR $fp,  (16*8)  // r22, s9, frame pointer
 
-    SAVE_GPR $s0,  (17*8)  // x23
-    // s1 (x24) is the ART thread register
-    SAVE_GPR $s2,  (18*8)  // x25
-    SAVE_GPR $s3,  (19*8)  // x26
-    SAVE_GPR $s4,  (20*8)  // x27
-    SAVE_GPR $s5,  (21*8)  // x28
-    SAVE_GPR $s6,  (22*8)  // x29
-    SAVE_GPR $s7,  (23*8)  // x30
-    SAVE_GPR $s8,  (24*8)  // x31
+    SAVE_GPR $s0,  (17*8)  // r23
+    // s1 (r24) is the ART thread register
+    SAVE_GPR $s2,  (18*8)  // r25
+    SAVE_GPR $s3,  (19*8)  // r26
+    SAVE_GPR $s4,  (20*8)  // r27
+    SAVE_GPR $s5,  (21*8)  // r28
+    SAVE_GPR $s6,  (22*8)  // r29
+    SAVE_GPR $s7,  (23*8)  // r30
+    SAVE_GPR $s8,  (24*8)  // r31
 
-    SAVE_GPR $ra,  (25*8)  // x1, return address
+    SAVE_GPR $ra,  (25*8)  // r1, return address
 .endm
 
 
@@ -207,27 +206,27 @@
     RESTORE_FPR $fa7, (8*8)
 
     // a0 (x10) is the method pointer
-    RESTORE_GPR $a1,  (9*8)   // x11
-    RESTORE_GPR $a2,  (10*8)  // x12
-    RESTORE_GPR $a3,  (11*8)  // x13
-    RESTORE_GPR $a4,  (12*8)  // x14
-    RESTORE_GPR $a5,  (13*8)  // x15
-    RESTORE_GPR $a6,  (14*8)  // x16
-    RESTORE_GPR $a7,  (15*8)  // x17
+    RESTORE_GPR $a1,  (9*8)   // r11
+    RESTORE_GPR $a2,  (10*8)  // r12
+    RESTORE_GPR $a3,  (11*8)  // r13
+    RESTORE_GPR $a4,  (12*8)  // r14
+    RESTORE_GPR $a5,  (13*8)  // r15
+    RESTORE_GPR $a6,  (14*8)  // r16
+    RESTORE_GPR $a7,  (15*8)  // r17
 
-    RESTORE_GPR $fp,  (16*8)  // x22, s9, frame pointer
+    RESTORE_GPR $fp,  (16*8)  // r22, s9, frame pointer
 
-    RESTORE_GPR $s0,  (17*8)  // x23
-    // s1 (x24) is the ART thread register
-    RESTORE_GPR $s2,  (18*8)  // x25
-    RESTORE_GPR $s3,  (19*8)  // x26
-    RESTORE_GPR $s4,  (20*8)  // x27
-    RESTORE_GPR $s5,  (21*8)  // x28
-    RESTORE_GPR $s6,  (22*8)  // x29
-    RESTORE_GPR $s7,  (23*8)  // x30
-    RESTORE_GPR $s8,  (24*8)  // x31
+    RESTORE_GPR $s0,  (17*8)  // r23
+    // s1 (r24) is the ART thread register
+    RESTORE_GPR $s2,  (18*8)  // r25
+    RESTORE_GPR $s3,  (19*8)  // r26
+    RESTORE_GPR $s4,  (20*8)  // r27
+    RESTORE_GPR $s5,  (21*8)  // r28
+    RESTORE_GPR $s6,  (22*8)  // r29
+    RESTORE_GPR $s7,  (23*8)  // r30
+    RESTORE_GPR $s8,  (24*8)  // r31
 
-    RESTORE_GPR $ra,  (25*8)  // x1, return address
+    RESTORE_GPR $ra,  (25*8)  // r1, return address
 .endm
 
 
@@ -289,18 +288,18 @@
     SAVE_FPR $fs7,  (8*9)  // f30
 
     // GP callee-saves
-    SAVE_GPR $fp,  (8*10)  // x22/s9, frame pointer
-    SAVE_GPR $s0,  (8*11)  // x23
-    // s1 (x24) is the ART thread register
-    SAVE_GPR $s2,  (8*12)  // x25
-    SAVE_GPR $s3,  (8*13)  // x26
-    SAVE_GPR $s4,  (8*14)  // x27
-    SAVE_GPR $s5,  (8*15)  // x28
-    SAVE_GPR $s6,  (8*16)  // x29
-    SAVE_GPR $s7,  (8*17)  // x30
-    SAVE_GPR $s8,  (8*18)  // x31
+    SAVE_GPR $fp,  (8*10)  // r22/s9, frame pointer
+    SAVE_GPR $s0,  (8*11)  // r23
+    // s1 (r24) is the ART thread register
+    SAVE_GPR $s2,  (8*12)  // r25
+    SAVE_GPR $s3,  (8*13)  // r26
+    SAVE_GPR $s4,  (8*14)  // r27
+    SAVE_GPR $s5,  (8*15)  // r28
+    SAVE_GPR $s6,  (8*16)  // r29
+    SAVE_GPR $s7,  (8*17)  // r30
+    SAVE_GPR $s8,  (8*18)  // r31
 
-    SAVE_GPR $ra,  (8*19)  // x1, return address
+    SAVE_GPR $ra,  (8*19)  // r1, return address
 .endm
 
 
@@ -322,18 +321,18 @@
     RESTORE_FPR $fs7,  (8*9)  // f30
 
     // GP callee-saves
-    RESTORE_GPR $fp,  (8*10)  // x22/s9, frame pointer
-    RESTORE_GPR $s0,  (8*11)  // x23
-    // s1 (x24) is the ART thread register
-    RESTORE_GPR $s2,  (8*12)  // x25
-    RESTORE_GPR $s3,  (8*13)  // x26
-    RESTORE_GPR $s4,  (8*14)  // x27
-    RESTORE_GPR $s5,  (8*15)  // x28
-    RESTORE_GPR $s6,  (8*16)  // x29
-    RESTORE_GPR $s7,  (8*17)  // x30
-    RESTORE_GPR $s8,  (8*18)  // x31
+    RESTORE_GPR $fp,  (8*10)  // r22/s9, frame pointer
+    RESTORE_GPR $s0,  (8*11)  // r23
+    // s1 (r24) is the ART thread register
+    RESTORE_GPR $s2,  (8*12)  // r25
+    RESTORE_GPR $s3,  (8*13)  // r26
+    RESTORE_GPR $s4,  (8*14)  // r27
+    RESTORE_GPR $s5,  (8*15)  // r28
+    RESTORE_GPR $s6,  (8*16)  // r29
+    RESTORE_GPR $s7,  (8*17)  // r30
+    RESTORE_GPR $s8,  (8*18)  // r31
 
-    RESTORE_GPR $ra,  (8*19)  // x1, return address
+    RESTORE_GPR $ra,  (8*19)  // r1, return address
 .endm
 
 
@@ -521,7 +520,7 @@
 .macro DELIVER_PENDING_EXCEPTION_FRAME_READY
     move $a0, $xSELF
     bl artDeliverPendingExceptionFromCode  // Point of no return.
-    break                                  // Unreachable.
+    break 0                                // Unreachable.
 .endm
 
 

@@ -43,7 +43,7 @@ std::ostream& operator<<(std::ostream& os, InstructionSet rhs);
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kArm;
 #elif defined(__aarch64__)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kArm64;
-#elif defined(__loongarch__) && (__loongarch_grlen == 64)
+#elif defined(__loongarch64)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kLoongarch64;
 #elif defined (__riscv)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kRiscv64;
@@ -362,7 +362,7 @@ static inline constexpr TwoWordReturn GetTwoWordSuccessValue(uintptr_t hi, uintp
   return ((hi64 << 32) | lo32);
 }
 
-#elif defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+#elif defined(__x86_64__) || defined(__aarch64__) || defined(__riscv) || defined(__loongarch64)
 
 // Note: TwoWordReturn can't be constexpr for 64-bit targets. We'd need a constexpr constructor,
 //       which would violate C-linkage in the entrypoint functions.

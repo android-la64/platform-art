@@ -289,7 +289,9 @@ constexpr int32_t EncodeInstructionSet(InstructionSet isa) {
     case InstructionSet::kArm64:
       return statsd::ART_DATUM_REPORTED__ISA__ART_ISA_ARM64;
     case InstructionSet::kLoongarch64:
-      return statsd::ART_DATUM_REPORTED__ISA__ART_ISA_LOONGARCH64;
+      //TODO: define ISA_LOONGARCH64
+      return statsd::ART_DATUM_REPORTED__ISA__ART_ISA_RISCV64;
+      //return statsd::ART_DATUM_REPORTED__ISA__ART_ISA_LOONGARCH64;
     case InstructionSet::kRiscv64:
       return statsd::ART_DATUM_REPORTED__ISA__ART_ISA_RISCV64;
     case InstructionSet::kX86:

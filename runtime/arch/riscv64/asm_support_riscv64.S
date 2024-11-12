@@ -122,7 +122,7 @@
 
 .macro SAVE_GPR_BASE base, reg, offset
     sd \reg, (\offset)(\base)
-    .cfi_rel_offset \reg, (\offset)
+    //.cfi_rel_offset \reg, (\offset)
 .endm
 
 
@@ -133,7 +133,7 @@
 
 .macro RESTORE_GPR_BASE base, reg, offset
     ld \reg, (\offset)(\base)
-    .cfi_restore \reg
+    //.cfi_restore \reg
 .endm
 
 
@@ -151,13 +151,13 @@
 
 .macro SAVE_FPR reg, offset
     fsd \reg, (\offset)(sp)
-    .cfi_rel_offset \reg, (\offset)
+    //.cfi_rel_offset \reg, (\offset)
 .endm
 
 
 .macro RESTORE_FPR reg, offset
     fld \reg, (\offset)(sp)
-    .cfi_restore \reg
+    //.cfi_restore \reg
 .endm
 
 

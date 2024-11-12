@@ -237,7 +237,7 @@ art_global_defaults {
             cflags: ["-DART_ENABLE_CODEGEN_arm64"],
         },
         loongarch64: {
-            cflags: ["-DART_ENABLE_CODEGEN_loongarch64"],
+            cflags: ["-DART_ENABLE_CODEGEN_loongarch64_unimp"],
         },
         riscv64: {
             cflags: ["-DART_ENABLE_CODEGEN_riscv64"],

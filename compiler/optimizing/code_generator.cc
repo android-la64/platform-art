@@ -33,6 +33,8 @@
 #include "code_generator_loongarch64.h"
 #endif
 
+#include "driver/compiler_options.h"
+
 #ifdef ART_ENABLE_CODEGEN_x86
 #include "code_generator_x86.h"
 #endif

@@ -24,8 +24,9 @@ void UpdateReadBarrierEntrypoints(QuickEntryPoints* /*qpoints*/, bool /*is_activ
 }
 
 void InitEntryPoints(JniEntryPoints* jpoints,
-                     QuickEntryPoints* qpoints) {
-  DefaultInitEntryPoints(jpoints, qpoints);
+                     QuickEntryPoints* qpoints,
+                     bool monitor_jni_entry_exit) {
+  DefaultInitEntryPoints(jpoints, qpoints, monitor_jni_entry_exit);
   // TODO(loongarch64): add other entrypoints
 }
 

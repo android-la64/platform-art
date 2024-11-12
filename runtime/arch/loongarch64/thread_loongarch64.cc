@@ -19,7 +19,7 @@
 #include <android-base/logging.h>
 
 #include "asm_support_loongarch64.h"
-#include "base/enums.h"
+//#include "base/enums.h"
 
 namespace art {
 

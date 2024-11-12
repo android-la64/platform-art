@@ -25,6 +25,9 @@
 #ifdef ART_ENABLE_CODEGEN_arm64
 #include "arm64/jni_macro_assembler_arm64.h"
 #endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+#include "loongarch64/jni_macro_assembler_loongarch64.h"
+#endif
 #ifdef ART_ENABLE_CODEGEN_riscv64
 #include "riscv64/jni_macro_assembler_riscv64.h"
 #endif

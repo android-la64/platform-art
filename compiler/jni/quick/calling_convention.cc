@@ -72,7 +72,7 @@ std::unique_ptr<ManagedRuntimeCallingConvention> ManagedRuntimeCallingConvention
 #ifdef ART_ENABLE_CODEGEN_loongarch64
     case InstructionSet::kLoongarch64:
       return std::unique_ptr<ManagedRuntimeCallingConvention>(
-          new (allocator) loongarch64::Loongrach64ManagedRuntimeCallingConvention(
+          new (allocator) loongarch64::Loongarch64ManagedRuntimeCallingConvention(
               is_static, is_synchronized, shorty));
 #endif
 #ifdef ART_ENABLE_CODEGEN_riscv64

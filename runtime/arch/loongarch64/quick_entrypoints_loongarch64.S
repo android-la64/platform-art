@@ -489,7 +489,7 @@ ENTRY \c_name
     SETUP_SAVE_EVERYTHING_FRAME       // save all registers as basis for long jump context.
     move    $a\n, $xSELF              // pass Thread::Current.
     bl      \cxx_name                 // \cxx_name(args..., Thread*).
-    break
+    break   0
 END \c_name
 .endm
 
@@ -510,7 +510,7 @@ ENTRY \c_name
     SETUP_SAVE_ALL_CALLEE_SAVES_FRAME // save all registers as basis for long jump context.
     move    $a\n, $xSELF              // pass Thread::Current.
     bl      \cxx_name                 // \cxx_name(args..., Thread*).
-    break
+    break   0
 END \c_name
 .endm
 
@@ -542,7 +542,7 @@ ENTRY art_quick_throw_null_pointer_exception_from_signal
     move    $a0, $ra                      // pass the fault address stored in RA by the fault handler.
     move    $a1, $xSELF                   // pass Thread::Current.
     bl  artThrowNullPointerExceptionFromSignal  // (arg, Thread*).
-    break
+    break   0
 END art_quick_throw_null_pointer_exception_from_signal
 
 
