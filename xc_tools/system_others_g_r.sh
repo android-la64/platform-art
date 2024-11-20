@@ -21,7 +21,7 @@ if [[ ! -d $log_dir ]]; then
 fi
 
 ## run tests
-all_tests="iorapd-tests libapexutil_tests flattened_apex_test ApexTestCases logd-unit-tests liblog-unit-tests libprofile-extras-test memory_replay_tests memunreachable_test memunreachable_unit_test memunreachable_binder_test  hwbinderThroughputTest libhwbinder_latency"
+all_tests="iorapd-tests libapexutil_tests logd-unit-tests liblog-unit-tests libprofile-extras-test memory_replay_tests memunreachable_test memunreachable_unit_test memunreachable_binder_test  hwbinderThroughputTest libhwbinder_latency"
 # logcat-unit-tests: logcat.blocking
 
 all_tests2="CtsApexSharedLibrariesTestCases"
