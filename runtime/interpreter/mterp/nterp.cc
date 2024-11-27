@@ -34,6 +34,9 @@
 namespace art HIDDEN {
 namespace interpreter {
 
+extern "C" void* artNterpAsmInstructionStart[] = { nullptr };
+extern "C" void* artNterpAsmInstructionEnd[] = { nullptr };
+
 bool IsNterpSupported() {
   switch (kRuntimeISA) {
     case InstructionSet::kArm:
@@ -67,8 +70,12 @@ bool CanRuntimeUseNterp() REQUIRES_SHARED(Locks::mutator_lock_) {
 }
 
 // The entrypoint for nterp, which ArtMethods can directly point to.
-extern "C" void ExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_);
-extern "C" void EndExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_);
+extern "C" void ExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_) {
+  UNIMPLEMENTED(FATAL);
+}
+extern "C" void EndExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_){
+  UNIMPLEMENTED(FATAL);
+}
 
 const void* GetNterpEntryPoint() {
   return reinterpret_cast<const void*>(interpreter::ExecuteNterpImpl);
@@ -82,8 +89,12 @@ ArrayRef<const uint8_t> NterpImpl() {
 }
 
 // Another entrypoint, which does a clinit check at entry.
-extern "C" void ExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_);
-extern "C" void EndExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_);
+extern "C" void ExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_){
+  UNIMPLEMENTED(FATAL);
+}
+extern "C" void EndExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_){
+  UNIMPLEMENTED(FATAL);
+}
 
 const void* GetNterpWithClinitEntryPoint() {
   return reinterpret_cast<const void*>(interpreter::ExecuteNterpWithClinitImpl);

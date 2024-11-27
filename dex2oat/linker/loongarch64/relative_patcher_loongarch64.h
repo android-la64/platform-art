@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ART_DEX2OAT_LINKER_RISCV64_RELATIVE_PATCHER_RISCV64_H_
-#define ART_DEX2OAT_LINKER_RISCV64_RELATIVE_PATCHER_RISCV64_H_
+#ifndef ART_DEX2OAT_LINKER_LOONGARCH64_RELATIVE_PATCHER_LOONGARCH64_H_
+#define ART_DEX2OAT_LINKER_LOONGARCH64_RELATIVE_PATCHER_LOONGARCH64_H_
 
 #include "base/array_ref.h"
 #include "linker/relative_patcher.h"
@@ -24,11 +24,11 @@ namespace art {
 
 namespace linker {
 
-class Riscv64RelativePatcher final : public RelativePatcher {
+class Loongarch64RelativePatcher final : public RelativePatcher {
  public:
-  Riscv64RelativePatcher(RelativePatcherThunkProvider* thunk_provider,
+  Loongarch64RelativePatcher(RelativePatcherThunkProvider* thunk_provider,
                          RelativePatcherTargetProvider* target_provider,
-                         const Riscv64InstructionSetFeatures* features);
+                         const Loongarch64InstructionSetFeatures* features);
 
   uint32_t ReserveSpace(uint32_t offset,
                         const CompiledMethod* compiled_method,
@@ -60,10 +60,10 @@ class Riscv64RelativePatcher final : public RelativePatcher {
   template <typename Alloc>
   uint32_t GetInsn(std::vector<uint8_t, Alloc>* code, uint32_t offset);
 
-  DISALLOW_COPY_AND_ASSIGN(Riscv64RelativePatcher);
+  DISALLOW_COPY_AND_ASSIGN(Loongarch64RelativePatcher);
 };
 
 }  // namespace linker
 }  // namespace art
 
-#endif  // ART_DEX2OAT_LINKER_RISCV64_RELATIVE_PATCHER_RISCV64_H_
+#endif  // ART_DEX2OAT_LINKER_LOONGARCH64_RELATIVE_PATCHER_LOONGARCH64_H_

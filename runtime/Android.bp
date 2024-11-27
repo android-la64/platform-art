@@ -500,7 +500,7 @@ cc_defaults {
         loongarch64: {
             srcs: [
                 "interpreter/mterp/mterp_stub.cc",
-                "interpreter/mterp/nterp_stub.cc",
+                "interpreter/mterp/nterp.cc",
                 "arch/loongarch64/context_loongarch64.cc",
                 "arch/loongarch64/entrypoints_init_loongarch64.cc",
                 "arch/loongarch64/jni_entrypoints_loongarch64.S",

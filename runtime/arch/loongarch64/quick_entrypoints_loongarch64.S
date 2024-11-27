@@ -840,6 +840,7 @@ UNDEFINED art_jni_monitored_method_end
 UNDEFINED art_quick_indexof
 
 
+#if 0
 ENTRY art_quick_instrumentation_entry
     SETUP_SAVE_REFS_AND_ARGS_FRAME
     // Preserve $a0 knowing there is a spare slot in kSaveRefsAndArgs.
@@ -887,6 +888,7 @@ ENTRY art_quick_instrumentation_exit
     la      $t6, art_quick_deoptimize
     jirl    $zero, $t6, 0
 END art_quick_instrumentation_exit
+#endif
 
 
 UNDEFINED art_quick_deoptimize
