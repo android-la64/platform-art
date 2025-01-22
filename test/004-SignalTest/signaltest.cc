@@ -90,6 +90,10 @@ static void signalhandler([[maybe_unused]] int sig, [[maybe_unused]] siginfo_t* 
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   mcontext_t* mc = reinterpret_cast<mcontext_t*>(&uc->uc_mcontext);
   mc->__gregs[REG_PC] += 4;  // Skip instruction causing segv.
+#elif defined(__loongarch64)
+  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  mcontext_t* mc = reinterpret_cast<sigcontext*>(&uc->uc_mcontext);
+  mc->sc_pc += 4;  // Skip instruction causing segv.
 #elif defined(__i386__)
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   uc->CTX_EIP += 3;

@@ -40,6 +40,10 @@
 #include "code_generator_riscv64.h"
 #endif
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+#include "code_generator_loongarch64.h"
+#endif
+
 #ifdef ART_ENABLE_CODEGEN_x86
 #include "code_generator_x86.h"
 #endif
@@ -311,6 +315,10 @@ inline CodeGenerator* create_codegen_arm64(HGraph* graph, const CompilerOptions&
 
 #ifdef ART_ENABLE_CODEGEN_riscv64
 inline CodeGenerator* create_codegen_riscv64(HGraph*, const CompilerOptions&) { return nullptr; }
+#endif
+
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+inline CodeGenerator* create_codegen_loongarch64(HGraph*, const CompilerOptions&) { return nullptr; }
 #endif
 
 #ifdef ART_ENABLE_CODEGEN_x86

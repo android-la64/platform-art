@@ -29,6 +29,7 @@ namespace art HIDDEN {
 class ArmInstructionSetFeatures;
 class Arm64InstructionSetFeatures;
 class Riscv64InstructionSetFeatures;
+class Loongarch64InstructionSetFeatures;
 class X86InstructionSetFeatures;
 class X86_64InstructionSetFeatures;
 
@@ -123,6 +124,9 @@ class InstructionSetFeatures {
 
   // Down cast this Riscv64InstructionFeatures.
   EXPORT const Riscv64InstructionSetFeatures* AsRiscv64InstructionSetFeatures() const;
+
+  // Down cast this Loongarch64InstructionFeatures.
+  EXPORT const Loongarch64InstructionSetFeatures* AsLoongarch64InstructionSetFeatures() const;
 
   // Down cast this X86InstructionFeatures.
   const X86InstructionSetFeatures* AsX86InstructionSetFeatures() const;

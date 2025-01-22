@@ -75,6 +75,7 @@ class ElfDebugLineWriter {
         break;
       case InstructionSet::kNone:
       case InstructionSet::kRiscv64:
+      case InstructionSet::kLoongarch64:
       case InstructionSet::kX86:
       case InstructionSet::kX86_64:
         break;

@@ -34,6 +34,12 @@
 namespace art HIDDEN {
 namespace interpreter {
 
+#ifdef __loongarch64
+extern "C" void* artNterpAsmInstructionStart[] = { nullptr };
+extern "C" void* artNterpAsmInstructionEnd[] = { nullptr };
+#endif // DEBUG
+
+
 bool IsNterpSupported() {
   switch (kRuntimeISA) {
     case InstructionSet::kArm:
@@ -67,11 +73,25 @@ bool CanRuntimeUseNterp() REQUIRES_SHARED(Locks::mutator_lock_) {
 }
 
 // The entrypoint for nterp, which ArtMethods can directly point to.
+#ifdef __loongarch64
+extern "C" void ExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_) {
+  UNIMPLEMENTED(FATAL);
+}
+extern "C" void EndExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_) {
+  UNIMPLEMENTED(FATAL);
+}
+
+#else
 extern "C" void ExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_);
 extern "C" void EndExecuteNterpImpl() REQUIRES_SHARED(Locks::mutator_lock_);
+#endif
 
 const void* GetNterpEntryPoint() {
+#ifdef __loongarch64
+  return nullptr;
+#else
   return reinterpret_cast<const void*>(interpreter::ExecuteNterpImpl);
+#endif // DEBUG
 }
 
 ArrayRef<const uint8_t> NterpImpl() {
@@ -82,8 +102,17 @@ ArrayRef<const uint8_t> NterpImpl() {
 }
 
 // Another entrypoint, which does a clinit check at entry.
+#ifdef __loongarch64
+extern "C" void ExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_) {
+  UNIMPLEMENTED(FATAL);
+}
+extern "C" void EndExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_) {
+  UNIMPLEMENTED(FATAL);
+}
+#else
 extern "C" void ExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_);
 extern "C" void EndExecuteNterpWithClinitImpl() REQUIRES_SHARED(Locks::mutator_lock_);
+#endif // DEBUG
 
 const void* GetNterpWithClinitEntryPoint() {
   return reinterpret_cast<const void*>(interpreter::ExecuteNterpWithClinitImpl);
@@ -106,6 +135,9 @@ void CheckNterpAsmConstants() {
    * which one did, but if any one is too big the total size will
    * overflow.
    */
+#ifdef __loongarch64
+
+#else
   const int width = kNterpHandlerSize;
   ptrdiff_t interp_size = reinterpret_cast<uintptr_t>(artNterpAsmInstructionEnd) -
                           reinterpret_cast<uintptr_t>(artNterpAsmInstructionStart);
@@ -113,6 +145,7 @@ void CheckNterpAsmConstants() {
     LOG(FATAL) << "ERROR: unexpected asm interp size " << interp_size
                << "(did an instruction handler exceed " << width << " bytes?)";
   }
+#endif
 }
 
 inline void UpdateHotness(ArtMethod* method) REQUIRES_SHARED(Locks::mutator_lock_) {

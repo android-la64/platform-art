@@ -305,6 +305,8 @@ class OdrConfig final {
         return std::make_pair(art::InstructionSet::kX86, art::InstructionSet::kX86_64);
       case art::InstructionSet::kRiscv64:
         return std::make_pair(art::InstructionSet::kNone, art::InstructionSet::kRiscv64);
+      case art::InstructionSet::kLoongarch64:
+        return std::make_pair(art::InstructionSet::kNone, art::InstructionSet::kLoongarch64);
       case art::InstructionSet::kThumb2:
       case art::InstructionSet::kNone:
         LOG(FATAL) << "Invalid instruction set " << isa_;

@@ -29,6 +29,10 @@
 #include "code_generator_riscv64.h"
 #endif
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+#include "code_generator_loongarch64.h"
+#endif
+
 #ifdef ART_ENABLE_CODEGEN_x86
 #include "code_generator_x86.h"
 #endif

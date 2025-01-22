@@ -64,6 +64,8 @@ func codegen(ctx android.LoadHookContext, c *codegenProperties, t moduleType) {
 			arch = &c.Codegen.Arm64
 		case "riscv64":
 			arch = &c.Codegen.Riscv64
+		case "loongarch64":
+			arch = &c.Codegen.Loongarch64
 		case "x86":
 			arch = &c.Codegen.X86
 		case "x86_64":
@@ -207,7 +209,7 @@ type codegenArchProperties struct {
 
 type codegenProperties struct {
 	Codegen struct {
-		Arm, Arm64, Riscv64, X86, X86_64 codegenArchProperties
+		Arm, Arm64, Riscv64, Loongarch64, X86, X86_64 codegenArchProperties
 	}
 }
 
@@ -220,6 +222,8 @@ func defaultDeviceCodegenArches(ctx android.LoadHookContext) []string {
 			arches["arm"] = true
 		} else if s == "riscv64" {
 			arches["riscv64"] = true
+		} else if s == "loongarch64" {
+			arches["loongarch64"] = true
 		} else if s == "x86_64" {
 			arches["x86"] = true
 		}
