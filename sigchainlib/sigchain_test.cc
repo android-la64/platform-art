@@ -190,7 +190,7 @@ TEST_F(SigchainTest, sighold) {
   });
 }
 
-#if !defined(__riscv)
+#if !defined(__riscv) && !defined(__loongarch64)
 // Not exposed via headers, but the symbols are available if you declare them yourself.
 extern "C" int sigblock(int);
 TEST_F(SigchainTest, sigblock) {

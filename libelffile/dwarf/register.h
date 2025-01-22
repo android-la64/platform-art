@@ -42,6 +42,8 @@ class Reg {
   static Reg Arm64Fp(int num) { return Reg(64 + num); }  // V0-V31.
   static Reg Riscv64Core(int num) { return Reg(num); }  // X0-X31
   static Reg Riscv64Fp(int num) { return Reg(32 + num); }  // F0-F31
+  static Reg Loongarch64Core(int num) { return Reg(num); }  // X0-X31
+  static Reg Loongarch64Fp(int num) { return Reg(32 + num); }  // F0-F31
   static Reg X86Core(int num) { return Reg(num); }
   static Reg X86Fp(int num) { return Reg(21 + num); }
   static Reg X86_64Core(int num) {

@@ -181,6 +181,7 @@ JniStubKeyHash::JniStubKeyHash(InstructionSet isa) {
     case InstructionSet::kArm:
     case InstructionSet::kThumb2:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
       hash_func_ = JniStubKeyGenericHash;
       break;
@@ -337,6 +338,7 @@ JniStubKeyEquals::JniStubKeyEquals(InstructionSet isa) {
     case InstructionSet::kArm:
     case InstructionSet::kThumb2:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
       equals_func_ = JniStubKeyGenericEquals;
       break;

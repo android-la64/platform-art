@@ -368,13 +368,15 @@ std::set<pid_t> PtraceSiblings(pid_t pid) {
 }
 
 void DumpABI(pid_t forked_pid) {
-  enum class ABI { kArm, kArm64, kRiscv64, kX86, kX86_64 };
+  enum class ABI { kArm, kArm64, kRiscv64, kX86, kX86_64, kLoongarch64 };
 #if defined(__arm__)
   constexpr ABI kDumperABI = ABI::kArm;
 #elif defined(__aarch64__)
   constexpr ABI kDumperABI = ABI::kArm64;
 #elif defined(__riscv)
   constexpr ABI kDumperABI = ABI::kRiscv64;
+#elif defined(__loongarch64)
+  constexpr ABI kDumperABI = ABI::kLoongarch64;
 #elif defined(__i386__)
   constexpr ABI kDumperABI = ABI::kX86;
 #elif defined(__x86_64__)
@@ -399,6 +401,9 @@ void DumpABI(pid_t forked_pid) {
       case ABI::kRiscv64:
         to_print = ABI::kRiscv64;
         break;
+      case ABI::kLoongarch64:
+        to_print = ABI::kLoongarch64;
+        break;
       case ABI::kX86:
       case ABI::kX86_64:
         to_print = ABI::kX86_64;
@@ -413,6 +418,9 @@ void DumpABI(pid_t forked_pid) {
         break;
       case ABI::kRiscv64:
         to_print = ABI::kRiscv64;
+        break;
+      case ABI::kLoongarch64:
+        to_print = ABI::kLoongarch64;
         break;
       case ABI::kX86:
       case ABI::kX86_64:
@@ -430,6 +438,9 @@ void DumpABI(pid_t forked_pid) {
       break;
     case ABI::kRiscv64:
       abi_str = "riscv64";
+      break;
+    case ABI::kLoongarch64:
+      abi_str = "loongarch64";
       break;
     case ABI::kX86:
       abi_str = "x86";

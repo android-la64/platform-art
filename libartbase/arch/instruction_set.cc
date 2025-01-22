@@ -30,6 +30,7 @@ void InstructionSetAbort(InstructionSet isa) {
     case InstructionSet::kThumb2:
     case InstructionSet::kArm64:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
     case InstructionSet::kNone:
@@ -49,6 +50,8 @@ const char* GetInstructionSetString(InstructionSet isa) {
       return "arm64";
     case InstructionSet::kRiscv64:
       return "riscv64";
+    case InstructionSet::kLoongarch64:
+      return "loongarch64";
     case InstructionSet::kX86:
       return "x86";
     case InstructionSet::kX86_64:
@@ -69,6 +72,8 @@ InstructionSet GetInstructionSetFromString(const char* isa_str) {
     return InstructionSet::kArm64;
   } else if (strcmp("riscv64", isa_str) == 0) {
     return InstructionSet::kRiscv64;
+  } else if (strcmp("loongarch64", isa_str) == 0) {
+    return InstructionSet::kLoongarch64;
   } else if (strcmp("x86", isa_str) == 0) {
     return InstructionSet::kX86;
   } else if (strcmp("x86_64", isa_str) == 0) {
@@ -100,6 +105,8 @@ std::vector<InstructionSet> GetSupportedInstructionSets(std::string* error_msg) 
       }
     case InstructionSet::kRiscv64:
       return {InstructionSet::kRiscv64};
+    case InstructionSet::kLoongarch64:
+      return {InstructionSet::kLoongarch64};
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
       if (zygote_kinds == "zygote64_32" || zygote_kinds == "zygote32_64") {
@@ -130,6 +137,8 @@ static_assert(ART_FRAME_SIZE_LIMIT < kArmStackOverflowReservedBytes, "Frame size
 static_assert(ART_FRAME_SIZE_LIMIT < kArm64StackOverflowReservedBytes,
               "Frame size limit too large");
 static_assert(ART_FRAME_SIZE_LIMIT < kRiscv64StackOverflowReservedBytes,
+              "Frame size limit too large");
+static_assert(ART_FRAME_SIZE_LIMIT < kLoongarch64StackOverflowReservedBytes,
               "Frame size limit too large");
 static_assert(ART_FRAME_SIZE_LIMIT < kX86StackOverflowReservedBytes,
               "Frame size limit too large");

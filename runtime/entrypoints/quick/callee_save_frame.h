@@ -29,6 +29,7 @@
 #include "arch/arm/callee_save_frame_arm.h"
 #include "arch/arm64/callee_save_frame_arm64.h"
 #include "arch/riscv64/callee_save_frame_riscv64.h"
+#include "arch/loongarch64/callee_save_frame_loongarch64.h"
 #include "arch/x86/callee_save_frame_x86.h"
 #include "arch/x86_64/callee_save_frame_x86_64.h"
 
@@ -84,6 +85,10 @@ struct CSFSelector<InstructionSet::kArm64> {
 template <>
 struct CSFSelector<InstructionSet::kRiscv64> {
   using type = riscv64::Riscv64CalleeSaveFrame;
+};
+template <>
+struct CSFSelector<InstructionSet::kLoongarch64> {
+  using type = loongarch64::Loongarch64CalleeSaveFrame;
 };
 template <>
 struct CSFSelector<InstructionSet::kX86> {

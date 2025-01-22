@@ -32,6 +32,7 @@ enum class InstructionSet {
   kArm64,
   kThumb2,
   kRiscv64,
+  kLoongarch64,
   kX86,
   kX86_64,
   kLast = kX86_64
@@ -44,6 +45,8 @@ static constexpr InstructionSet kRuntimeISA = InstructionSet::kArm;
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kArm64;
 #elif defined (__riscv)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kRiscv64;
+#elif defined (__loongarch64)
+static constexpr InstructionSet kRuntimeISA = InstructionSet::kLoongarch64;
 #elif defined(__i386__)
 static constexpr InstructionSet kRuntimeISA = InstructionSet::kX86;
 #elif defined(__x86_64__)
@@ -56,6 +59,7 @@ static constexpr InstructionSet kRuntimeISA = InstructionSet::kNone;
 static constexpr PointerSize kArmPointerSize = PointerSize::k32;
 static constexpr PointerSize kArm64PointerSize = PointerSize::k64;
 static constexpr PointerSize kRiscv64PointerSize = PointerSize::k64;
+static constexpr PointerSize kLoongarch64PointerSize = PointerSize::k64;
 static constexpr PointerSize kX86PointerSize = PointerSize::k32;
 static constexpr PointerSize kX86_64PointerSize = PointerSize::k64;
 
@@ -68,6 +72,7 @@ static constexpr size_t kArm64DefaultSVEVectorLength = 256;
 static constexpr size_t kArmCodeAlignment = 8;
 static constexpr size_t kArm64CodeAlignment = 16;
 static constexpr size_t kRiscv64CodeAlignment = 16;
+static constexpr size_t kLoongarch64CodeAlignment = 16;
 static constexpr size_t kX86CodeAlignment = 16;
 
 // Instruction alignment (every instruction must be aligned at this boundary). This differs from
@@ -78,6 +83,7 @@ static constexpr size_t kX86CodeAlignment = 16;
 static constexpr size_t kThumb2InstructionAlignment = 2;
 static constexpr size_t kArm64InstructionAlignment = 4;
 static constexpr size_t kRiscv64InstructionAlignment = 2;
+static constexpr size_t kLoongarch64InstructionAlignment = 4;
 static constexpr size_t kX86InstructionAlignment = 1;
 static constexpr size_t kX86_64InstructionAlignment = 1;
 
@@ -99,6 +105,8 @@ constexpr PointerSize GetInstructionSetPointerSize(InstructionSet isa) {
       return kArm64PointerSize;
     case InstructionSet::kRiscv64:
       return kRiscv64PointerSize;
+    case InstructionSet::kLoongarch64:
+      return kLoongarch64PointerSize;
     case InstructionSet::kX86:
       return kX86PointerSize;
     case InstructionSet::kX86_64:
@@ -116,6 +124,7 @@ constexpr bool IsValidInstructionSet(InstructionSet isa) {
     case InstructionSet::kThumb2:
     case InstructionSet::kArm64:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
       return true;
@@ -136,6 +145,8 @@ constexpr size_t GetInstructionSetInstructionAlignment(InstructionSet isa) {
       return kArm64InstructionAlignment;
     case InstructionSet::kRiscv64:
       return kRiscv64InstructionAlignment;
+    case InstructionSet::kLoongarch64:
+      return kLoongarch64InstructionAlignment;
     case InstructionSet::kX86:
       return kX86InstructionAlignment;
     case InstructionSet::kX86_64:
@@ -157,6 +168,8 @@ constexpr size_t GetInstructionSetCodeAlignment(InstructionSet isa) {
       return kArm64CodeAlignment;
     case InstructionSet::kRiscv64:
       return kRiscv64CodeAlignment;
+    case InstructionSet::kLoongarch64:
+      return kLoongarch64CodeAlignment;
     case InstructionSet::kX86:
       // Fall-through.
     case InstructionSet::kX86_64:
@@ -175,6 +188,7 @@ constexpr size_t GetInstructionSetEntryPointAdjustment(InstructionSet isa) {
     case InstructionSet::kArm:
     case InstructionSet::kArm64:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
       return 0;
@@ -198,6 +212,7 @@ constexpr bool Is64BitInstructionSet(InstructionSet isa) {
 
     case InstructionSet::kArm64:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86_64:
       return true;
 
@@ -221,6 +236,8 @@ constexpr size_t GetBytesPerGprSpillLocation(InstructionSet isa) {
       return 8;
     case InstructionSet::kRiscv64:
       return 8;
+    case InstructionSet::kLoongarch64:
+      return 8;
     case InstructionSet::kX86:
       return 4;
     case InstructionSet::kX86_64:
@@ -242,6 +259,8 @@ constexpr size_t GetBytesPerFprSpillLocation(InstructionSet isa) {
       return 8;
     case InstructionSet::kRiscv64:
       return 8;
+    case InstructionSet::kLoongarch64:
+      return 8;
     case InstructionSet::kX86:
       return 8;
     case InstructionSet::kX86_64:
@@ -259,7 +278,7 @@ std::vector<InstructionSet> GetSupportedInstructionSets(std::string* error_msg);
 namespace instruction_set_details {
 
 #if !defined(ART_STACK_OVERFLOW_GAP_arm) || !defined(ART_STACK_OVERFLOW_GAP_arm64) || \
-    !defined(ART_STACK_OVERFLOW_GAP_riscv64) || \
+    !defined(ART_STACK_OVERFLOW_GAP_riscv64) ||  !defined(ART_STACK_OVERFLOW_GAP_loongarch64) || \
     !defined(ART_STACK_OVERFLOW_GAP_x86) || !defined(ART_STACK_OVERFLOW_GAP_x86_64)
 #error "Missing defines for stack overflow gap"
 #endif
@@ -267,6 +286,7 @@ namespace instruction_set_details {
 static constexpr size_t kArmStackOverflowReservedBytes     = ART_STACK_OVERFLOW_GAP_arm;
 static constexpr size_t kArm64StackOverflowReservedBytes   = ART_STACK_OVERFLOW_GAP_arm64;
 static constexpr size_t kRiscv64StackOverflowReservedBytes = ART_STACK_OVERFLOW_GAP_riscv64;
+static constexpr size_t kLoongarch64StackOverflowReservedBytes = ART_STACK_OVERFLOW_GAP_loongarch64;
 static constexpr size_t kX86StackOverflowReservedBytes     = ART_STACK_OVERFLOW_GAP_x86;
 static constexpr size_t kX86_64StackOverflowReservedBytes  = ART_STACK_OVERFLOW_GAP_x86_64;
 
@@ -286,6 +306,9 @@ constexpr size_t GetStackOverflowReservedBytes(InstructionSet isa) {
 
     case InstructionSet::kRiscv64:
       return instruction_set_details::kRiscv64StackOverflowReservedBytes;
+
+    case InstructionSet::kLoongarch64:
+      return instruction_set_details::kLoongarch64StackOverflowReservedBytes;
 
     case InstructionSet::kX86:
       return instruction_set_details::kX86StackOverflowReservedBytes;
@@ -339,7 +362,7 @@ static inline constexpr TwoWordReturn GetTwoWordSuccessValue(uintptr_t hi, uintp
   return ((hi64 << 32) | lo32);
 }
 
-#elif defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+#elif defined(__x86_64__) || defined(__aarch64__) || defined(__riscv) || defined(__loongarch64)
 
 // Note: TwoWordReturn can't be constexpr for 64-bit targets. We'd need a constexpr constructor,
 //       which would violate C-linkage in the entrypoint functions.
