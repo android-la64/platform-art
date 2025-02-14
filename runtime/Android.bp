@@ -509,6 +509,7 @@ cc_defaults {
         },
         loongarch64: {
             srcs: [
+                ":libart_mterp.loongarch64",
                 "arch/loongarch64/context_loongarch64.cc",
                 "arch/loongarch64/entrypoints_init_loongarch64.cc",
                 "arch/loongarch64/fault_handler_loongarch64.cc",
@@ -1245,6 +1246,20 @@ genrule {
     out: ["mterp_riscv64.S"],
     srcs: [
         "interpreter/mterp/riscv64/*.S",
+    ],
+    tool_files: [
+        "interpreter/mterp/gen_mterp.py",
+        "interpreter/mterp/common/gen_setup.py",
+        ":art_libdexfile_dex_instruction_list_header",
+    ],
+    cmd: "$(location interpreter/mterp/gen_mterp.py) $(out) $(in)",
+}
+
+genrule {
+    name: "libart_mterp.loongarch64",
+    out: ["mterp_loongarch64.S"],
+    srcs: [
+        "interpreter/mterp/loongarch64/*.S",
     ],
     tool_files: [
         "interpreter/mterp/gen_mterp.py",
