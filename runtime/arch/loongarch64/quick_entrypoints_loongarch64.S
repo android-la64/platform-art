@@ -442,7 +442,8 @@ END art_quick_method_entry_hook
 
     .extern artMethodExitHook
 ENTRY art_quick_method_exit_hook
-    SETUP_SAVE_EVERYTHING_FRAME
+    SETUP_SAVE_EVERYTHING_FRAME \
+        RUNTIME_SAVE_EVERYTHING_METHOD_OFFSET
 
     // frame_size is passed in A4 from JITed code and `art_quick_generic_jni_trampoline`.
     addi.d $a3, $sp, SAVE_EVERYTHING_FRAME_OFFSET_FA0  // FP result ptr in kSaveEverything frame
@@ -675,6 +676,16 @@ ENTRY art_quick_do_long_jump
 END art_quick_do_long_jump
 
 
+ENTRY art_quick_test_suspend
+    SETUP_SAVE_EVERYTHING_FRAME \
+        RUNTIME_SAVE_EVERYTHING_FOR_SUSPEND_CHECK_METHOD_OFFSET
+    move   $a0, $xSELF
+    bl artTestSuspendFromCode
+    RESTORE_SAVE_EVERYTHING_FRAME
+    jr $ra
+END art_quick_test_suspend
+
+
 UNDEFINED art_quick_osr_stub
 
 UNDEFINED art_quick_alloc_array_resolved_dlmalloc
@@ -864,7 +875,6 @@ UNDEFINED art_quick_invoke_super_trampoline_with_access_check
 UNDEFINED art_quick_invoke_virtual_trampoline_with_access_check
 UNDEFINED art_quick_invoke_polymorphic
 UNDEFINED art_quick_invoke_custom
-UNDEFINED art_quick_test_suspend
 UNDEFINED art_quick_deliver_exception
 UNDEFINED art_quick_throw_array_bounds
 UNDEFINED art_quick_throw_div_zero

@@ -30,4 +30,7 @@
 // All 32 FPRs, 28 GPRs (no SP, Zero, TP, GP), ArtMethod*, padding, total 8*(32 + 28 + 1 + 1) = 496
 #define FRAME_SIZE_SAVE_EVERYTHING       496
 
+// S0, S2 - S9(FP), ArtMethod*, total 8 * (9 +1) = 80
+#define FRAME_SIZE_SAVE_REFS_ONLY   80
+
 #endif  // ART_RUNTIME_ARCH_LOONGARCH64_ASM_SUPPORT_LOONGARCH64_H_

@@ -46,14 +46,87 @@
  * - callee saved: fs0-fs7
  */
 
+// Android references
+//   Bytecodes: https://source.android.com/docs/core/runtime/dalvik-bytecode
+//   Instruction formats: https://source.android.com/docs/core/runtime/instruction-formats
+
 // Fixed register usages in Nterp.
 //    nickname  ABI    reg   purpose
-#define xSELF    $$s1  // r24,   Thread* self pointer
-#define xFP      $$s3  // r26,  interpreted frame pointer: to access locals and args
-#define xPC      $$s4  // r27,  interpreted program counter: to fetch instructions
-#define xINST    $$s5  // r28,  first 16-bit code unit of current instruction
-#define xIBASE   $$s6  // r29,  interpreted instruction base pointer: for computed goto
-#define xREFS    $$s7  // r30,  base of object references of dex registers
+#define zero       $$r0
+#define ra       $$r1
+#define tp       $$r2
+#define sp       $$r3
+#define a0       $$r4
+#define a1       $$r5
+#define a2       $$r6
+#define a3       $$r7
+#define a4       $$r8
+#define a5       $$r9
+#define a6       $$r10
+#define a7       $$r11
+#define t0       $$r12
+#define t1       $$r13
+#define t2       $$r14
+#define t3       $$r15
+#define t4       $$r16
+#define t5       $$r17
+#define t6       $$r18
+#define t7       $$r19
+#define t8       $$r20
+#define u0       $$r21
+#define fp       $$r22
+#define s0       $$r23
+#define s1       $$r24
+#define s2       $$r25
+#define s3       $$r26
+#define s4       $$r27
+#define s5       $$r28
+#define s6       $$r29
+#define s7       $$r30
+#define s8       $$r31
+
+#define fa0      $$f0
+#define fa1      $$f1
+#define fa2      $$f2
+#define fa3      $$f3
+#define fa4      $$f4
+#define fa5      $$f5
+#define fa6      $$f6
+#define fa7      $$f7
+#define ft0      $$f8
+#define ft1      $$f9
+#define ft2      $$f10
+#define ft3      $$f11
+#define ft4      $$f12
+#define ft5      $$f13
+#define ft6      $$f14
+#define ft7      $$f15
+#define ft8      $$f16
+#define ft9      $$f17
+#define ft10     $$f18
+#define ft11     $$f19
+#define ft12     $$f20
+#define ft13     $$f21
+#define ft14     $$f22
+#define ft15     $$f23
+#define fs0      $$f24
+#define fs1      $$f25
+#define fs2      $$f26
+#define fs3      $$f27
+#define fs4      $$f28
+#define fs5      $$f29
+#define fs6      $$f30
+#define fs7      $$f31
+#define xSELF    s1  // r24,   Thread* self pointer
+#define xFP      s2  // r25,  interpreted frame pointer: to access locals and args
+#define xPC      s3  // r26,  interpreted program counter: to fetch instructions
+#define xINST    s4  // r27,  first 16-bit code unit of current instruction
+#define xIBASE   s5  // r28,  interpreted instruction base pointer: for computed goto
+#define xREFS    s6  // r29,  base of object references of dex registers
+
+#define CFI_TMP  4  // DWARF register number for       a0/r4
+#define CFI_DEX  26  // DWARF register number for xPC  /s3/r26
+#define CFI_REFS 29  // DWARF register number for xREFS/s6/x29
 
 // An assembly entry for nterp.
 .macro OAT_ENTRY name
@@ -82,13 +155,193 @@
   SIZE \name
 .endm
 
+// Macro for defining entrypoints into runtime. We don't need to save registers (we're not holding
+// references there), but there is no kDontSave runtime method. So just use the kSaveRefsOnly
+// runtime method.
+.macro NTERP_TRAMPOLINE name, helper
+ENTRY \name
+    SETUP_SAVE_REFS_ONLY_FRAME
+    bl \helper
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    ld.d t0, xSELF, THREAD_EXCEPTION_OFFSET
+    bnez t0, nterp_deliver_pending_exception
+    jr ra
+END \name
+.endm
+
+// Unpack code items from dex format.
+// Input: \code_item
+// Output:
+//   - \registers: register count
+//   - \outs: out count
+//   - \ins: in count
+//   - \code_item: holds instruction array on exit
+// Clobbers: t0
+.macro FETCH_CODE_ITEM_INFO code_item, registers, outs, ins
+    // Check LSB of \code_item. If 1, it's a compact dex file.
+    andi t0, \code_item, 0x1
+    beqz t0, 1f  // Regular dex.
+    break 0x5  // Compact dex: unimplemented.
+1:
+    // Unpack values from regular dex format.
+    ld.hu \registers, \code_item, CODE_ITEM_REGISTERS_SIZE_OFFSET
+    ld.hu \outs, \code_item, CODE_ITEM_OUTS_SIZE_OFFSET
+    ld.hu \ins, \code_item, CODE_ITEM_INS_SIZE_OFFSET
+    addi.d \code_item, \code_item, CODE_ITEM_INSNS_OFFSET
+.endm
+
+// Set up the stack to start executing the method.
+// See runtime/nterp_helpers.cc for a diagram of the setup.
+// Input:
+//   - a0: ArtMethod*
+//   - sp
+//   - \code_item: CodeItem*
+//   - \cfi_refs: DWARF register number for \refs
+// Output:
+//   - \code_item: pointer to instruction array `insns_*` on exit
+//   - \refs: pointer to obj reference array
+//   - \fp: pointer to dex register array
+//   - \regs: count of dex registers
+//   - \ins: count of in-registers
+//   - \old_sp: old stack pointer
+//   - sp modified
+//
+// Clobbers: t0, t1
+.macro SETUP_STACK_FRAME code_item, cfi_refs, refs, fp, regs, ins, old_sp
+    FETCH_CODE_ITEM_INFO \code_item, \regs, /*out count*/ t1, \ins
+
+    // Compute required frame size: ((2 * \regs) + t1) * 4 + 24
+    // - The register array and reference array are each \regs in length.
+    // - The out array is t1 in length.
+    // - Each register is 4 bytes.
+    // - Additional 24 bytes for 3 fields: saved frame pointer, dex pc, and ArtMethod*.
+    slli.d t0, \regs, 1
+    add.d t0, t0, t1
+    slli.d t0, t0, 2
+    addi.d t0, t0, 24
+
+    // Compute new stack pointer in t0.
+    sub.d t0, sp, t0
+    // 16-byte alignment.
+    li.w t8, ~0xF
+    and t0, t0, t8
+
+    // Set \refs to base of reference array. Align to pointer size for the frame pointer and dex pc
+    // pointer, below the reference array.
+    slli.d t1, t1, 2  // 4 bytes per entry.
+    add.d t1, t0, t1
+    addi.d t1, t1, 28  // 24 bytes from 3 fields mentioned earlier, plus 4 for alignment slack.
+    li.w t8, -__SIZEOF_POINTER__
+    and \refs, t1, t8
+
+    // Set \fp to base of register array, above the reference array. This region is already aligned.
+    slli.d t1, \regs, 2
+    add.d \fp, \refs, t1
+
+    // Set up the stack pointer.
+    move \old_sp, sp
+    .cfi_def_cfa_register \old_sp
+    move sp, t0
+    st.w \old_sp, \refs, -8
+    CFI_DEF_CFA_BREG_PLUS_UCONST \cfi_refs, -8, FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
+
+    // Put nulls in reference array.
+    beqz \regs, 2f
+    move t1, \refs  // t1 as iterator
+1:
+    // Write in 8-byte increments, so vreg(0) gets zero'ed too, if \regs is odd.
+    st.d zero, t1, 0
+    addi.d t1, t1, 8
+    bltu t1, \fp, 1b
+2:
+    // Save the ArtMethod*.
+    st.d a0, sp, 0
+.endm
+
+.macro EXPORT_PC
+    st.d xPC, xREFS, -16
+.endm
+
+.macro DO_SUSPEND_CHECK continue
+    ld.wu t0, xSELF, THREAD_FLAGS_OFFSET
+    andi t0, t0, THREAD_SUSPEND_OR_CHECKPOINT_REQUEST
+    beqz t0, \continue
+    EXPORT_PC
+    bl art_quick_test_suspend
+.endm
+
+// Fetch the next instruction, from xPC into xINST.
+// Does not advance xPC.
+.macro FETCH_INST
+    ld.hu xINST, xPC, 0  // zero in upper 48 bits
+.endm
+
+// Clobbers: \reg
+.macro GET_INST_OPCODE reg
+    andi \reg, xINST, 0xFF
+.endm
+
+// Clobbers: \reg
+.macro GOTO_OPCODE reg
+    slli.w \reg, \reg, ${handler_size_bits}
+    add.d \reg, xIBASE, \reg
+    jr \reg
+.endm
+
+// Inputs:
+//   - a0
+//   - xSELF
+// Clobbers: t0
+.macro CHECK_AND_UPDATE_SHARED_MEMORY_METHOD if_hot, if_not_hot
+    ld.w t0, a0, ART_METHOD_ACCESS_FLAGS_OFFSET
+    // Send flag bit to MSB, branch if bit is unset.
+    slli.d t0, t0, 63 - ART_METHOD_IS_MEMORY_SHARED_FLAG_BIT
+    bge t0, zero, \if_hot
+
+    ld.w t0, xSELF, THREAD_SHARED_METHOD_HOTNESS_OFFSET
+    beqz t0, \if_hot
+
+    addi.d t0, t0, -1  // Reduce hotness
+    st.w t0, xSELF, THREAD_SHARED_METHOD_HOTNESS_OFFSET
+    b \if_not_hot
+.endm
+
+// Increase method hotness before starting the method.
+// Hardcoded:
+// - a0: ArtMethod*
+// Clobbers: t0
+.macro START_EXECUTING_INSTRUCTIONS
+    ld.d a0, sp, 0
+    ld.hu t0, a0, ART_METHOD_HOTNESS_COUNT_OFFSET  // t0 := hotness
+#if (NTERP_HOTNESS_VALUE != 0)
+#error Expected 0 for hotness value
+#endif
+    // If the counter is at zero (hot), handle it in the runtime.
+    beqz t0, 3f
+    addi.d t0, t0, -1  // increase hotness
+    st.h t0, a0, ART_METHOD_HOTNESS_COUNT_OFFSET
+1:
+    DO_SUSPEND_CHECK continue=2f
+2:
+    FETCH_INST
+    GET_INST_OPCODE t0
+    GOTO_OPCODE t0
+3:
+    CHECK_AND_UPDATE_SHARED_MEMORY_METHOD if_hot=4f, if_not_hot=1b
+4:
+    move a1, zero  // dex_pc_ptr=nullptr
+    move a2, zero  // vergs=nullptr
+    bl nterp_hot_method
+    b 2b
+.endm
+
 %def entry():
 /*
  * ArtMethod entry point.
  *
  * On entry:
- *  XXX   ArtMethod* callee
- *  rest  method parameters
+ *  a0     ArtMethod* callee
+ *  a1-a7  method parameters
  */
 
 OAT_ENTRY ExecuteNterpWithClinitImpl
@@ -102,7 +355,29 @@ EndExecuteNterpWithClinitImpl:
 
 OAT_ENTRY ExecuteNterpImpl
     .cfi_startproc
+
+    // Check guard page for stack overflow.
+    li.d t0, -STACK_OVERFLOW_RESERVED_BYTES
+    add.d t0, t0, sp
+    ld.d zero, t0, 0
+
+    INCREASE_FRAME FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
+    SAVE_ALL_CALLEE_SAVES
+
+    ld.d xPC, a0, ART_METHOD_DATA_OFFSET_64
+    SETUP_STACK_FRAME xPC, CFI_REFS, xREFS, xFP, /*reg count*/ s7, /*in count*/s8, /*old sp*/u0
+
+    beqz s8, .Lsetup_execution  // no args
     break 0x5
+
+.Lsetup_execution:
+    CFI_DEFINE_DEX_PC_WITH_OFFSET(/*tmpReg*/CFI_TMP, /*dexReg*/CFI_DEX, /*dexOffset*/0)
+
+    la xIBASE, artNterpAsmInstructionStart
+    START_EXECUTING_INSTRUCTIONS
+    // NOTE: no fallthrough
+    // cfi info continues, and covers the whole nterp implementation.
+    SIZE ExecuteNterpImpl
 
 %def fetch_from_thread_cache(dest_reg, miss_label):
 
@@ -120,17 +395,23 @@ OAT_ENTRY ExecuteNterpImpl
 // Enclose all code below in a symbol (which gets printed in backtraces).
 NAME_START nterp_helper
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
-// EndExecuteNterpImpl includes the methods below as we want the runtime to
-// see them as part of the Nterp PCs.
 .cfi_endproc
 NAME_END nterp_helper
 
-// This is the end of PCs contained by the OatQuickMethodHeader created for the interpreter
-// entry point.
+// EndExecuteNterpImpl includes the methods after .cfi_endproc, as we want the runtime to see them
+// as part of the Nterp PCs. This label marks the end of PCs contained by the OatQuickMethodHeader
+// created for the interpreter entry point.
     .type EndExecuteNterpImpl, @function
     .hidden EndExecuteNterpImpl
     .global EndExecuteNterpImpl
 EndExecuteNterpImpl:
+
+// Entrypoints into runtime.
+NTERP_TRAMPOLINE nterp_hot_method, NterpHotMethod
+
+ENTRY nterp_deliver_pending_exception
+    DELIVER_PENDING_EXCEPTION
+END nterp_deliver_pending_exception
 
 // gen_mterp.py will inline the following definitions
 // within [ExecuteNterpImpl, EndExecuteNterpImpl).

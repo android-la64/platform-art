@@ -118,6 +118,11 @@ static constexpr size_t NterpGetFrameEntrySize(InstructionSet isa) {
           riscv64::Riscv64CalleeSaveFrame::GetCoreSpills(CalleeSaveType::kSaveAllCalleeSaves);
       fp_spills = riscv64::Riscv64CalleeSaveFrame::GetFpSpills(CalleeSaveType::kSaveAllCalleeSaves);
       break;
+    case InstructionSet::kLoongarch64:
+      core_spills =
+          loongarch64::Loongarch64CalleeSaveFrame::GetCoreSpills(CalleeSaveType::kSaveAllCalleeSaves);
+      fp_spills = loongarch64::Loongarch64CalleeSaveFrame::GetFpSpills(CalleeSaveType::kSaveAllCalleeSaves);
+      break;
     default:
       InstructionSetAbort(isa);
   }
@@ -234,8 +239,8 @@ bool CanMethodUseNterp(ArtMethod* method, InstructionSet isa) {
       method->IsProxyMethod()) {
     return false;
   }
-  if (isa == InstructionSet::kRiscv64 && method->GetDexFile()->IsCompactDexFile()) {
-    return false;  // Riscv64 nterp does not support compact dex yet.
+  if ((isa == InstructionSet::kLoongarch64 || isa == InstructionSet::kRiscv64) && method->GetDexFile()->IsCompactDexFile()) {
+    return false;  // Riscv64 and LoongArch64 nterp does not support compact dex yet.
   }
   // There is no need to add the alignment padding size for comparison with aligned limit.
   size_t frame_size_without_padding = NterpGetFrameSizeWithoutPadding(method, isa);
