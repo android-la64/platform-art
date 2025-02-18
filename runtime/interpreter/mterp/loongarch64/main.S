@@ -276,6 +276,17 @@ END \name
     ld.hu xINST, xPC, 0  // zero in upper 48 bits
 .endm
 
+// Fetch the next instruction, from xPC into xINST. Advance xPC by \count units, each 2 bytes.
+//
+// Immediates have a 12-bit offset range from xPC. Thus, \count can range from -1024 to 1023.
+//
+// Note: Must be placed AFTER anything that can throw an exception, or the exception catch may miss.
+// Thus, this macro must be placed after EXPORT_PC.
+.macro FETCH_ADVANCE_INST count
+    ld.hu xINST, xPC, (\count*2)  // zero in upper 48 bits
+    addi.d xPC, xPC, (\count*2)
+.endm
+
 // Clobbers: \reg
 .macro GET_INST_OPCODE reg
     andi \reg, xINST, 0xFF
@@ -334,6 +345,36 @@ END \name
     bl nterp_hot_method
     b 2b
 .endm
+
+// 64 bit write
+// Clobbers: z0
+.macro SET_VREG_WIDE reg, vreg, z0
+    slli.d \vreg, \vreg, 2
+    add.d \z0, \vreg, xFP     // vreg addr in register array
+    st.d \reg, \z0, 0         // fp[vreg] := reg(lo) ; fp[vreg+1] := reg(hi)
+    add.d \z0, \vreg, xREFS   // vreg addr in reference array
+    st.d zero, \z0, 0         // refs[vreg] := null ; refs[vreg+1] := null
+.endm
+
+// 32 bit write
+// Clobbers: z0
+.macro SET_VREG_WORD reg, vreg, z0
+    slli.d \vreg, \vreg, 2
+    add.d \z0, \vreg, xFP     // vreg addr in register array
+    st.w \reg, \z0, 0         // fp[vreg] := reg
+    add.d \z0, \vreg, xREFS   // vreg addr in reference array
+    st.w zero, \z0, 0         // refs[vreg] := null
+.endm
+
+// Typed write, defaults to 32-bit write.
+// Note: Incorrect for an object ref; it requires 2nd SW into xREFS.
+// Clobbers: z0
+%def set_vreg(reg, vreg, z0, width=32, is_wide=False):
+%  if is_wide or width == 64:
+     SET_VREG_WIDE $reg, $vreg, $z0
+%  else:
+     SET_VREG_WORD $reg, $vreg, $z0
+%#:
 
 %def entry():
 /*

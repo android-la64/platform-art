@@ -5,8 +5,20 @@
 
 %def op_const_16():
     break 0x5
+
+// const/4 vA, #+B
+// Format 11n: B|A|12
+// Clobbers: t0, t1, t2, t3
 %def op_const_4():
-    break 0x5
+   slli.w t1, xINST, 16     // B as MSB of word
+   srai.w t1, t1, 28        // t1 := sssssssB
+   slli.w t2, xINST, 20     // A as MSB of word
+   srli.w t2, t2, 28        // t2 := A
+   FETCH_ADVANCE_INST 1    // advance xPC, load xINST
+   GET_INST_OPCODE t3      // t3 holds next opcode
+%  set_vreg("t1", "t2", z0="t0")  # fp[A] := sssssssB
+   GOTO_OPCODE t3          // continue to next
+
 %def op_const_high16():
     break 0x5
 %def op_const_object(jumbo="0", helper="nterp_load_object"):
