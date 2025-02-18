@@ -242,7 +242,7 @@ END \name
     move \old_sp, sp
     .cfi_def_cfa_register \old_sp
     move sp, t0
-    st.w \old_sp, \refs, -8
+    st.d \old_sp, \refs, -8
     CFI_DEF_CFA_BREG_PLUS_UCONST \cfi_refs, -8, FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
 
     // Put nulls in reference array.
@@ -268,6 +268,44 @@ END \name
     beqz t0, \continue
     EXPORT_PC
     bl art_quick_test_suspend
+.endm
+
+// Fetch one or more half-word units from an offset past the current PC.
+// The offset is specified in 16-bit code units.
+//
+// A \width flag allows reading 32 bits (2 units) or 64 bits (4 units) from the offset.
+// The RISC-V ISA supports unaligned accesses for these wider loads.
+//
+// If \width=8, \byte={0,1} indexes into the code unit at the offset.
+//
+// Default behavior loads one code unit with unsigned zext.
+// The \signed flag is for signed sext, for shorter loads.
+//
+// Does not advance xPC.
+.macro FETCH reg, count, signed=0, width=16, byte=0
+    .if \width == 8
+      .if \signed
+        ld.b  \reg, xPC, (\count*2 + \byte)
+      .else
+        ld.bu \reg, xPC, (\count*2 + \byte)
+      .endif
+    .elseif \width == 16
+      .if \signed
+        ld.h  \reg, xPC, (\count*2)
+      .else
+        ld.hu \reg, xPC, (\count*2)
+      .endif
+    .elseif \width == 32
+      .if \signed
+        ld.w  \reg, xPC, (\count*2)
+      .else
+        ld.wu \reg, xPC, (\count*2)
+      .endif
+    .elseif \width == 64
+      ld.d  \reg, xPC, (\count*2)
+    .else
+      break 0x5 // impossible
+    .endif
 .endm
 
 // Fetch the next instruction, from xPC into xINST.
@@ -346,6 +384,14 @@ END \name
     b 2b
 .endm
 
+// 64 bit read
+// Clobbers: \reg
+// Safe if \reg == \vreg.
+.macro GET_VREG_WIDE reg, vreg
+    alsl.d \reg, \vreg, xFP, 2  // vreg addr in register array
+    ld.d \reg, \reg, 0          // reg := fp[vreg](lo) | fp[vreg+1](hi)
+.endm
+
 // 64 bit write
 // Clobbers: z0
 .macro SET_VREG_WIDE reg, vreg, z0
@@ -365,6 +411,40 @@ END \name
     add.d \z0, \vreg, xREFS   // vreg addr in reference array
     st.w zero, \z0, 0         // refs[vreg] := null
 .endm
+
+// Object read
+// Clobbers: \reg
+// Safe if \reg == \vreg.
+.macro GET_VREG_OBJECT reg, vreg
+    alsl.d \reg, \vreg, xREFS, 2  // vreg addr in register array
+    ld.wu \reg, \reg, 0           // reg := refs[vreg]
+.endm
+
+// Object write
+// Clobbers: z0
+.macro SET_VREG_OBJECT reg, vreg, z0
+    alsl.d \reg, \vreg, xFP, 2   // vreg addr in register array
+    st.w \reg, \z0, 0            // fp[vreg] := reg
+    alsl.d \reg, \vreg, xREFS, 2 // vreg addr in register array
+    st.w \reg, \z0, 0            // refs[vreg] := reg
+.endm
+
+// Put "%def" definitions after ".macro" definitions for proper expansion. %def is greedy.
+
+// Typed read, defaults to 32-bit read
+// Note: An object ref requires LWU, or LW;ZEXT.W.
+// Clobbers: \reg
+// Safe if \reg == \vreg.
+%def get_vreg(reg, vreg, width=32, is_wide=False, is_unsigned=False):
+%  if is_wide or width == 64:
+     GET_VREG_WIDE $reg, $vreg
+%  elif is_unsigned:
+     alsl.d $reg, $vreg, xFP, 2  // vreg addr in register array
+     ld.wu $reg, $reg, 0         // reg := fp[vreg], zext
+%  else:
+     alsl.d $reg, $vreg, xFP, 2  // vreg addr in register array
+     ld.w $reg, $reg, 0          // reg := fp[vreg]
+%#:
 
 // Typed write, defaults to 32-bit write.
 // Note: Incorrect for an object ref; it requires 2nd SW into xREFS.

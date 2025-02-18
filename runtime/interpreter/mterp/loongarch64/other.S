@@ -1,10 +1,18 @@
 %def unused():
     break 0x1
-%def op_const():
-    break 0x5
 
-%def op_const_16():
-    break 0x5
+// const vAA, #+BBBBBBBB
+// Format 31i: AA|14 BBBB(lo) BBBB(hi)
+// Clobbers: t0, t1, t2, t3
+%def op_const(is_wide=False):
+   FETCH t1, count=1, signed=1, width=32
+                         // t1 := ssssssssBBBBBBBB
+   srli.w t2, xINST, 8    // t2 := AA
+   FETCH_ADVANCE_INST 3  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 := next opcode
+%  set_vreg("t1", "t2", z0="t0", is_wide=is_wide)
+                         // fp[AA] := +BBBBBBBB
+   GOTO_OPCODE t3        // continue to next
 
 // const/4 vA, #+B
 // Format 11n: B|A|12
@@ -19,8 +27,66 @@
 %  set_vreg("t1", "t2", z0="t0")  # fp[A] := sssssssB
    GOTO_OPCODE t3          // continue to next
 
+// const/16 vAA, #+BBBB
+// Format 21s: AA|13 BBBB
+// Clobbers: t0, t1, t2, t3
+%def op_const_16(is_wide=False):
+   FETCH t1, count=1, signed=1
+                         // t1 := ssssssssssssBBBB
+   srli.w t2, xINST, 8   // t2 := AA
+   FETCH_ADVANCE_INST 2  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 := next opcode
+%  set_vreg("t1", "t2", z0="t0", is_wide=is_wide)
+                         // fp[AA] := +BBBB
+   GOTO_OPCODE t3        // continue to next
+
+// const/high16 vAA, #+BBBB0000
+// Format 21h: AA|15 BBBB
+// Clobbers: t0, t1, t2, t3
 %def op_const_high16():
-    break 0x5
+   FETCH t1, count=1       // t1 := BBBB
+   srli.w t2, xINST, 8      // t2 := AA
+   slli.w t1, t1, 16        // t1 := BBBB0000
+   FETCH_ADVANCE_INST 2    // advance xPC, load xINST
+   GET_INST_OPCODE t3      // t3 := next opcode
+%  set_vreg("t1", "t2", z0="t0")  # fp[AA] := BBBB0000
+   GOTO_OPCODE t3          // continue to next
+
+// const-wide/16 vAA, #+BBBB
+// Format 21s: AA|16 BBBB
+%def op_const_wide_16():
+%   op_const_16(is_wide=True)
+
+// const-wide/32 vAA, #+BBBBBBBB
+// Format 31i: AA|17 BBBB(lo) BBBB(hi)
+%def op_const_wide_32():
+%   op_const(is_wide=True)
+
+// const-wide vAA, #+BBBBBBBBBBBBBBBB
+// Format 51l: AA|18 BBBB(lo) BBBB BBBB BBBB(hi)
+%def op_const_wide():
+   FETCH t1, count=1, width=64
+                         // t1 := BBBBBBBBBBBBBBBB
+   srli.w t2, xINST, 8    // t2 := AA
+   FETCH_ADVANCE_INST 5  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 := next opcode
+   SET_VREG_WIDE t1, t2, z0=t0
+                         // fp[AA] := BBBBBBBBBBBBBBBB
+   GOTO_OPCODE t3        // continue to next
+
+// const-wide/high16 vAA, #+BBBB000000000000
+// Format 21h: AA|19 BBBB
+%def op_const_wide_high16():
+   FETCH t1, count=1     // t1 := BBBB
+   srli.w t2, xINST, 8    // t2 := AA
+   slli.d t1, t1, 48       // t1 := BBBB000000000000
+   FETCH_ADVANCE_INST 2  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 := next opcode
+   SET_VREG_WIDE t1, t2, z0=t0
+                         // fp[AA] := BBBB000000000000
+   GOTO_OPCODE t3        // continue to next
+
+
 %def op_const_object(jumbo="0", helper="nterp_load_object"):
     break 0x5
 %def op_const_class():
@@ -32,14 +98,6 @@
 %def op_const_string():
     break 0x5
 %def op_const_string_jumbo():
-    break 0x5
-%def op_const_wide():
-    break 0x5
-%def op_const_wide_16():
-    break 0x5
-%def op_const_wide_32():
-    break 0x5
-%def op_const_wide_high16():
     break 0x5
 %def op_monitor_enter():
     break 0x5

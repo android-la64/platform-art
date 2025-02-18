@@ -242,6 +242,42 @@ bool CanMethodUseNterp(ArtMethod* method, InstructionSet isa) {
   if ((isa == InstructionSet::kLoongarch64 || isa == InstructionSet::kRiscv64) && method->GetDexFile()->IsCompactDexFile()) {
     return false;  // Riscv64 and LoongArch64 nterp does not support compact dex yet.
   }
+  if (isa == InstructionSet::kLoongarch64) {
+    if (method->NeedsClinitCheckBeforeCall()) {
+      return false;  // Riscv64 nterp does not implement ExecuteNterpWithClinitImpl.
+    }
+    if (method->GetDexFile()->IsCompactDexFile()) {
+      return false;  // Riscv64 nterp does not support compact dex yet.
+    }
+    if (method->DexInstructionData().TriesSize() != 0u) {
+      return false;  // Riscv64 nterp does not support exception handling yet.
+    }
+    if (method->DexInstructionData().InsSize() != 0u) {
+      return false;  // Riscv64 nterp does not support argument processing yet.
+    }
+    for (DexInstructionPcPair pair : method->DexInstructions()) {
+      // TODO(loongarch64): Add support for more instructions.
+      // Remove the check when all instructions are supported.
+      // Cases are listed in opcode order (DEX_INSTRUCTION_LIST).
+      switch (pair->Opcode()) {
+        case Instruction::RETURN_VOID:
+        case Instruction::RETURN:
+        case Instruction::RETURN_WIDE:
+        case Instruction::RETURN_OBJECT:
+        case Instruction::CONST_4:
+        case Instruction::CONST_16:
+        case Instruction::CONST:
+        case Instruction::CONST_HIGH16:
+        case Instruction::CONST_WIDE_16:
+        case Instruction::CONST_WIDE_32:
+        case Instruction::CONST_WIDE:
+        case Instruction::CONST_WIDE_HIGH16:
+          continue;
+        default:
+          return false;
+      }
+    }
+  }
   // There is no need to add the alignment padding size for comparison with aligned limit.
   size_t frame_size_without_padding = NterpGetFrameSizeWithoutPadding(method, isa);
   DCHECK_EQ(NterpGetFrameSize(method, isa), RoundUp(frame_size_without_padding, kStackAlignment));
