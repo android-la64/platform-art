@@ -137,6 +137,11 @@
 \name:
 .endm
 
+.macro TEST_IF_MARKING reg, label
+    ld.b \reg, xSELF, THREAD_IS_GC_MARKING_OFFSET
+    bnez \reg, \label
+.endm
+
 .macro SIZE name
     .size \name, .-\name
 .endm
@@ -337,6 +342,30 @@ END \name
     jr \reg
 .endm
 
+.macro FETCH_FROM_THREAD_CACHE reg, miss_label, z0, z1
+    // See art::InterpreterCache::IndexOf() for computing index of key within cache array.
+    // Entry address:
+    //   xSELF + OFFSET + ((xPC>>2 & xFF) << 4)
+    // = xSELF + OFFSET + ((xPC & xFF<<2) << 2)
+    // = xSELF + ((OFFSET>>2 + (xPC & xFF<<2)) << 2)
+    // => ANDI, ADD, alsl.d2
+#if (THREAD_INTERPRETER_CACHE_SIZE_LOG2 != 8)
+#error Expected interpreter cache array size = 256 elements
+#endif
+#if (THREAD_INTERPRETER_CACHE_SIZE_SHIFT != 2)
+#error Expected interpreter cache entry size = 16 bytes
+#endif
+#if ((THREAD_INTERPRETER_CACHE_OFFSET & 0x3) != 0)
+#error Expected interpreter cache offset to be 4-byte aligned
+#endif
+    andi \z0, xPC, 0xFF << 2
+    addi.d \z0, \z0, THREAD_INTERPRETER_CACHE_OFFSET >> 2
+    alsl.d \z0, \z0, xSELF, 2  // z0 := entry's address
+    ld.d \z1, \z0, 0           // z1 := dex PC
+    bne xPC, \z1, \miss_label
+    ld.d \reg, \z0, 8         // value: depends on context; see call site
+.endm
+
 // Inputs:
 //   - a0
 //   - xSELF
@@ -533,6 +562,8 @@ common_errDivideByZero:
 EndExecuteNterpImpl:
 
 // Entrypoints into runtime.
+NTERP_TRAMPOLINE nterp_get_class, NterpGetClass
+NTERP_TRAMPOLINE nterp_get_static_field, NterpGetStaticField
 NTERP_TRAMPOLINE nterp_hot_method, NterpHotMethod
 
 ENTRY nterp_deliver_pending_exception
@@ -563,7 +594,6 @@ artNterpAsmInstructionEnd:
     NAME_START nterp_${opcode}
 %def opcode_end():
     NAME_END nterp_${opcode}
-    break 0x5
 %def opcode_slow_path_start(name):
     NAME_START ${name}
 %def opcode_slow_path_end(name):

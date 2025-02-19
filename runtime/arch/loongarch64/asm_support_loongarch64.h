@@ -30,8 +30,8 @@
 // All 32 FPRs, 28 GPRs (no SP, Zero, TP, GP), ArtMethod*, padding, total 8*(32 + 28 + 1 + 1) = 496
 #define FRAME_SIZE_SAVE_EVERYTHING       496
 
-// S0, S2 - S9(FP), ArtMethod*, total 8 * (9 +1) = 80
-#define FRAME_SIZE_SAVE_REFS_ONLY   80
+// S0, S2 - S9(FP), RA, ArtMethod*, padding total 8 * (9 +3) = 96
+#define FRAME_SIZE_SAVE_REFS_ONLY   96
 
 // FS0 - FS7, S0, S2 - S9, RA,
 //           total 8*(8 + 9 + 1) = 144
