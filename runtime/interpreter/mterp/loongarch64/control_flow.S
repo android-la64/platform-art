@@ -111,3 +111,6 @@
 
 %def op_throw():
     break 0x5
+
+%def op_cmp_long():
+    break 0x5

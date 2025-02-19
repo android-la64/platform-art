@@ -583,6 +583,10 @@ ENTRY art_quick_throw_null_pointer_exception_from_signal
 END art_quick_throw_null_pointer_exception_from_signal
 
 
+// Called by managed code to deliver an ArithmeticException.
+NO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING art_quick_throw_div_zero, artThrowDivZeroFromCode
+
+
 /*
  * Called to attempt to execute an obsolete method.
  */
@@ -877,7 +881,6 @@ UNDEFINED art_quick_invoke_polymorphic
 UNDEFINED art_quick_invoke_custom
 UNDEFINED art_quick_deliver_exception
 UNDEFINED art_quick_throw_array_bounds
-UNDEFINED art_quick_throw_div_zero
 UNDEFINED art_quick_throw_stack_overflow
 UNDEFINED art_quick_throw_string_bounds
 UNDEFINED art_quick_update_inline_cache

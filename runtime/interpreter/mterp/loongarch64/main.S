@@ -519,6 +519,11 @@ NAME_START nterp_helper
 .cfi_endproc
 NAME_END nterp_helper
 
+common_errDivideByZero:
+    EXPORT_PC
+    // Control doesn't return, but stack walking needs the return address.
+    bl art_quick_throw_div_zero
+
 // EndExecuteNterpImpl includes the methods after .cfi_endproc, as we want the runtime to see them
 // as part of the Nterp PCs. This label marks the end of PCs contained by the OatQuickMethodHeader
 // created for the interpreter entry point.
