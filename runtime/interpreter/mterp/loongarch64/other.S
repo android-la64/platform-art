@@ -1,6 +1,141 @@
 %def unused():
     break 0x1
 
+// nop
+// Format 10x: 00|00
+%def op_nop():
+   FETCH_ADVANCE_INST 1  // advance xPC, load xINST
+   GET_INST_OPCODE t0    // t0 holds next opcode
+   GOTO_OPCODE t0        // continue to next
+
+// move vA, vB
+// Format 12x: B|A|01
+%def op_move(is_object=False, is_wide=False):
+   srli.w t1, xINST, 12   // t1 := B
+   srli.w t2, xINST, 8    // t2 := B|A
+%  if is_object:
+     // Note: leaves a useful breadcrumb if the reference is corrupted, unlike GET_VREG_OBJECT.
+%    get_vreg("t1", "t1", is_unsigned=True)  # t1 = fp[B], zext
+%  else:
+%    get_vreg("t1", "t1", is_wide=is_wide)  # t1 := fp[B]
+%#:
+   andi t2, t2, 0xF      // t2 := A
+   FETCH_ADVANCE_INST 1  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 holds next opcode
+%  if is_object:
+     SET_VREG_OBJECT t1, t2, z0=t0  // refs[A] := fp[B]
+%  else:
+%    set_vreg("t1", "t2", z0="t0", is_wide=is_wide)  # fp[A] := fp[B]
+%#:
+   GOTO_OPCODE t3       // continue to next
+
+// move/from16 vAA, vBBBB
+// Format 22x: AA|16 BBBB
+%def op_move_from16(is_object=False, is_wide=False):
+   FETCH t1, count=1      // t1 := BBBB
+   srli.w t2, xINST, 8    // t2 := AA
+%  if is_object:
+     // Note: leaves a useful breadcrumb if the reference is corrupted, unlike GET_VREG_OBJECT.
+%    get_vreg("t1", "t1", is_unsigned=True)  # t1 = fp[BBBB], zext
+%  else:
+%    get_vreg("t1", "t1", is_wide=is_wide)  # t1 := fp[BBBB]
+%#:
+   FETCH_ADVANCE_INST 2  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 := next opcode
+%  if is_object:
+     SET_VREG_OBJECT t1, t2, z0=t0  // refs[AA] := fp[BBBB]
+%  else:
+%    set_vreg("t1", "t2", z0="t0", is_wide=is_wide)  # fp[AA] := fp[BBBB]
+%#:
+   GOTO_OPCODE t3        // continue to next
+
+// move/16 vAAAA, vBBBB
+// Format 32x: 00|03 AAAA BBBB
+%def op_move_16(is_object=False, is_wide=False):
+   FETCH t1, count=2     // t1 := BBBB
+   FETCH t2, count=1     // t2 := AAAA
+%  if is_object:
+     // Note: leaves a useful breadcrumb if the reference is corrupted, unlike GET_VREG_OBJECT.
+%    get_vreg("t1", "t1", is_unsigned=True)  # t1 = fp[BBBB], zext
+%  else:
+%    get_vreg("t1", "t1", is_wide=is_wide)  # t1 := fp[BBBB]
+%#:
+   FETCH_ADVANCE_INST 3  // advance xPC, load xINST
+   GET_INST_OPCODE t3    // t3 := next opcode
+%  if is_object:
+     SET_VREG_OBJECT t1, t2, z0=t0  // refs[AAAA] := fp[BBBB]
+%  else:
+%    set_vreg("t1", "t2", z0="t0", is_wide=is_wide)  # fp[AAAA] := fp[BBBB]
+%#:
+   GOTO_OPCODE t3        // continue to next
+
+// move-wide vA, vB
+// Format 12x: B|A|04
+// NOTE: vregs can overlap, e.g. "move-wide v6,v7" or "move-wide v7,v6"
+%def op_move_wide():
+%  op_move(is_wide=True)
+
+// move-wide/from16 vAA, vBBBB
+// Format 22x: AA|05 BBBB
+// NOTE: vregs can overlap, e.g. "move-wide v6,v7" or "move-wide v7,v6"
+%def op_move_wide_from16():
+%  op_move_from16(is_wide=True)
+
+// move-wide/16, vAAAA, vBBBB
+// Format 32x: 00|06 AAAA BBBB
+// NOTE: vregs can overlap, e.g. "move-wide v6,v7" or "move-wide v7,v6"
+%def op_move_wide_16():
+%  op_move_16(is_wide=True)
+
+// move-object vA, vB
+// Format 12x: B|A|07
+%def op_move_object():
+%  op_move(is_object=True)
+
+// move-object/from16 vAA, vBBBB
+// Format 22x: AA|08 BBBB
+%def op_move_object_from16():
+%  op_move_from16(is_object=True)
+
+// move-object/16 vAAAA, vBBBB
+// Format 32x: 00|09 AAAA BBBB
+%def op_move_object_16():
+%  op_move_16(is_object=True)
+
+// move-result vAA
+// Format 11x: AA|0a
+%def op_move_result(is_object=False, is_wide=False):
+   srli.w t1, xINST, 8    // t1 := AA
+   FETCH_ADVANCE_INST 1  // advance xPC, load xINST
+   GET_INST_OPCODE t2    // t2 := next opcode
+%  if is_object:
+     SET_VREG_OBJECT a0, t1, z0=t0  // refs[AA] := a0
+%  else:
+%    set_vreg("a0", "t1", z0="t0", is_wide=is_wide)  # fp[AA] := a0
+%#:
+   GOTO_OPCODE t2        // continue to next
+
+// move-result-wide vAA
+// Format 11x: AA|0b
+%def op_move_result_wide():
+%  op_move_result(is_wide=True)
+
+// move-result-object vAA
+// Format 11x: AA|0c
+%def op_move_result_object():
+%  op_move_result(is_object=True)
+
+// move-exception vAA
+// Format 11x: AA|0d
+%def op_move_exception():
+   ld.d t1, xSELF, THREAD_EXCEPTION_OFFSET    // t1 := exception object
+   srli.w t2, xINST, 8                        // t2 := AA
+   FETCH_ADVANCE_INST 1                       // advance xPC, load xINST
+   SET_VREG_OBJECT t1, t2, z0=t0              // refs[AA] := exception object
+   GET_INST_OPCODE t3                         // t3 := next opcode
+   st.d zero, xSELF, THREAD_EXCEPTION_OFFSET  // clear exception
+   GOTO_OPCODE t3                             // continue to next
+
 // const vAA, #+BBBBBBBB
 // Format 31i: AA|14 BBBB(lo) BBBB(hi)
 // Clobbers: t0, t1, t2, t3
@@ -103,34 +238,7 @@
     break 0x5
 %def op_monitor_exit():
     break 0x5
-%def op_move(is_object="0"):
-    break 0x5
-%def op_move_16(is_object="0"):
-    break 0x5
-%def op_move_exception():
-    break 0x5
-%def op_move_from16(is_object="0"):
-    break 0x5
-%def op_move_object():
-    break 0x5
-%def op_move_object_16():
-    break 0x5
-%def op_move_object_from16():
-    break 0x5
-%def op_move_result(is_object="0"):
-    break 0x5
-%def op_move_result_object():
-    break 0x5
-%def op_move_result_wide():
-    break 0x5
-%def op_move_wide():
-    break 0x5
 %def op_move_wide_16():
-    break 0x5
-%def op_move_wide_from16():
-    break 0x5
-
-%def op_nop():
     break 0x5
 
 %def op_unused_3e():
