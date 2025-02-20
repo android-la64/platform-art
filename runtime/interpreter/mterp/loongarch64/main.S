@@ -248,7 +248,7 @@ END \name
     .cfi_def_cfa_register \old_sp
     move sp, t0
     st.d \old_sp, \refs, -8
-    CFI_DEF_CFA_BREG_PLUS_UCONST \cfi_refs, -8, FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
+    CFI_DEF_CFA_BREG_PLUS_UCONST \cfi_refs, -8, NTERP_SIZE_SAVE_CALLEE_SAVES
 
     // Put nulls in reference array.
     beqz \regs, 2f
@@ -493,10 +493,31 @@ END \name
  *  a0     ArtMethod* callee
  *  a1-a7  method parameters
  */
-
 OAT_ENTRY ExecuteNterpWithClinitImpl
+#if MIRROR_CLASS_STATUS_SHIFT < 12
+#error mirror class status bits cannot use lu12i.w load technique
+#endif
     .cfi_startproc
-    break 0x5
+    // For simplicity, we don't do a read barrier here, but instead rely
+    // on art_quick_resolution_trampoline to always have a suspend point before
+    // calling back here.
+    ld.wu t0, a0, ART_METHOD_DECLARING_CLASS_OFFSET
+    ld.w t1, t0, MIRROR_CLASS_STATUS_OFFSET  // t1 := status word, sext
+    srli.w t1, t1, MIRROR_CLASS_STATUS_SHIFT
+    addi.w t2, zero, MIRROR_CLASS_STATUS_VISIBLY_INITIALIZED
+    bgeu t1, t2, ExecuteNterpImpl // compare class init status
+    addi.w t2, zero, MIRROR_CLASS_STATUS_INITIALIZED
+    bltu t1, t2, .Linitializing_check
+    dbar 0x10
+    b ExecuteNterpImpl
+.Linitializing_check:
+    addi.w t2, zero, MIRROR_CLASS_STATUS_INITIALIZING
+    bltu t1, t2, .Lresolution_trampoline
+    ld.wu t1, t0, MIRROR_CLASS_CLINIT_THREAD_ID_OFFSET
+    ld.wu t0, xSELF, THREAD_TID_OFFSET
+    beq t0, t1, ExecuteNterpImpl
+.Lresolution_trampoline:
+    b art_quick_resolution_trampoline
     .cfi_endproc
     .type EndExecuteNterpWithClinitImpl, @function
     .hidden EndExecuteNterpWithClinitImpl
@@ -511,8 +532,8 @@ OAT_ENTRY ExecuteNterpImpl
     add.d t0, t0, sp
     ld.d zero, t0, 0
 
-    INCREASE_FRAME FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
-    SAVE_ALL_CALLEE_SAVES
+    INCREASE_FRAME NTERP_SIZE_SAVE_CALLEE_SAVES
+    SETUP_NTERP_SAVE_CALLEE_SAVES
 
     ld.d xPC, a0, ART_METHOD_DATA_OFFSET_64
     SETUP_STACK_FRAME xPC, CFI_REFS, xREFS, xFP, /*reg count*/ s7, /*in count*/s8, /*old sp*/u0

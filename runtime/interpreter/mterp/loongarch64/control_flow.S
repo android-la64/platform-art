@@ -27,13 +27,10 @@
 
    CFI_REMEMBER_STATE
    ld.d sp, xREFS, -8  // caller's interpreted frame pointer
-   .cfi_def_cfa sp, FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
-   RESTORE_ALL_CALLEE_SAVES
-   DECREASE_FRAME FRAME_SIZE_SAVE_ALL_CALLEE_SAVES
+   .cfi_def_cfa sp, NTERP_SIZE_SAVE_CALLEE_SAVES
+   RESTORE_NTERP_SAVE_CALLEE_SAVES
+   DECREASE_FRAME NTERP_SIZE_SAVE_CALLEE_SAVES
 
-   //.cfi_def_cfa sp, NTERP_SIZE_SAVE_CALLEE_SAVES
-   //RESTORE_NTERP_SAVE_CALLEE_SAVES
-   //DECREASE_FRAME NTERP_SIZE_SAVE_CALLEE_SAVES
    jirl zero, ra, 0
    // Since opcode handlers are merely labeled asm chunks within ExecuteNterpImpl's FDE, we must
    // restate the correct CFA rule for subsequent handlers. It is initially stated when setting up
