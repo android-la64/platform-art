@@ -589,18 +589,18 @@
     SAVE_FPR $fs7,  (8*7)   // f31
 
     // GP callee-saves
-    SAVE_GPR $s0,  (8*12)  // r23
+    SAVE_GPR $s0,  (8*8)  // r23
     // s1 (r24) is the ART thread register
-    SAVE_GPR $s2,  (8*13)  // r25
-    SAVE_GPR $s3,  (8*14)  // r26
-    SAVE_GPR $s4,  (8*15)  // r27
-    SAVE_GPR $s5,  (8*16)  // r28
-    SAVE_GPR $s6,  (8*17)  // r29
-    SAVE_GPR $s7,  (8*18)  // r30
-    SAVE_GPR $s8,  (8*19)  // r31
-    SAVE_GPR $s9,  (8*20)  // r22/fp, frame pointer
+    SAVE_GPR $s2,  (8*9)  // r25
+    SAVE_GPR $s3,  (8*10)  // r26
+    SAVE_GPR $s4,  (8*11)  // r27
+    SAVE_GPR $s5,  (8*12)  // r28
+    SAVE_GPR $s6,  (8*13)  // r29
+    SAVE_GPR $s7,  (8*14)  // r30
+    SAVE_GPR $s8,  (8*15)  // r31
+    SAVE_GPR $s9,  (8*16)  // r22/fp, frame pointer
 
-    SAVE_GPR $ra,  (8*23)  // r1, return address
+    SAVE_GPR $ra,  (8*17)  // r1, return address
 .endm
 
 
@@ -619,18 +619,18 @@
     RESTORE_FPR $fs7,  (8*7)   // f31
 
     // GP callee-saves
-    RESTORE_GPR $s0,  (8*12)  // r23
+    RESTORE_GPR $s0,  (8*8)  // r23
     // s1 (r24) is the ART thread register
-    RESTORE_GPR $s2,  (8*13)  // r25
-    RESTORE_GPR $s3,  (8*14)  // r26
-    RESTORE_GPR $s4,  (8*15)  // r27
-    RESTORE_GPR $s5,  (8*16)  // r28
-    RESTORE_GPR $s6,  (8*17)  // r29
-    RESTORE_GPR $s7,  (8*18)  // r30
-    RESTORE_GPR $s8,  (8*19)  // r31
-    RESTORE_GPR $s9,  (8*20)  // r22/fp, frame pointer
+    RESTORE_GPR $s2,  (8*9)  // r25
+    RESTORE_GPR $s3,  (8*10)  // r26
+    RESTORE_GPR $s4,  (8*11)  // r27
+    RESTORE_GPR $s5,  (8*12)  // r28
+    RESTORE_GPR $s6,  (8*13)  // r29
+    RESTORE_GPR $s7,  (8*14)  // r30
+    RESTORE_GPR $s8,  (8*15)  // r31
+    RESTORE_GPR $s9,  (8*16)  // r22/fp, frame pointer
 
-    RESTORE_GPR $ra,  (8*23)  // r1, return address
+    RESTORE_GPR $ra,  (8*17)  // r1, return address
 .endm
 
 // Macro that calls through to artDeliverPendingExceptionFromCode, where the pending exception is
