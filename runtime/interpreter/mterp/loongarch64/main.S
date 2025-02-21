@@ -458,6 +458,22 @@ END \name
     st.w \reg, \z0, 0            // refs[vreg] := reg
 .endm
 
+// Floating-point 64 bit read
+// Clobbers: \reg, \vreg
+.macro GET_VREG_DOUBLE reg, vreg
+    alsl.d \vreg, \vreg, xFP, 2  // vreg addr in register array
+    fld.d \reg, \vreg, 0         // reg := fp[vreg](lo) | fp[vreg+1](hi)
+.endm
+
+// Floating-point 64 bit write
+// Clobbers: \reg, z0
+.macro SET_VREG_DOUBLE reg, vreg, z0
+    alsl.d \z0, \vreg, xFP, 2    // vreg addr in register array
+    fst.d \reg, \z0, 0           // fp[vreg] := reg(lo) ; fp[vreg+1] := reg(hi)
+    alsl.d \z0, \vreg, xREFS, 2  // vreg addr in reference array
+    st.d zero, \z0, 0            // refs[vreg] := null ; refs[vreg+1] := null
+.endm
+
 // Put "%def" definitions after ".macro" definitions for proper expansion. %def is greedy.
 
 // Typed read, defaults to 32-bit read
@@ -485,6 +501,28 @@ END \name
      SET_VREG_WORD $reg, $vreg, $z0
 %#:
 
+// Floating-point read, defaults to 32-bit read.
+// Clobbers: reg, vreg
+%def get_vreg_float(reg, vreg, is_double=False):
+%  if is_double:
+     GET_VREG_DOUBLE $reg, $vreg
+%  else:
+     alsl.d $vreg, $vreg, xFP, 2  // vreg addr in register array
+     fld.s $reg, $vreg, 0         // reg := fp[vreg]
+%#:
+
+// Floating-point write, defaults to 32-bit write.
+// Clobbers: reg, z0
+%def set_vreg_float(reg, vreg, z0, is_double=False):
+%  if is_double:
+     SET_VREG_DOUBLE $reg, $vreg, $z0
+%  else:
+     alsl.d $z0, $vreg, xFP, 2    // vreg addr in register array
+     fst.s $reg, $z0, 0           // fp[vreg] := reg
+     alsl.d $z0, $vreg, xREFS, 2  // vreg addr in reference array
+     st.w zero, $z0, 0            // refs[vreg] := null
+%#:
+
 %def entry():
 /*
  * ArtMethod entry point.
@@ -504,14 +542,14 @@ OAT_ENTRY ExecuteNterpWithClinitImpl
     ld.wu t0, a0, ART_METHOD_DECLARING_CLASS_OFFSET
     ld.w t1, t0, MIRROR_CLASS_STATUS_OFFSET  // t1 := status word, sext
     srli.w t1, t1, MIRROR_CLASS_STATUS_SHIFT
-    addi.w t2, zero, MIRROR_CLASS_STATUS_VISIBLY_INITIALIZED
+    li.w t2, MIRROR_CLASS_STATUS_VISIBLY_INITIALIZED
     bgeu t1, t2, ExecuteNterpImpl // compare class init status
-    addi.w t2, zero, MIRROR_CLASS_STATUS_INITIALIZED
+    li.w t2, MIRROR_CLASS_STATUS_INITIALIZED
     bltu t1, t2, .Linitializing_check
     dbar 0x10
     b ExecuteNterpImpl
 .Linitializing_check:
-    addi.w t2, zero, MIRROR_CLASS_STATUS_INITIALIZING
+    li.w t2, MIRROR_CLASS_STATUS_INITIALIZING
     bltu t1, t2, .Lresolution_trampoline
     ld.wu t1, t0, MIRROR_CLASS_CLINIT_THREAD_ID_OFFSET
     ld.wu t0, xSELF, THREAD_TID_OFFSET

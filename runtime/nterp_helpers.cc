@@ -289,8 +289,20 @@ bool CanMethodUseNterp(ArtMethod* method, InstructionSet isa) {
         case Instruction::NOT_INT:
         case Instruction::NEG_LONG:
         case Instruction::NOT_LONG:
+        case Instruction::NEG_FLOAT:
+        case Instruction::NEG_DOUBLE:
         case Instruction::INT_TO_LONG:
+        case Instruction::INT_TO_FLOAT:
+        case Instruction::INT_TO_DOUBLE:
         case Instruction::LONG_TO_INT:
+        case Instruction::LONG_TO_FLOAT:
+        case Instruction::LONG_TO_DOUBLE:
+        case Instruction::FLOAT_TO_INT:
+        case Instruction::FLOAT_TO_LONG:
+        case Instruction::FLOAT_TO_DOUBLE:
+        case Instruction::DOUBLE_TO_INT:
+        case Instruction::DOUBLE_TO_LONG:
+        case Instruction::DOUBLE_TO_FLOAT:
         case Instruction::INT_TO_BYTE:
         case Instruction::INT_TO_CHAR:
         case Instruction::INT_TO_SHORT:
