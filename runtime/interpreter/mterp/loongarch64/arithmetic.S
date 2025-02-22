@@ -242,8 +242,7 @@
    GOTO_OPCODE t2        // continue to next
 1:
 %  if divz_throw:
-     la t1, common_errDivideByZero
-     jirl zero, t1, 0
+     b common_errDivideByZero
 %#:
 
 // binop wide shift boilerplate
@@ -423,8 +422,7 @@
    GOTO_OPCODE t2        // continue to next
 1:
 %  if divz_throw:
-     la t1, common_errDivideByZero
-     jirl zero, t1, 0
+     b common_errDivideByZero
 %#:
 
 // binop wide shift 2addr boilerplate
@@ -527,8 +525,7 @@
    GOTO_OPCODE t2               // continue to next
 1:
 %  if divz_throw:
-     la t1, common_errDivideByZero
-     jirl zero, t1, 0
+     b common_errDivideByZero
 %#:
 
 //
@@ -624,6 +621,5 @@
    GOTO_OPCODE t2               // continue to next
 1:
 %  if divz_throw:
-     la t1, common_errDivideByZero
-     jirl zero, t1, 0
+     b common_errDivideByZero
 %#:
