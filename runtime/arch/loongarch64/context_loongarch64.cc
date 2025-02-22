@@ -83,7 +83,7 @@ void Loongarch64Context::SetFPR(uint32_t reg, uintptr_t value) {
 }
 
 void Loongarch64Context::SmashCallerSaves() {
-  // Temporary registers T0 - T6 and argument registers A0 - A7 are caller-saved.
+  // Temporary registers T0 - T8 and argument registers A0 - A7 are caller-saved.
   gprs_[Zero] = const_cast<uint64_t*>(&gZero);  // hard-wired zero
   gprs_[T0] = nullptr;
   gprs_[T1] = nullptr;
@@ -92,6 +92,8 @@ void Loongarch64Context::SmashCallerSaves() {
   gprs_[T4] = nullptr;
   gprs_[T5] = nullptr;
   gprs_[T6] = nullptr;
+  gprs_[T7] = nullptr;
+  gprs_[T8] = nullptr;
   gprs_[A0] = const_cast<uint64_t*>(&gZero);  // must be 0 because we want a null/zero return value
   gprs_[A1] = nullptr;
   gprs_[A2] = nullptr;
@@ -101,7 +103,7 @@ void Loongarch64Context::SmashCallerSaves() {
   gprs_[A6] = nullptr;
   gprs_[A7] = nullptr;
 
-  // Temporary registers FT0 - FT11 and argument registers FA0 - FA7 are caller-saved.
+  // Temporary registers FT0 - FT15 and argument registers FA0 - FA7 are caller-saved.
   fprs_[FT0] = nullptr;
   fprs_[FT1] = nullptr;
   fprs_[FT2] = nullptr;
@@ -114,6 +116,10 @@ void Loongarch64Context::SmashCallerSaves() {
   fprs_[FT9] = nullptr;
   fprs_[FT10] = nullptr;
   fprs_[FT11] = nullptr;
+  fprs_[FT12] = nullptr;
+  fprs_[FT13] = nullptr;
+  fprs_[FT14] = nullptr;
+  fprs_[FT15] = nullptr;
   fprs_[FA0] = nullptr;
   fprs_[FA1] = nullptr;
   fprs_[FA2] = nullptr;
