@@ -284,7 +284,7 @@
 
 .macro SAVE_ALL_CALLEE_SAVES
 #if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVES != 8*(1 + 1 + 8 + 9 + 1))
-#error "FRAME_SIZE_SAVE_ALL_CALLEE_SAVES(RISCV64) size not as expected."
+#error "FRAME_SIZE_SAVE_ALL_CALLEE_SAVES(LOONGARCH64) size not as expected."
 #endif
     // stack slot (0*8)(sp) is for ArtMethod*
     // stack slot (1*8)(sp) is for padding
@@ -317,7 +317,7 @@
 
 .macro RESTORE_ALL_CALLEE_SAVES
 #if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVES != 8*(1 + 1 + 8 + 9 + 1))
-#error "FRAME_SIZE_SAVE_ALL_CALLEE_SAVES(RISCV64) size not as expected."
+#error "FRAME_SIZE_SAVE_ALL_CALLEE_SAVES(LOONGARCH64) size not as expected."
 #endif
     // stack slot (0*8)(sp) is for ArtMethod*
     // stack slot (1*8)(sp) is for padding
@@ -604,6 +604,54 @@
 .endm
 
 
+// CFI note. This macro is used where the CFA rule is a dwarf expression, so adjustment of SP does
+// not affect CFA computation. We also elide CFI descriptors for the argument registers, because
+// they can be recovered from the stack in a debugging scenario.
+.macro SPILL_ALL_ARGUMENTS
+#if (FRAME_SIZE_SAVE_ARGS_ONLY != 128)
+#error "FRAME_SIZE_SAVE_ARGS_ONLY(loongarch64) not as expected."
+#endif
+    addi.d $sp, $sp, -FRAME_SIZE_SAVE_ARGS_ONLY
+    st.d $a0, $sp, (8*0)
+    st.d $a1, $sp, (8*1)
+    st.d $a2, $sp, (8*2)
+    st.d $a3, $sp, (8*3)
+    st.d $a4, $sp, (8*4)
+    st.d $a5, $sp, (8*5)
+    st.d $a6, $sp, (8*6)
+    st.d $a7, $sp, (8*7)
+    fst.d $fa0, $sp, (8*8)
+    fst.d $fa1, $sp, (8*9)
+    fst.d $fa2, $sp, (8*10)
+    fst.d $fa3, $sp, (8*11)
+    fst.d $fa4, $sp, (8*12)
+    fst.d $fa5, $sp, (8*13)
+    fst.d $fa6, $sp, (8*14)
+    fst.d $fa7, $sp, (8*15)
+.endm
+
+
+.macro RESTORE_ALL_ARGUMENTS
+    ld.d $a0, $sp, 8*0
+    ld.d $a1, $sp, 8*1
+    ld.d $a2, $sp, 8*2
+    ld.d $a3, $sp, 8*3
+    ld.d $a4, $sp, 8*4
+    ld.d $a5, $sp, 8*5
+    ld.d $a6, $sp, 8*6
+    ld.d $a7, $sp, 8*7
+    fld.d $fa0, $sp, 8*8
+    fld.d $fa1, $sp, 8*9
+    fld.d $fa2, $sp, 8*10
+    fld.d $fa3, $sp, 8*11
+    fld.d $fa4, $sp, 8*12
+    fld.d $fa5, $sp, 8*13
+    fld.d $fa6, $sp, 8*14
+    fld.d $fa7, $sp, 8*15
+    addi.d $sp, $sp, FRAME_SIZE_SAVE_ARGS_ONLY
+.endm
+
+
 .macro RESTORE_NTERP_SAVE_CALLEE_SAVES
 #if (NTERP_SIZE_SAVE_CALLEE_SAVES != 8*(8 + 9 + 1))
 #error "NTERP_SIZE_SAVE_CALLEE_SAVES(LOONGARCH64) size not as expected."
@@ -656,6 +704,13 @@
     jirl $zero, $ra, 0
 1:
     DELIVER_PENDING_EXCEPTION
+.endm
+
+
+// Macros to branch based on the value of a specific bit.
+.macro BRANCH_IF_BIT_CLEAR tmp, reg, bit, dest
+    slli.d    \tmp, \reg, (63 - \bit) // tested bit => sign bit
+    bge    \tmp, $zero, \dest
 .endm
 
 

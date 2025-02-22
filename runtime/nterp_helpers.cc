@@ -249,9 +249,6 @@ bool CanMethodUseNterp(ArtMethod* method, InstructionSet isa) {
     if (method->DexInstructionData().TriesSize() != 0u) {
       return false;  // Loongarch64 nterp does not support exception handling yet.
     }
-    if (method->DexInstructionData().InsSize() != 0u) {
-      return false;  // Loongarch64 nterp does not support argument processing yet.
-    }
     for (DexInstructionPcPair pair : method->DexInstructions()) {
       // TODO(loongarch64): Add support for more instructions.
       // Remove the check when all instructions are supported.

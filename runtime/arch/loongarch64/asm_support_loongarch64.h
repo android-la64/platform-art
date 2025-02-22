@@ -33,6 +33,9 @@
 // S0, S2 - S9(FP), RA, ArtMethod*, padding total 8 * (9 +3) = 96
 #define FRAME_SIZE_SAVE_REFS_ONLY   96
 
+// A0 - A7, FA0 - FA7, total 8*(8 + 8) = 128
+#define FRAME_SIZE_SAVE_ARGS_ONLY        128
+
 // FS0 - FS7, S0, S2 - S9, RA,
 //           total 8*(8 + 9 + 1) = 144
 #define NTERP_SIZE_SAVE_CALLEE_SAVES     144

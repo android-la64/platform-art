@@ -25,9 +25,6 @@
 /**
  * LOONGARCH 64 ABI general notes
  *
- * References
- * - https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/master/riscv-cc.adoc
- * - runtime/arch/riscv64/registers_riscv64.h
  *
  * 32 general purposes registers
  * - fixed purpose: zero, ra, sp, gp, tp, s1
@@ -37,7 +34,7 @@
  * - arguments: a0-a7
  * - return: a0, a1
  * - callee saved: ra, s9/fp, s0, s2-s8
- *     s0 is flexible, available to use as a frame pointer if needed.
+ *     s9 is flexible, available to use as a frame pointer if needed.
  *
  * 32 floating point registers
  * - temporaries: ft0-ft15
@@ -75,6 +72,7 @@
 #define t8       $$r20
 #define u0       $$r21
 #define fp       $$r22
+#define s9       $$r22
 #define s0       $$r23
 #define s1       $$r24
 #define s2       $$r25
@@ -195,73 +193,6 @@ END \name
     addi.d \code_item, \code_item, CODE_ITEM_INSNS_OFFSET
 .endm
 
-// Set up the stack to start executing the method.
-// See runtime/nterp_helpers.cc for a diagram of the setup.
-// Input:
-//   - a0: ArtMethod*
-//   - sp
-//   - \code_item: CodeItem*
-//   - \cfi_refs: DWARF register number for \refs
-// Output:
-//   - \code_item: pointer to instruction array `insns_*` on exit
-//   - \refs: pointer to obj reference array
-//   - \fp: pointer to dex register array
-//   - \regs: count of dex registers
-//   - \ins: count of in-registers
-//   - \old_sp: old stack pointer
-//   - sp modified
-//
-// Clobbers: t0, t1
-.macro SETUP_STACK_FRAME code_item, cfi_refs, refs, fp, regs, ins, old_sp
-    FETCH_CODE_ITEM_INFO \code_item, \regs, /*out count*/ t1, \ins
-
-    // Compute required frame size: ((2 * \regs) + t1) * 4 + 24
-    // - The register array and reference array are each \regs in length.
-    // - The out array is t1 in length.
-    // - Each register is 4 bytes.
-    // - Additional 24 bytes for 3 fields: saved frame pointer, dex pc, and ArtMethod*.
-    slli.d t0, \regs, 1
-    add.d t0, t0, t1
-    slli.d t0, t0, 2
-    addi.d t0, t0, 24
-
-    // Compute new stack pointer in t0.
-    sub.d t0, sp, t0
-    // 16-byte alignment.
-    li.w t8, ~0xF
-    and t0, t0, t8
-
-    // Set \refs to base of reference array. Align to pointer size for the frame pointer and dex pc
-    // pointer, below the reference array.
-    slli.d t1, t1, 2  // 4 bytes per entry.
-    add.d t1, t0, t1
-    addi.d t1, t1, 28  // 24 bytes from 3 fields mentioned earlier, plus 4 for alignment slack.
-    li.w t8, -__SIZEOF_POINTER__
-    and \refs, t1, t8
-
-    // Set \fp to base of register array, above the reference array. This region is already aligned.
-    slli.d t1, \regs, 2
-    add.d \fp, \refs, t1
-
-    // Set up the stack pointer.
-    move \old_sp, sp
-    .cfi_def_cfa_register \old_sp
-    move sp, t0
-    st.d \old_sp, \refs, -8
-    CFI_DEF_CFA_BREG_PLUS_UCONST \cfi_refs, -8, NTERP_SIZE_SAVE_CALLEE_SAVES
-
-    // Put nulls in reference array.
-    beqz \regs, 2f
-    move t1, \refs  // t1 as iterator
-1:
-    // Write in 8-byte increments, so vreg(0) gets zero'ed too, if \regs is odd.
-    st.d zero, t1, 0
-    addi.d t1, t1, 8
-    bltu t1, \fp, 1b
-2:
-    // Save the ArtMethod*.
-    st.d a0, sp, 0
-.endm
 
 .macro EXPORT_PC
     st.d xPC, xREFS, -16
@@ -279,7 +210,7 @@ END \name
 // The offset is specified in 16-bit code units.
 //
 // A \width flag allows reading 32 bits (2 units) or 64 bits (4 units) from the offset.
-// The RISC-V ISA supports unaligned accesses for these wider loads.
+// The LOONGARCH ISA supports unaligned accesses for these wider loads.
 //
 // If \width=8, \byte={0,1} indexes into the code unit at the offset.
 //
@@ -563,23 +494,101 @@ OAT_ENTRY ExecuteNterpWithClinitImpl
 EndExecuteNterpWithClinitImpl:
 
 OAT_ENTRY ExecuteNterpImpl
-    .cfi_startproc
+// u0 as s9 in RISCV, t7 as s10 in RISCV, t8 as s11 in RISCV
+   .cfi_startproc
+%  setup_nterp_frame(cfi_refs="CFI_REFS", refs="xREFS", fp="xFP", pc="xPC", regs="s7", ins="s8", spills_sp="u0", z0="t0", z1="t1", z2="t2", z3="t3", uniq="entry")
+                            // xREFS := callee refs array
+                            // xFP   := callee fp array
+                            // xPC   := callee dex array
+                            // s7    := refs/fp vreg count
+                            // s8    := ins count
+                            // u1    := post-spills pre-frame sp
+                            // sp    := post-frame sp
+   CFI_DEFINE_DEX_PC_WITH_OFFSET(/*tmpReg*/CFI_TMP, /*dexReg*/CFI_DEX, /*dexOffset*/0)
 
-    // Check guard page for stack overflow.
-    li.d t0, -STACK_OVERFLOW_RESERVED_BYTES
-    add.d t0, t0, sp
-    ld.d zero, t0, 0
+   // Fast path: zero args.
+   beqz s8, .Lentry_go
 
-    INCREASE_FRAME NTERP_SIZE_SAVE_CALLEE_SAVES
-    SETUP_NTERP_SAVE_CALLEE_SAVES
+   sub.d s7, s7, s8           // s7 := a1 index in fp/refs
+   ld.wu t7, a0, ART_METHOD_ACCESS_FLAGS_OFFSET
+                            // t7 := method flags
 
-    ld.d xPC, a0, ART_METHOD_DATA_OFFSET_64
-    SETUP_STACK_FRAME xPC, CFI_REFS, xREFS, xFP, /*reg count*/ s7, /*in count*/s8, /*old sp*/u0
+   // Fast path: all reference args.
+   alsl.d t0, s7, xFP, 2    // t0 := &xFP[a1]
+   alsl.d t1, s7, xREFS, 2  // t1 := &xREFS[a1]
+   BRANCH_IF_BIT_CLEAR t2, t7, ART_METHOD_NTERP_ENTRY_POINT_FAST_PATH_FLAG_BIT, .Lentry_a1
+%  setup_ref_args_and_go(fp="t0", refs="t1", refs_end="xFP", spills_sp="u0", z0="t2", z1="t3", done=".Lentry_go")
 
-    beqz s8, .Lsetup_execution  // no args
-    break 0x5
+   // Fast path: instance with zero args.
+.Lentry_a1:
+   bstrpick.w t7, t7, ART_METHOD_IS_STATIC_FLAG_BIT, ART_METHOD_IS_STATIC_FLAG_BIT
+                            // t7 := 1 if static, 0 if instance
+   bnez t7, .Lentry_shorty
+   st.w a1, t0, 0
+   st.w a1, t1, 0
+   li.d t2, 1
+   beq s8, t2, .Lentry_go
 
-.Lsetup_execution:
+   // Slow path: runtime call to obtain shorty, full setup from managed ABI.
+.Lentry_shorty:
+   SPILL_ALL_ARGUMENTS
+   // TODO: Better way to get shorty
+   bl NterpGetShorty      // arg a0
+   move t8, a0               // t8 := shorty
+   RESTORE_ALL_ARGUMENTS
+
+   // temporaries are trashed, recompute some values
+   alsl.d t0, s7, xFP, 2    // t0 := &xFP[a1]
+   alsl.d t1, s7, xREFS, 2  // t1 := &xREFS[a1]
+   addi.d t2, t8, 1       // t2 := shorty arg (skip return type)
+   xori t7, t7, 1         // t7 := 0 if static, 1 if instance
+   slli.w t3, t7, 2         // t3 := (static) 0, (instance) 4: fp/refs/outs byte offset
+   // constant setup for gpr/fpr shorty comparisons
+   li.d s0, 'D'               // s0 := double char (unused fp)
+   li.d s4, 'F'               // s4 := float char (unused xINST)
+   li.d s5, 'J'               // s5 := long char (unused xIBASE)
+   li.d s8, 'L'               // s8 := ref char (unused ins count)
+   bnez t7, .Lentry_args   // instance a1 already stored into callee's xFP and xREFS
+
+%  store_gpr_to_vreg(gpr="a1", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+
+.Lentry_args:
+   // linear scan through shorty: extract non-float args
+%  store_gpr_to_vreg(gpr="a2", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+%  store_gpr_to_vreg(gpr="a3", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+%  store_gpr_to_vreg(gpr="a4", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+%  store_gpr_to_vreg(gpr="a5", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+%  store_gpr_to_vreg(gpr="a6", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+%  store_gpr_to_vreg(gpr="a7", offset="t3", shorty="t2", fp="t0", refs="t1", z0="t4", z1="t5", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+   // We drained arg registers, so continue from caller stack's out array. Unlike the reference-only
+   // fast-path, the continuation offset in the out array can vary, depending on the presence of
+   // 64-bit values in the arg registers. \offset tracks this value as a byte offset.
+   addi.d t5, u0, (NTERP_SIZE_SAVE_CALLEE_SAVES + 8)
+                            // t5 := (caller) outs array base address
+   add.d t4, t3, t0         // t4 := (callee) &FP[next]
+   add.d t1, t3, t1         // t1 := (callee) &REFS[next]
+   add.d t3, t3, t5         // t3 := (caller) &OUTS[next]
+%  store_outs_to_vregs(outs="t3", shorty="t2", fp="t4", refs="t1", z0="t5", z1="t6", D="s0", F="s4", J="s5", L="s8", next=".Lentry_fargs")
+                            // t0 = &xFP[a1], unclobbered
+.Lentry_fargs:
+   addi.d t1, t8, 1         // t1 := shorty arg (skip return type)
+   slli.w t2, t7, 2         // t2 := starting byte offset for fp/outs, static and instance
+   // linear scan through shorty: extract float args
+%  store_fpr_to_vreg(fpr="fa0", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa1", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa2", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa3", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa4", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa5", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa6", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+%  store_fpr_to_vreg(fpr="fa7", offset="t2", shorty="t1", fp="t0", z0="t3", z1="t4", D="s0", F="s4", J="s5", next=".Lentry_go")
+   addi.d t3, u0, (NTERP_SIZE_SAVE_CALLEE_SAVES + 8)
+                            // t3 := (caller) outs array base address
+   add.d t0, t2, t0           // t0 := (callee) &FP[next]
+   add.d t2, t2, t3           // t2 := (caller) &OUTS[next]
+%  store_float_outs_to_vregs(outs="t2", shorty="t1", fp="t0", z0="t3", D="s0", F="s4", J="s5", next=".Lentry_go")
+
+.Lentry_go:
     CFI_DEFINE_DEX_PC_WITH_OFFSET(/*tmpReg*/CFI_TMP, /*dexReg*/CFI_DEX, /*dexOffset*/0)
 
     la xIBASE, artNterpAsmInstructionStart
