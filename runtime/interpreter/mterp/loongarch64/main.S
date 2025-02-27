@@ -383,9 +383,9 @@ END \name
 // Object write
 // Clobbers: z0
 .macro SET_VREG_OBJECT reg, vreg, z0
-    alsl.d \reg, \vreg, xFP, 2   // vreg addr in register array
+    alsl.d \z0, \vreg, xFP, 2   // vreg addr in register array
     st.w \reg, \z0, 0            // fp[vreg] := reg
-    alsl.d \reg, \vreg, xREFS, 2 // vreg addr in register array
+    alsl.d \z0, \vreg, xREFS, 2 // vreg addr in register array
     st.w \reg, \z0, 0            // refs[vreg] := reg
 .endm
 
@@ -494,7 +494,7 @@ OAT_ENTRY ExecuteNterpWithClinitImpl
 EndExecuteNterpWithClinitImpl:
 
 OAT_ENTRY ExecuteNterpImpl
-// u0 as s9 in RISCV, t7 as s10 in RISCV, t8 as s11 in RISCV
+// u0 as s9, t7 as s10, t8 as s11 in RISCV
    .cfi_startproc
 %  setup_nterp_frame(cfi_refs="CFI_REFS", refs="xREFS", fp="xFP", pc="xPC", regs="s7", ins="s8", spills_sp="u0", z0="t0", z1="t1", z2="t2", z3="t3", uniq="entry")
                             // xREFS := callee refs array
@@ -502,7 +502,7 @@ OAT_ENTRY ExecuteNterpImpl
                             // xPC   := callee dex array
                             // s7    := refs/fp vreg count
                             // s8    := ins count
-                            // u1    := post-spills pre-frame sp
+                            // u0    := post-spills pre-frame sp
                             // sp    := post-frame sp
    CFI_DEFINE_DEX_PC_WITH_OFFSET(/*tmpReg*/CFI_TMP, /*dexReg*/CFI_DEX, /*dexOffset*/0)
 
@@ -612,14 +612,15 @@ OAT_ENTRY ExecuteNterpImpl
 
 // Enclose all code below in a symbol (which gets printed in backtraces).
 NAME_START nterp_helper
-// This is the logical end of ExecuteNterpImpl, where the frame info applies.
-.cfi_endproc
-NAME_END nterp_helper
 
 common_errDivideByZero:
     EXPORT_PC
-    // Control doesn't return, but stack walking needs the return address.
+    // CALL preserves RA for stack walking.
     bl art_quick_throw_div_zero
+
+// This is the logical end of ExecuteNterpImpl, where the frame info applies.
+.cfi_endproc
+NAME_END nterp_helper
 
 // EndExecuteNterpImpl includes the methods after .cfi_endproc, as we want the runtime to see them
 // as part of the Nterp PCs. This label marks the end of PCs contained by the OatQuickMethodHeader

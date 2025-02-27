@@ -80,8 +80,8 @@ END ExecuteSwitchImplAsm
 
 .macro INVOKE_STUB_CALL_AND_RETURN
     // Call the method.
-    ld.d   $t0, $a0, ART_METHOD_QUICK_CODE_OFFSET_64
-    jirl $ra, $t0, 0
+    ld.d   $ra, $a0, ART_METHOD_QUICK_CODE_OFFSET_64
+    jirl $ra, $ra, 0
 
     addi.d $sp, $fp, -(8*4)  // restore SP (see `INVOKE_STUB_CREATE_FRAME`)
     .cfi_def_cfa $sp, 48
@@ -200,17 +200,17 @@ END art_deliver_pending_exception
 
 .Lload_reference\sfx:
     addi.d $t0, $t0, 4
-    //jirl $zero, $t4, (NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
-    li.d $t8, (NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
-    add.d $t8, $t4, $t8
-    jirl $zero, $t8, 0
+    jirl $zero, $t4, (NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
+    //li.d $t8, (NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
+    //add.d $t8, $t4, $t8
+    //jirl $zero, $t8, 0
 
 .Lload_long\sfx:
     addi.d $t0, $t0, 8
-    //jirl $zero, $t4, (2 * NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
-    li.d $t8, (2 * NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
-    add.d $t8, $t4, $t8
-    jirl $zero, $t8, 0
+    jirl $zero, $t4, (2 * NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
+    //li.d $t8, (2 * NUM_GPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
+    //add.d $t8, $t4, $t8
+    //jirl $zero, $t8, 0
 
 .Lload_float\sfx:
     addi.d $t0, $t0, 4
@@ -218,10 +218,10 @@ END art_deliver_pending_exception
 
 .Lload_double\sfx:
     addi.d $t0, $t0, 8
-    //jirl $zero, $t5, (NUM_FPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
-    li.d $t8, (NUM_FPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
-    add.d $t8, $t5, $t8
-    jirl $zero, $t8, 0
+    jirl $zero, $t5, (NUM_FPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
+    //li.d $t8, (NUM_FPRS_TO_FILL * INVOKE_STUB_LOAD_REG_SIZE)
+    //add.d $t8, $t5, $t8
+    //jirl $zero, $t8, 0
 
 .Lreg_handlers_start\sfx:
 

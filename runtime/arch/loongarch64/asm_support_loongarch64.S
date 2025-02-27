@@ -589,20 +589,49 @@
     SAVE_FPR $fs7,  (8*7)   // f31
 
     // GP callee-saves
-    SAVE_GPR $s0,  (8*8)  // r23
+    SAVE_GPR $s9,  (8*8)  // r22/fp, frame pointer
+    SAVE_GPR $s0,  (8*9)  // r23
     // s1 (r24) is the ART thread register
-    SAVE_GPR $s2,  (8*9)  // r25
-    SAVE_GPR $s3,  (8*10)  // r26
-    SAVE_GPR $s4,  (8*11)  // r27
-    SAVE_GPR $s5,  (8*12)  // r28
-    SAVE_GPR $s6,  (8*13)  // r29
-    SAVE_GPR $s7,  (8*14)  // r30
-    SAVE_GPR $s8,  (8*15)  // r31
-    SAVE_GPR $s9,  (8*16)  // r22/fp, frame pointer
+    SAVE_GPR $s2,  (8*10)  // r25
+    SAVE_GPR $s3,  (8*11)  // r26
+    SAVE_GPR $s4,  (8*12)  // r27
+    SAVE_GPR $s5,  (8*13)  // r28
+    SAVE_GPR $s6,  (8*14)  // r29
+    SAVE_GPR $s7,  (8*15)  // r30
+    SAVE_GPR $s8,  (8*16)  // r31
 
     SAVE_GPR $ra,  (8*17)  // r1, return address
 .endm
 
+
+.macro RESTORE_NTERP_SAVE_CALLEE_SAVES
+#if (NTERP_SIZE_SAVE_CALLEE_SAVES != 8*(8 + 9 + 1))
+#error "NTERP_SIZE_SAVE_CALLEE_SAVES(LOONGARCH64) size not as expected."
+#endif
+    // FP callee-saves.
+    RESTORE_FPR $fs0,  (8*0)   // f24
+    RESTORE_FPR $fs1,  (8*1)   // f25
+    RESTORE_FPR $fs2,  (8*2)   // f26
+    RESTORE_FPR $fs3,  (8*3)   // f27
+    RESTORE_FPR $fs4,  (8*4)   // f28
+    RESTORE_FPR $fs5,  (8*5)   // f28
+    RESTORE_FPR $fs6,  (8*6)   // f30
+    RESTORE_FPR $fs7,  (8*7)   // f31
+
+    // GP callee-saves
+    RESTORE_GPR $s9,  (8*8)  // r22/fp, frame pointer
+    RESTORE_GPR $s0,  (8*9)  // r23
+    // s1 (r24) is the ART thread register
+    RESTORE_GPR $s2,  (8*10)  // r25
+    RESTORE_GPR $s3,  (8*11)  // r26
+    RESTORE_GPR $s4,  (8*12)  // r27
+    RESTORE_GPR $s5,  (8*13)  // r28
+    RESTORE_GPR $s6,  (8*14)  // r29
+    RESTORE_GPR $s7,  (8*15)  // r30
+    RESTORE_GPR $s8,  (8*16)  // r31
+
+    RESTORE_GPR $ra,  (8*17)  // r1, return address
+ .endm
 
 // CFI note. This macro is used where the CFA rule is a dwarf expression, so adjustment of SP does
 // not affect CFA computation. We also elide CFI descriptors for the argument registers, because
@@ -651,35 +680,6 @@
     addi.d $sp, $sp, FRAME_SIZE_SAVE_ARGS_ONLY
 .endm
 
-
-.macro RESTORE_NTERP_SAVE_CALLEE_SAVES
-#if (NTERP_SIZE_SAVE_CALLEE_SAVES != 8*(8 + 9 + 1))
-#error "NTERP_SIZE_SAVE_CALLEE_SAVES(LOONGARCH64) size not as expected."
-#endif
-    // FP callee-saves.
-    RESTORE_FPR $fs0,  (8*0)   // f24
-    RESTORE_FPR $fs1,  (8*1)   // f25
-    RESTORE_FPR $fs2,  (8*2)   // f26
-    RESTORE_FPR $fs3,  (8*3)   // f27
-    RESTORE_FPR $fs4,  (8*4)   // f28
-    RESTORE_FPR $fs5,  (8*5)   // f28
-    RESTORE_FPR $fs6,  (8*6)   // f30
-    RESTORE_FPR $fs7,  (8*7)   // f31
-
-    // GP callee-saves
-    RESTORE_GPR $s0,  (8*8)  // r23
-    // s1 (r24) is the ART thread register
-    RESTORE_GPR $s2,  (8*9)  // r25
-    RESTORE_GPR $s3,  (8*10)  // r26
-    RESTORE_GPR $s4,  (8*11)  // r27
-    RESTORE_GPR $s5,  (8*12)  // r28
-    RESTORE_GPR $s6,  (8*13)  // r29
-    RESTORE_GPR $s7,  (8*14)  // r30
-    RESTORE_GPR $s8,  (8*15)  // r31
-    RESTORE_GPR $s9,  (8*16)  // r22/fp, frame pointer
-
-    RESTORE_GPR $ra,  (8*17)  // r1, return address
-.endm
 
 // Macro that calls through to artDeliverPendingExceptionFromCode, where the pending exception is
 // Thread::Current()->exception_ when the runtime method frame is ready.
