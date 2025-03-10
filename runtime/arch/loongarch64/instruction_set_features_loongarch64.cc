@@ -70,7 +70,7 @@ Loongarch64FeaturesUniquePtr Loongarch64InstructionSetFeatures::FromCpuFeatures(
 }
 
 bool Loongarch64InstructionSetFeatures::Equals(const InstructionSetFeatures* other) const {
-  if (InstructionSet::kRiscv64 != other->GetInstructionSet()) {
+  if (InstructionSet::kLoongarch64 != other->GetInstructionSet()) {
     return false;
   }
   return bits_ == other->AsLoongarch64InstructionSetFeatures()->bits_;

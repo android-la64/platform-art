@@ -44,9 +44,9 @@ ALWAYS_INLINE inline uint32_t GetNterpFastPathFlags(std::string_view shorty,
 
   // Check for nterp invoke fast-path based on shorty.
   const bool no_float_return = shorty[0] != 'F' && shorty[0] != 'D';
-  if (isa != InstructionSet::kRiscv64 && all_parameters_are_reference_or_int && no_float_return) {
+  if ((isa != InstructionSet::kRiscv64 && isa != InstructionSet::kLoongarch64) && all_parameters_are_reference_or_int && no_float_return) {
     nterp_flags |= kAccNterpInvokeFastPathFlag;
-  } else if (isa == InstructionSet::kRiscv64 && all_parameters_are_reference && no_float_return) {
+  } else if ((isa == InstructionSet::kRiscv64 || isa == InstructionSet::kLoongarch64) && all_parameters_are_reference && no_float_return) {
     nterp_flags |= kAccNterpInvokeFastPathFlag;
   }
   return nterp_flags;

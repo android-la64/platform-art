@@ -355,21 +355,24 @@ END \name
 // 64 bit write
 // Clobbers: z0
 .macro SET_VREG_WIDE reg, vreg, z0
-    slli.d \vreg, \vreg, 2
-    add.d \z0, \vreg, xFP     // vreg addr in register array
-    st.d \reg, \z0, 0         // fp[vreg] := reg(lo) ; fp[vreg+1] := reg(hi)
-    add.d \z0, \vreg, xREFS   // vreg addr in reference array
-    st.d zero, \z0, 0         // refs[vreg] := null ; refs[vreg+1] := null
+    alsl.d \z0, \vreg, xFP, 2    // vreg addr in register array
+    st.d \reg, \z0, 0            // fp[vreg] := reg(lo) ; fp[vreg+1] := reg(hi)
+    alsl.d \z0, \vreg, xREFS, 2  // vreg addr in reference array
+    st.d zero, \z0, 0            // refs[vreg] := null ; refs[vreg+1] := null
 .endm
 
 // 32 bit write
 // Clobbers: z0
 .macro SET_VREG_WORD reg, vreg, z0
-    slli.d \vreg, \vreg, 2
-    add.d \z0, \vreg, xFP     // vreg addr in register array
-    st.w \reg, \z0, 0         // fp[vreg] := reg
-    add.d \z0, \vreg, xREFS   // vreg addr in reference array
-    st.w zero, \z0, 0         // refs[vreg] := null
+    alsl.d \z0, \vreg, xFP, 2    // vreg addr in register array
+    st.w \reg, \z0, 0            // fp[vreg] := reg(lo) ; fp[vreg+1] := reg(hi)
+    alsl.d \z0, \vreg, xREFS, 2  // vreg addr in reference array
+    st.w zero, \z0, 0            // refs[vreg] := null ; refs[vreg+1] := null
+    //slli.d \vreg, \vreg, 2
+    //add.d \z0, \vreg, xFP     // vreg addr in register array
+    //st.w \reg, \z0, 0         // fp[vreg] := reg
+    //add.d \z0, \vreg, xREFS   // vreg addr in reference array
+    //st.w zero, \z0, 0         // refs[vreg] := null
 .endm
 
 // Object read
@@ -618,8 +621,70 @@ common_errDivideByZero:
     // CALL preserves RA for stack walking.
     bl art_quick_throw_div_zero
 
+common_errNullObject:
+    EXPORT_PC
+    // CALL preserves RA for stack walking.
+    bl art_quick_throw_null_pointer_exception
+
+NterpInvokeVirtual:
+%  nterp_invoke_virtual()
+NterpInvokeSuper:
+%  nterp_invoke_super()
+NterpInvokeDirect:
+%  nterp_invoke_direct()
+NterpInvokeStringInit:
+%  nterp_invoke_string_init()
+NterpInvokeStatic:
+%  nterp_invoke_static()
+NterpInvokeInterface:
+%  nterp_invoke_interface()
+NterpInvokePolymorphic:
+%  nterp_invoke_polymorphic()
+NterpInvokeCustom:
+%  nterp_invoke_custom()
+NterpInvokeVirtualRange:
+%  nterp_invoke_virtual_range()
+NterpInvokeSuperRange:
+%  nterp_invoke_super_range()
+NterpInvokeDirectRange:
+%  nterp_invoke_direct_range()
+NterpInvokeStringInitRange:
+%  nterp_invoke_string_init_range()
+NterpInvokeStaticRange:
+%  nterp_invoke_static_range()
+NterpInvokeInterfaceRange:
+%  nterp_invoke_interface_range()
+NterpInvokePolymorphicRange:
+%  nterp_invoke_polymorphic_range()
+NterpInvokeCustomRange:
+%  nterp_invoke_custom_range()
+NTERP_INVOKE_INTERFACE_HELPER:
+    st.d s3, s6, -16 //EXPORT_PC
+    ld.hu s7, s3, 4
+    andi t0, s3, 0xFF << 2
+    addi.d t0, t0, THREAD_INTERPRETER_CACHE_OFFSET >> 2
+    alsl.d t0, t0, s1, 2
+    ld.d t1, t0, 0
+    jirl zero, t6, 0
+
+
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
 .cfi_endproc
+
+NterpToNterpInstance:
+%  nterp_to_nterp_instance()
+NterpToNterpStringInit:
+%  nterp_to_nterp_string_init()
+NterpToNterpStatic:
+%  nterp_to_nterp_static()
+NterpToNterpInstanceRange:
+%  nterp_to_nterp_instance_range()
+NterpToNterpStringInitRange:
+%  nterp_to_nterp_string_init_range()
+NterpToNterpStaticRange:
+%  nterp_to_nterp_static_range()
+
+// This is the logical end of ExecuteNterpImpl, where the frame info applies.
 NAME_END nterp_helper
 
 // EndExecuteNterpImpl includes the methods after .cfi_endproc, as we want the runtime to see them
@@ -632,6 +697,7 @@ EndExecuteNterpImpl:
 
 // Entrypoints into runtime.
 NTERP_TRAMPOLINE nterp_get_class, NterpGetClass
+NTERP_TRAMPOLINE nterp_get_method, NterpGetMethod
 NTERP_TRAMPOLINE nterp_get_static_field, NterpGetStaticField
 NTERP_TRAMPOLINE nterp_hot_method, NterpHotMethod
 
