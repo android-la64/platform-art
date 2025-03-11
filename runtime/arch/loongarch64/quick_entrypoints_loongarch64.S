@@ -282,6 +282,43 @@ END art_deliver_pending_exception
 .endm
 
 
+    /*
+     * All generated callsites for interface invokes and invocation slow paths will load arguments
+     * as usual - except instead of loading arg0/A0 with the target Method*, arg0/A0 will contain
+     * the method_idx. This wrapper will call the appropriate C++ helper while preserving arguments
+     * and allowing a moving GC to update references in callee-save registers.
+     * NOTE: "this" is the first visible argument of the target, and so can be found in arg1/A1.
+     *
+     * The helper will attempt to locate the target and return a 128-bit result consisting of the
+     * target `ArtMethod*` in A0 and its `entry_point_from_quick_compiled_code_` in A1.
+     *
+     * If unsuccessful, the helper will return null/null. There will be a pending exception
+     * to deliver in the thread.
+     *
+     * On success this wrapper will restore arguments and *jump* to the target, leaving the RA
+     * pointing back to the original caller.
+     */
+.macro INVOKE_TRAMPOLINE_BODY cxx_name
+    .extern \cxx_name
+    SETUP_SAVE_REFS_AND_ARGS_FRAME
+    move    $a2, $xSELF                           // Pass Thread::Current().
+    move    $a3, $sp                              // Pass pointer to the saved frame context.
+    bl   \cxx_name                          // (method_idx, this, Thread*, $sp)
+    move    $t0, $a1                              // Save method's code pointer in T0.
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    beq   $a0, $zero, 1f
+    jr    $t0
+1:
+    DELIVER_PENDING_EXCEPTION
+.endm
+
+.macro INVOKE_TRAMPOLINE c_name, cxx_name
+ENTRY \c_name
+    INVOKE_TRAMPOLINE_BODY \cxx_name
+END \c_name
+.endm
+
+
 // void art_quick_invoke_stub(ArtMethod* method,   // a0
 //                            uint32_t*  args,     // a1
 //                            uint32_t   argsize,  // a2
@@ -458,7 +495,37 @@ ENTRY art_quick_method_exit_hook
     jirl $zero, $ra, 0
 END art_quick_method_exit_hook
 
-UNDEFINED art_quick_imt_conflict_trampoline
+
+    /*
+     * Called to resolve an imt conflict.
+     * On entry:
+     *   A0 is the conflict ArtMethod.
+     *   T0 is a hidden argument that holds the target interface method's dex method index.
+     */
+ENTRY art_quick_imt_conflict_trampoline
+    ld.d      $t1, $a0, ART_METHOD_JNI_OFFSET_64  // Load ImtConflictTable
+    ld.d      $a0, $t1, 0                         // Load first entry in ImtConflictTable.
+.Limt_table_iterate:
+    // Branch if found.
+    beq     $a0, $t0, .Limt_table_found
+
+    // If the entry is null, the interface method is not in the ImtConflictTable.
+    beqz    $a0, .Lconflict_trampoline
+    // Iterate over the entries of the ImtConflictTable.
+    addi.d  $t1, $t1, (2 * __SIZEOF_POINTER__)
+    ld.d    $a0, $t1, 0
+    b       .Limt_table_iterate
+.Limt_table_found:
+    // We successfully hit an entry in the table. Load the target method and jump to it.
+    ld.d    $a0, $t1, __SIZEOF_POINTER__
+    ld.d    $t1, $a0, ART_METHOD_QUICK_CODE_OFFSET_64
+    jr      $t1
+.Lconflict_trampoline:
+    // Call the runtime stub to populate the ImtConflictTable and jump to the
+    // resolved method.
+    move $a0, $t0  // Load interface method
+    INVOKE_TRAMPOLINE_BODY artInvokeInterfaceTrampoline
+END art_quick_imt_conflict_trampoline
 
 
 // Called by managed code that is attempting to call a method on a proxy class. On entry a0 holds
