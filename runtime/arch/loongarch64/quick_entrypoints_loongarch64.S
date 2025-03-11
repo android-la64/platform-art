@@ -846,6 +846,10 @@ END \name
 
 READ_BARRIER_MARK_REG art_quick_read_barrier_mark_reg10, $a0
 
+// Called by managed code to create and deliver a StackOverflowError.
+NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
+
+
 UNDEFINED art_quick_osr_stub
 
 UNDEFINED art_quick_alloc_array_resolved_dlmalloc
@@ -1037,7 +1041,6 @@ UNDEFINED art_quick_invoke_polymorphic
 UNDEFINED art_quick_invoke_custom
 UNDEFINED art_quick_deliver_exception
 UNDEFINED art_quick_throw_array_bounds
-UNDEFINED art_quick_throw_stack_overflow
 UNDEFINED art_quick_throw_string_bounds
 UNDEFINED art_quick_update_inline_cache
 UNDEFINED art_jni_monitored_method_start

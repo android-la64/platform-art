@@ -1880,6 +1880,7 @@ bool Runtime::Init(RuntimeArgumentMap&& runtime_options_in) {
     case InstructionSet::kArm:
     case InstructionSet::kThumb2:
     case InstructionSet::kRiscv64:
+    case InstructionSet::kLoongarch64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
       implicit_null_checks_ = true;

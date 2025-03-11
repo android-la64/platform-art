@@ -32,20 +32,14 @@
 extern "C" void art_quick_throw_stack_overflow();
 extern "C" void art_quick_throw_null_pointer_exception_from_signal();
 
-//
-// Loongarch64 specific fault handler functions.
-//
-
-#ifndef LARCH_REG_T6
-#define LARCH_REG_T6    18
-#endif
+// LOONGARCH64 specific fault handler functions (or stubs if unimplemented yet).
 
 namespace art {
 
 uintptr_t FaultManager::GetFaultPc(siginfo_t*, void* context) {
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   mcontext_t* mc = reinterpret_cast<mcontext_t*>(&uc->uc_mcontext);
-  if (mc->sc_regs[0x3] == 0) {
+  if (mc->sc_regs[LARCH_REG_SP] == 0) {
     VLOG(signals) << "Missing SP";
     return 0u;
   }
@@ -55,31 +49,50 @@ uintptr_t FaultManager::GetFaultPc(siginfo_t*, void* context) {
 uintptr_t FaultManager::GetFaultSp(void* context) {
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   mcontext_t* mc = reinterpret_cast<mcontext_t*>(&uc->uc_mcontext);
-  return mc->sc_regs[0x3];
+  return mc->sc_regs[LARCH_REG_SP];
 }
 
-bool NullPointerHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info, void* context) {
-  // The code that looks for the catch location needs to know the value of the
-  // PC at the point of call.  For Null checks we insert a GC map that is immediately after
-  // the load/store instruction that might cause the fault.
 
-  struct ucontext *uc = reinterpret_cast<struct ucontext*>(context);
-  struct sigcontext *sc = reinterpret_cast<struct sigcontext*>(&uc->uc_mcontext);
+bool NullPointerHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info, void* context) {
+  uintptr_t fault_address = reinterpret_cast<uintptr_t>(info->si_addr);
+  if (!IsValidFaultAddress(fault_address)) {
+    return false;
+  }
+
+  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  mcontext_t* mc = reinterpret_cast<mcontext_t*>(&uc->uc_mcontext);
+  ArtMethod** sp = reinterpret_cast<ArtMethod**>(mc->sc_regs[LARCH_REG_SP]);
+  if (!IsValidMethod(*sp)) {
+    return false;
+  }
+  // For null checks in compiled code we insert a stack map that is immediately
+  // after the load/store instruction that might cause the fault and we need to
+  // pass the return PC to the handler. For null checks in Nterp, we similarly
+  // need the return PC to recognize that this was a null check in Nterp, so
+  // that the handler can get the needed data from the Nterp frame.
+
+  // Need to work out the size of the instruction that caused the exception.
+  uintptr_t old_pc = mc->sc_pc;
+  uintptr_t instr_size = (reinterpret_cast<uint16_t*>(old_pc)[0] & 3u) == 3u ? 4u : 2u;
+  uintptr_t return_pc = old_pc + instr_size;
+  if (!IsValidReturnPc(sp, return_pc)) {
+    return false;
+  }
 
   // Decrement $sp by the frame size of the kSaveEverything method and store
   // the fault address in the padding right after the ArtMethod*.
-  sc->sc_regs[LARCH_REG_SP] -= loongarch64::Loongarch64CalleeSaveFrame::GetFrameSize(CalleeSaveType::kSaveEverything);
-  uintptr_t* padding = reinterpret_cast<uintptr_t*>(sc->sc_regs[LARCH_REG_SP]) + /* ArtMethod* */ 1;
-  *padding = reinterpret_cast<uintptr_t>(info->si_addr);
+  mc->sc_regs[LARCH_REG_SP] -= sizeof(uintptr_t);
+  *reinterpret_cast<uintptr_t*>(mc->sc_regs[LARCH_REG_SP]) = return_pc;
 
-  sc->sc_regs[LARCH_REG_RA] = sc->sc_pc + 4;      // RA needs to point to gc map location
-  sc->sc_pc = reinterpret_cast<uintptr_t>(art_quick_throw_null_pointer_exception_from_signal);
+  mc->sc_regs[LARCH_REG_RA] = fault_address;
+  mc->sc_pc = reinterpret_cast<uintptr_t>(art_quick_throw_null_pointer_exception_from_signal);
   VLOG(signals) << "Generating null pointer exception";
   return true;
 }
 
 bool SuspensionHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info ATTRIBUTE_UNUSED,
                                void* context ATTRIBUTE_UNUSED) {
+  LOG(FATAL) << "SuspensionHandler::Action is not implemented for LOONGARCH";
   return false;
 }
 
@@ -125,7 +138,6 @@ bool StackOverflowHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info, voi
   // caused this fault.  This will be inserted into a callee save frame by
   // the function to which this handler returns (art_quick_throw_stack_overflow).
   sc->sc_pc = reinterpret_cast<uintptr_t>(art_quick_throw_stack_overflow);
-  sc->sc_regs[LARCH_REG_T6] = sc->sc_pc;          // make sure T6 points to the function
 
   // The kernel will now return to the address in sc->arm_pc.
   return true;
