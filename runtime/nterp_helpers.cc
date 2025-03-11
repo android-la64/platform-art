@@ -280,6 +280,13 @@ bool CanMethodUseNterp(ArtMethod* method, InstructionSet isa) {
         case Instruction::CONST_WIDE_32:
         case Instruction::CONST_WIDE:
         case Instruction::CONST_WIDE_HIGH16:
+        case Instruction::SGET:
+        case Instruction::SGET_WIDE:
+        case Instruction::SGET_OBJECT:
+        case Instruction::SGET_BOOLEAN:
+        case Instruction::SGET_BYTE:
+        case Instruction::SGET_CHAR:
+        case Instruction::SGET_SHORT:
         case Instruction::SPUT:
         case Instruction::SPUT_OBJECT:
         case Instruction::INVOKE_INTERFACE:

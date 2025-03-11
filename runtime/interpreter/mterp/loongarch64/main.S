@@ -666,6 +666,13 @@ NTERP_INVOKE_INTERFACE_HELPER:
     alsl.d t0, t0, s1, 2
     ld.d t1, t0, 0
     jirl zero, t6, 0
+NTERP_SPUT_SLOW_HELPER:
+    move a0, xSELF
+    ld.d a1, sp, 0  // a1 := caller ArtMethod*
+    move a2, xPC
+    move a3, zero
+    st.d s3, s6, -16 //EXPORT_PC
+    jirl zero, t5, 0
 
 
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
