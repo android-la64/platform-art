@@ -497,6 +497,42 @@ END art_quick_method_exit_hook
 
 
     /*
+     * Polymorphic method invocation.
+     * On entry:
+     *   A0 = unused
+     *   A1 = receiver
+     */
+.extern artInvokePolymorphic
+ENTRY art_quick_invoke_polymorphic
+    SETUP_SAVE_REFS_AND_ARGS_FRAME
+    move      $a0, $a1                      // Pass the receiver.
+    move      $a1, $xSELF                   // Pass Thread::Current().
+    move      $a2, $sp                      // Pass pointer to the saved frame context.
+    bl    artInvokePolymorphic              // artInvokePolymorphic(receiver, Thread*, context)
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    movgr2fr.d $fa0, $a0                    // copy the result to FP result register
+    RETURN_OR_DELIVER_PENDING_EXCEPTION_REG $t0
+END art_quick_invoke_polymorphic
+
+
+/*
+     * InvokeCustom invocation.
+     * On entry:
+     *   A0 = call_site_idx
+     */
+.extern artInvokeCustom
+ENTRY art_quick_invoke_custom
+    SETUP_SAVE_REFS_AND_ARGS_FRAME
+    move      $a1, $xSELF                   // Pass Thread::Current().
+    move      $a2, $sp                      // Pass pointer to the saved frame context.
+    bl    artInvokeCustom                   // artInvokeCustom(call_site_idx, Thread*, context)
+    RESTORE_SAVE_REFS_AND_ARGS_FRAME
+    movgr2fr.d $fa0, $a0                    // copy the result to FP result register
+    RETURN_OR_DELIVER_PENDING_EXCEPTION_REG $t0
+END art_quick_invoke_custom
+
+
+    /*
      * Called to resolve an imt conflict.
      * On entry:
      *   A0 is the conflict ArtMethod.
@@ -1104,8 +1140,6 @@ UNDEFINED art_quick_invoke_interface_trampoline_with_access_check
 UNDEFINED art_quick_invoke_static_trampoline_with_access_check
 UNDEFINED art_quick_invoke_super_trampoline_with_access_check
 UNDEFINED art_quick_invoke_virtual_trampoline_with_access_check
-UNDEFINED art_quick_invoke_polymorphic
-UNDEFINED art_quick_invoke_custom
 UNDEFINED art_quick_deliver_exception
 UNDEFINED art_quick_throw_array_bounds
 UNDEFINED art_quick_throw_string_bounds

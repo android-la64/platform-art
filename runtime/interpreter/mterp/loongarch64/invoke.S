@@ -67,10 +67,10 @@
                                     // t0 := klass object (32-bit addr)
    UNPOISON_HEAP_REF t0
    // Entry address = entry's byte offset in vtable + vtable's byte offset in klass object.
-   alsl.d a0, a0, t0, 3                // a0 := entry's byte offset
+   alsl.d a0, a0, t0, 3             // a0 := entry's byte offset
    ld.d a0, a0, MIRROR_CLASS_VTABLE_OFFSET_64
                                     // a0 := ArtMethod*
-   b NterpInvokeVirtual${range}  // args a0, a1, s7
+   b NterpInvokeVirtual${range}     // args a0, a1, s7
 2:
 %  resolve_method_into_a0()
    b 1b
@@ -407,10 +407,10 @@
 .L${uniq}_01:
    move u0, zero                   // initialize shorty reg
 %  try_01_args(vreg="s7", shorty="u0", z0="t0", z1="t1", z2="t2", y0="t7", y1="t8", y2="s0", skip=f".L{uniq}_slow", call=f".L{uniq}_01_call", uniq=uniq, range=range)
-                                 // if s9 := shorty, then maybe (a2, fa0) := fp[D] or fp[CCCC + 1]
+                                 // if u0 := shorty, then maybe (a2, fa0) := fp[D] or fp[CCCC + 1]
 .L${uniq}_01_call:
    jirl ra, s8, 0                       // args a0, a1, and maybe a2, fa0
-   beqz s9, .L${uniq}_next_op    // no shorty, no scalar return
+   beqz u0, .L${uniq}_next_op    // no shorty, no scalar return
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_0")
                                  // a0 := fa0 if float return
    b .L${uniq}_next_op
@@ -418,7 +418,7 @@
 .L${uniq}_slow:
 %  get_shorty_save_a0_a1(shorty="u0", y0="t7", y1="t8")
 %  if range == 'Range':
-%    slow_setup_args_range(shorty="s9", vC="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", z7="t7", uniq=uniq)
+%    slow_setup_args_range(shorty="u0", vC="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", z7="t7", uniq=uniq)
 %  else:
 %    slow_setup_args(shorty="u0", vregs="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", uniq=uniq)
 %#:
@@ -513,21 +513,88 @@
 // a2: ArtMethod*
 // s7: vreg ids F|E|D|C
 %def nterp_invoke_interface(uniq="invoke_interface", range=""):
-    break 0x5
+   // We immediately adjust the incoming arguments to suit the rest of the invoke.
+   move t0, a0                   // t0 := hidden arg, preserve until quick call
+   move a0, a2                   // a0 := ArtMethod*
+
+   ld.d s8, a0, ART_METHOD_QUICK_CODE_OFFSET_64
+                               // s8 := quick code
+%  try_nterp(quick="s8", z0="t1", skip=f".L{uniq}_simple")
+   bl NterpToNterpInstance${range}  // args a0, a1
+   b .L${uniq}_next_op
+
+.L${uniq}_simple:
+%  if range == 'Range':
+%    try_simple_args_range(vC="s7", z0="t1", z1="t2", z2="t3", z3="t4", z4="t5", skip=f".L{uniq}_01", uniq=uniq)
+%  else:
+%    try_simple_args(v_fedc="s7", z0="t1", z1="t2", skip=f".L{uniq}_01", uniq=uniq)
+%#:
+   jirl ra, s8, 0                     // args (regular) a0 - a5 and t0, (range) a0 - a7 and t0 and maybe stack
+   b .L${uniq}_next_op
+
+.L${uniq}_01:
+   move u0, zero                 // initialize shorty reg
+%  try_01_args(vreg="s7", shorty="u0", z0="t1", z1="t2", z2="t3", y0="t7", y1="t8", y2="s0", interface=True, skip=f".L{uniq}_slow", call=f".L{uniq}_01_call", uniq=uniq, range=range)
+                               // if u0 := shorty, then maybe (a2, fa0) := fp[D] or fp[CCCC + 1]
+                               // (xINST clobbered, if taking this fast path)
+.L${uniq}_01_call:
+   jirl ra, s8, 0              // args a0, a1, and t0, and maybe a2, fa0
+   beqz u0, .L${uniq}_next_op  // no shorty, no scalar return
+%  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_0")
+                               // a0 := fa0 if float return
+   b .L${uniq}_next_op
+
+.L${uniq}_slow:
+%  get_shorty_for_interface_save_a0_a1_t0(shorty="u0", y0="t7", y1="t8", y2="s0")
+%  if range == 'Range':
+%    slow_setup_args_range(shorty="u0", vC="s7", z0="t7", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", z7="t8", uniq=uniq)
+%  else:
+%    slow_setup_args(shorty="u0", vregs="s7", z0="t7", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", uniq=uniq)
+%#:
+   jirl ra, s8, 0                     // args (regular) a0 - a5, fa0 - fa4, t0, (range) a0 - a7, fa0 - fa7, t0
+%  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_1")
+                               // a0 := fa0 if float return
+.L${uniq}_next_op:
+   FETCH_ADVANCE_INST 3
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
 
 // NterpInvokePolymorphic
 // a0: shorty
 // a1: receiver this
 // s7: (regular) vreg ids F|E|D|C, (range) vreg id CCCC
 %def nterp_invoke_polymorphic(uniq="invoke_polymorphic", range=""):
-    break 0x5
+%  if range == "Range":
+%    slow_setup_args_range(shorty="a0", vC="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", z7="s8", uniq=uniq)
+%  else:
+%    slow_setup_args(shorty="a0", vregs="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", uniq=uniq)
+%#:
+   // Managed ABI argument regs get spilled to stack and consumed by artInvokePolymorphic.
+   bl art_quick_invoke_polymorphic  // args a1 - a7, fa0 - fa7, and maybe stack
+   // Note: If float return, artInvokePolymorphic will place the value in A0, as Nterp expects.
+   FETCH_ADVANCE_INST 4
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
 
 // NterpInvokeCustom
 // a0: BBBB
 // s7: shorty
 // s8: (regular) vreg ids F|E|D|C, (range) vreg id CCCC
 %def nterp_invoke_custom(uniq="invoke_custom", range=""):
-    break 0x5
+%  if range == "Range":
+%    slow_setup_args_range(shorty="s7", vC="s8", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", z7="u0", arg_start="0", uniq=uniq)
+%  else:
+%    slow_setup_args(shorty="s7", vregs="s8", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", arg_start="0", uniq=uniq)
+%#:
+   // Managed ABI argument regs get spilled to stack and consumed by artInvokeCustom.
+   bl art_quick_invoke_custom  // args a0 - a7, fa0 - fa7, and maybe stack
+   // Note: If float return, artInvokeCustom will place the value in A0, as Nterp expects.
+   FETCH_ADVANCE_INST 3
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
 
 // NterpInvokeVirtualRange
 // a0: ArtMethod*
@@ -555,13 +622,13 @@
 // a0: ArtMethod*
 // s7: vreg id CCCC
 %def nterp_invoke_string_init_range():
-    break 0x5
+%  nterp_invoke_string_init(uniq="invoke_string_init_range", range="Range")
 
 // NterpInvokeStaticRange
 // a0: ArtMethod*
 // s7: vreg id CCCC
 %def nterp_invoke_static_range():
-    break 0x5
+%  nterp_invoke_static(uniq="invoke_static_range", range="Range")
 
 // NterpInvokeInterfaceRange
 // a0: the target interface method
@@ -572,15 +639,15 @@
 // a2: ArtMethod*
 // s7: vreg id CCCC
 %def nterp_invoke_interface_range():
-    break 0x5
+%  nterp_invoke_interface(uniq="invoke_interface_range", range="Range")
 
 // NterpInvokePolymorphicRange
 %def nterp_invoke_polymorphic_range():
-    break 0x5
+%  nterp_invoke_polymorphic(uniq="invoke_polymorphic_range", range="Range")
 
 // NterpInvokeCustomRange
 %def nterp_invoke_custom_range():
-    break 0x5
+%  nterp_invoke_custom(uniq="invoke_custom_range", range="Range")
 
 
 // fast path and slow path helpers
@@ -1016,6 +1083,42 @@
 .L${uniq}_slow_done:
 
 
+// String-init variant: up to 4 args, no long/float/double args.
+// Ref args ('L') loaded with LW *must* apply ZEXT.W to avoid subtle address bugs.
+%def slow_setup_args_string_init_range(shorty="", vC="", z0="", z1="", z2="", z3="", uniq=""):
+   srli.w $z0, xINST, 8             // z0 := AA; possible values 1-5
+   li.d $z1, 2
+   blt $z0, $z1, .L${uniq}_slow_1  // A = 1
+   alsl.d $z2, $vC, xFP, 2            // z2 := &fp[CCCC]
+   li.d $z3, 'L'                     // z3 := ref type
+   beq $z0, $z1, .L${uniq}_slow_2  // A = 2
+   li.d $z1, 4
+   blt $z0, $z1, .L${uniq}_slow_3  // A = 3
+   beq $z0, $z1, .L${uniq}_slow_4  // A = 4
+   // A = 5
+   ld.w a4, $z2, 4*4
+   ld.b $z1, $shorty, 4
+   bne $z1, $z3, .L${uniq}_slow_4
+   bstrpick.d a4, a4, 31, 0
+.L${uniq}_slow_4:
+   ld.w a3, $z2, 3*4
+   ld.b $z1, $shorty, 3
+   bne $z1, $z3, .L${uniq}_slow_3
+   bstrpick.d a3, a3, 31, 0
+.L${uniq}_slow_3:
+   ld.w a2, $z2, 2*4
+   ld.b $z1, $shorty, 2
+   bne $z1, $z3, .L${uniq}_slow_2
+   bstrpick.d a2, a2, 31, 0
+.L${uniq}_slow_2:
+   ld.w a1, $z2, 1*4
+   ld.b $z1, $shorty, 1
+   bne $z1, $z3, .L${uniq}_slow_1
+   bstrpick.d a1, a1, 31, 0
+.L${uniq}_slow_1:
+   // "this" never read in string-init
+
+
 // Iterate through 4-bit vreg ids in the "vregs" register, load a non-FP value
 // into one argument register.
 %def load_vreg_in_gpr(gpr="", shorty="", vregs="", D="", F="", J="", L="", z0="", done="", uniq=""):
@@ -1231,9 +1334,6 @@
 
    START_EXECUTING_INSTRUCTIONS
    .cfi_endproc
-
-%def op_invoke_interface_slow_path():
-    break 0x5
 
 
 // See runtime/nterp_helpers.cc for a diagram of the setup.
