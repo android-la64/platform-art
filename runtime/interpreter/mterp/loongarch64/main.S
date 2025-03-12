@@ -673,6 +673,18 @@ NTERP_SPUT_SLOW_HELPER:
     move a3, zero
     st.d s3, s6, -16 //EXPORT_PC
     jirl zero, t5, 0
+NTERP_NEW_ARRAY_RESUME_HELPER:
+    dbar            0x5  // fence w, w; main.S has details
+    alsl.d          t0, s8, s2, 0x2  // SET_VREG_OBJECT a0, s8, z0=t0
+    st.w            a0, t0, 0
+    alsl.d          t0, s8, s6, 0x2
+    st.w            a0, t0, 0
+    ld.hu           s4, s3, 4     // FETCH_ADVANCE_INST 2
+    addi.d          s3, s3, 4
+    andi            t0, s4, 0xff  // GET_INST_OPCODE t0
+    slli.w          t0, t0, 0x7
+    add.d           t0, s5, t0
+    jr              t0    // GOTO_OPCODE t0
 
 
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
@@ -703,6 +715,8 @@ NAME_END nterp_helper
 EndExecuteNterpImpl:
 
 // Entrypoints into runtime.
+NTERP_TRAMPOLINE nterp_filled_new_array, NterpFilledNewArray
+NTERP_TRAMPOLINE nterp_filled_new_array_range, NterpFilledNewArrayRange
 NTERP_TRAMPOLINE nterp_get_class, NterpGetClass
 NTERP_TRAMPOLINE nterp_get_method, NterpGetMethod
 NTERP_TRAMPOLINE nterp_get_static_field, NterpGetStaticField

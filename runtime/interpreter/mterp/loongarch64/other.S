@@ -222,6 +222,40 @@
    GOTO_OPCODE t3        // continue to next
 
 
+// monitor-enter vAA
+// Format 11x: AA|1d
+// Acquire the monitor for the indicated object.
+%def op_monitor_enter():
+   EXPORT_PC
+   srli.w t0, xINST, 8  // t0 := AA
+   GET_VREG_OBJECT a0, t0
+   bl art_quick_lock_object  // arg a0
+   FETCH_ADVANCE_INST 1
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+
+// monitor-exit vAA
+// Format 11x: AA|1e
+// Release the monitor for the indicated object.
+// Note: If this instruction needs to throw an exception, it must do so as if the pc has
+//       already advanced past the instruction. It may be useful to think of this as the instruction
+//       successfully executing (in a sense), and the exception getting thrown after the instruction
+//       but before the next one gets a chance to run. This definition makes it possible for a
+//       method to use a monitor cleanup catch-all (e.g., finally) block as the monitor cleanup for
+//       that block itself, as a way to handle the arbitrary exceptions that might get thrown due to
+//       the historical implementation of Thread.stop(), while still managing to have proper monitor
+//       hygiene.
+%def op_monitor_exit():
+   EXPORT_PC
+   srli.w t0, xINST, 8  // t0 := AA
+   GET_VREG_OBJECT a0, t0
+   bl art_quick_unlock_object  // arg a0
+   FETCH_ADVANCE_INST 1
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+
 %def op_const_object(jumbo="0", helper="nterp_load_object"):
     break 0x5
 %def op_const_class():
@@ -233,10 +267,6 @@
 %def op_const_string():
     break 0x5
 %def op_const_string_jumbo():
-    break 0x5
-%def op_monitor_enter():
-    break 0x5
-%def op_monitor_exit():
     break 0x5
 %def op_move_wide_16():
     break 0x5
