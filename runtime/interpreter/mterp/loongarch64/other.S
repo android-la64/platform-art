@@ -222,6 +222,86 @@
    GOTO_OPCODE t3        // continue to next
 
 
+// const-string vAA, string@BBBB
+// Format 21c: AA|1a BBBB
+%def op_const_string(jumbo=False):
+   // Fast path: string from thread-local cache.
+   FETCH_FROM_THREAD_CACHE /*object*/a0, .L${opcode}_slow, t0, t1
+   TEST_IF_MARKING t2, .L${opcode}_mark
+
+.L${opcode}_resume:
+   srli.w t0, xINST, 8  // t0 := AA
+%  code_units = "3" if jumbo else "2"
+   FETCH_ADVANCE_INST $code_units
+   SET_VREG_OBJECT a0, t0, z0=t1
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+.L${opcode}_mark:
+   bl art_quick_read_barrier_mark_reg10  // a0, string
+   b .L${opcode}_resume
+.L${opcode}_slow:
+   EXPORT_PC
+   move a0, xSELF
+   ld.d a1, sp, 0  // caller ArtMethod*
+   move a2, xPC
+   bl nterp_load_object  // return a0 := string
+   b .L${opcode}_resume
+
+
+// const-string/jumbo vAA, string@BBBBBBBB
+// Format 31c: AA|1b BBBB(lo) BBBB(hi)
+%def op_const_string_jumbo():
+%  op_const_string(jumbo=True)
+
+// const-class vAA, type@BBBB
+// Format 21c: AA|1c BBBB
+%def op_const_class():
+   // Fast path: klass reference from thread-local cache.
+   FETCH_FROM_THREAD_CACHE /*object*/a0, .L${opcode}_slow, t0, t1
+   TEST_IF_MARKING t2, .L${opcode}_mark
+
+.L${opcode}_resume:
+   srli.w t0, xINST, 8  // t0 := AA
+   FETCH_ADVANCE_INST 2
+   SET_VREG_OBJECT a0, t0, z0=t1
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+.L${opcode}_mark:
+   bl art_quick_read_barrier_mark_reg10  // a0, klass
+   b .L${opcode}_resume
+.L${opcode}_slow:
+   EXPORT_PC
+   move a0, xSELF
+   ld.d a1, sp, 0  // caller ArtMethod*
+   move a2, xPC
+   bl nterp_get_class  // return a0 := klass
+   b .L${opcode}_resume
+
+
+// const-method-handle vAA, method_handle@BBBB
+// Format 21c: AA|fe BBBB
+%def op_const_method_handle():
+   // Method handle and method type are not cached, just call helper directly.
+   EXPORT_PC
+   move a0, xSELF
+   ld.d a1, sp, 0  // caller ArtMethod*
+   move a2, xPC
+   bl nterp_load_object  // return a0 := method handle or method type
+   srli.w t0, xINST, 8  // t0 := AA
+   FETCH_ADVANCE_INST 2
+   SET_VREG_OBJECT a0, t0, z0=t1
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+
+// const-method-type vAA, proto@BBBB
+// Format 21c: AA|ff BBBB
+%def op_const_method_type():
+%  op_const_method_handle()
+
+
 // monitor-enter vAA
 // Format 11x: AA|1d
 // Acquire the monitor for the indicated object.
@@ -255,21 +335,6 @@
    GET_INST_OPCODE t0
    GOTO_OPCODE t0
 
-
-%def op_const_object(jumbo="0", helper="nterp_load_object"):
-    break 0x5
-%def op_const_class():
-    break 0x5
-%def op_const_method_handle():
-    break 0x5
-%def op_const_method_type():
-    break 0x5
-%def op_const_string():
-    break 0x5
-%def op_const_string_jumbo():
-    break 0x5
-%def op_move_wide_16():
-    break 0x5
 
 %def op_unused_3e():
 %  unused()

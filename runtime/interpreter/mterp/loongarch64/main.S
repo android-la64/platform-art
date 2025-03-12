@@ -616,6 +616,11 @@ OAT_ENTRY ExecuteNterpImpl
 // Enclose all code below in a symbol (which gets printed in backtraces).
 NAME_START nterp_helper
 
+common_errArrayIndex:
+    EXPORT_PC
+    // CALL preserves RA for stack walking.
+    bl art_quick_throw_array_bounds  // args a0 (index), a1 (length)
+
 common_errDivideByZero:
     EXPORT_PC
     // CALL preserves RA for stack walking.
@@ -730,6 +735,7 @@ NTERP_TRAMPOLINE nterp_get_instance_field_offset, NterpGetInstanceFieldOffset
 NTERP_TRAMPOLINE nterp_get_method, NterpGetMethod
 NTERP_TRAMPOLINE nterp_get_static_field, NterpGetStaticField
 NTERP_TRAMPOLINE nterp_hot_method, NterpHotMethod
+NTERP_TRAMPOLINE nterp_load_object, NterpLoadObject
 
 ENTRY nterp_deliver_pending_exception
     DELIVER_PENDING_EXCEPTION

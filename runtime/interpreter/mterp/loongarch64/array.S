@@ -101,44 +101,211 @@
    GOTO_OPCODE t0
 
 
-%def op_aget(load="break 0x5", shift="2", data_offset="MIRROR_INT_ARRAY_DATA_OFFSET", wide="0", is_object="0"):
-    break 0x5
+// Common setup across APUT and AGET variants.
+// Sets \array, \index, and \length registers.
+// Branches to null handler and out-of-bounds handler.
+%def array_prelude(array, index, length, null_label, oob_label):
+   FETCH $index, count=1           // index := CC|BB
+   andi $array, $index, 0xFF       // array := BB
+   GET_VREG_OBJECT $array, $array  // array := refs[BB], array obj
+   beqz $array, $null_label
 
-%def op_aget_boolean():
-%  op_aget(load="break 0x5", shift="0", data_offset="MIRROR_BOOLEAN_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+   srli.w $index, $index, 8         // index := CC
+%  get_vreg(index, index)          # index := fp[CC]
+   ld.w $length, $array, MIRROR_ARRAY_LENGTH_OFFSET  // length (signed 32b)
+   bgeu $index, $length, $oob_label  // Unsigned comparison also catches negative index.
 
-%def op_aget_byte():
-%  op_aget(load="break 0x5", shift="0", data_offset="MIRROR_BYTE_ARRAY_DATA_OFFSET", wide="0", is_object="0")
 
-%def op_aget_char():
-%  op_aget(load="break 0x5", shift="1", data_offset="MIRROR_CHAR_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+// aget vAA, vBB, vCC
+// Format 23x: AA|44 CC|BB
+// vAA := vBB[vCC]
+%def op_aget(width=32, zext=False):
+%  array_prelude(array="t0", index="a0", length="a1", null_label=f".L{opcode}_null", oob_label=f".L{opcode}_oob")
+       // t0 := vBB array object, a0 := vCC index, a1 := array length
 
-%def op_aget_object():
-%  op_aget(load="break 0x5", shift="2", data_offset="MIRROR_OBJECT_ARRAY_DATA_OFFSET", wide="0", is_object="1")
+%  if width == 8 and zext:
+     add.d t0, a0, t0
+     ld.bu t0, t0, MIRROR_BOOLEAN_ARRAY_DATA_OFFSET
+%  elif width == 8:
+     add.d t0, a0, t0
+     ld.b t0, t0, MIRROR_BYTE_ARRAY_DATA_OFFSET
+%  elif width == 16 and zext:
+     alsl.d t0, a0, t0, 1
+     ld.hu t0, t0, MIRROR_CHAR_ARRAY_DATA_OFFSET
+%  elif width == 16:
+     alsl.d t0, a0, t0, 1
+     ld.h t0, t0, MIRROR_SHORT_ARRAY_DATA_OFFSET
+%  elif width == 32:
+     alsl.d t0, a0, t0, 2
+     ld.w t0, t0, MIRROR_INT_ARRAY_DATA_OFFSET
+%  elif width == 64:
+     alsl.d t0, a0, t0, 3
+     ld.d t0, t0, MIRROR_WIDE_ARRAY_DATA_OFFSET
+%  else:
+%    assert False, width
+%#:
+                       // t0 := *(array obj + data offset + idx * elem_size)
+   srli.w t1, xINST, 8  // t1 := AA
+%  set_vreg("t0", "t1", z0="t2", width=width)
 
-%def op_aget_short():
-%  op_aget(load="break 0x5", shift="1", data_offset="MIRROR_SHORT_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
 
+.L${opcode}_null:
+   b common_errNullObject
+.L${opcode}_oob:
+   b common_errArrayIndex  // args a0 (index), a1 (length)
+
+
+// aget-wide vAA, vBB, vCC
+// Format 23x: AA|45 CC|BB
 %def op_aget_wide():
-%  op_aget(load="break 0x5", shift="3", data_offset="MIRROR_WIDE_ARRAY_DATA_OFFSET", wide="1", is_object="0")
+%  op_aget(width=64)
 
-%def op_aput(store="break 0x5", shift="2", data_offset="MIRROR_INT_ARRAY_DATA_OFFSET", wide="0", is_object="0"):
-    break 0x5
 
-%def op_aput_boolean():
-%  op_aput(store="break 0x5", shift="0", data_offset="MIRROR_BOOLEAN_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+// aget-object vAA, vBB, vCC
+// Format 23x: AA|46 CC|BB
+%def op_aget_object():
+%  array_prelude(array="t0", index="a0", length="a1", null_label=f".L{opcode}_null", oob_label=f".L{opcode}_oob")
+       // t0 := vBB array object, a0 := vCC index, a1 := array length
 
-%def op_aput_byte():
-%  op_aput(store="break 0x5", shift="0", data_offset="MIRROR_BYTE_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+   alsl.d t0, a0, t0, 2
+   ld.wu a0, t0, MIRROR_OBJECT_ARRAY_DATA_OFFSET
+       // a0 := *(array obj + data offset + idx * elem_size)
+   UNPOISON_HEAP_REF a0
+   TEST_IF_MARKING t1, .L${opcode}_mark
+.L${opcode}_mark_resume:
+   srli.w t1, xINST, 8  // t1 := AA
+   SET_VREG_OBJECT a0, t1, z0=t2
 
-%def op_aput_char():
-%  op_aput(store="break 0x5", shift="1", data_offset="MIRROR_CHAR_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
 
-%def op_aput_short():
-%  op_aput(store="break 0x5", shift="1", data_offset="MIRROR_SHORT_ARRAY_DATA_OFFSET", wide="0", is_object="0")
+.L${opcode}_mark:
+   bl art_quick_read_barrier_mark_reg10  // a0, object elem
+   b .L${opcode}_mark_resume
+.L${opcode}_null:
+   b common_errNullObject
+.L${opcode}_oob:
+   b common_errArrayIndex  // args a0 (index), a1 (length)
 
+
+// aget-boolean vAA, vBB, vCC
+// Format 23x: AA|47 CC|BB
+%def op_aget_boolean():
+%  op_aget(width=8, zext=True)
+
+
+// aget-byte vAA, vBB, vCC
+// Format 23x: AA|48 CC|BB
+%def op_aget_byte():
+%  op_aget(width=8)
+
+
+// aget_char vAA, vBB, vCC
+// Format 23x: AA|49 CC|BB
+%def op_aget_char():
+%  op_aget(width=16, zext=True)
+
+
+// aget-short vAA, vBB, vCC
+// Format 23x: AA|4a CC|BB
+%def op_aget_short():
+%  op_aget(width=16)
+
+
+// aput vAA, vBB, vCC
+// Format 23x: AA|4b CC|BB
+// vBB[vCC] := vAA
+%def op_aput(width=32, zext=False):
+%  array_prelude(array="t0", index="t1", length="t2", null_label=f".L{opcode}_null", oob_label=f".L{opcode}_oob")
+       // t0 := vBB array object, t1 := vCC zext index, t2 := array length
+
+   srli.w t2, xINST, 8      // t2 := AA
+%  get_vreg("t2", "t2", width=width)  # t2 := fp[AA]
+%  if width == 8 and zext:
+     add.d t0, t1, t0
+     st.b t2, t0, MIRROR_BOOLEAN_ARRAY_DATA_OFFSET
+%  elif width == 8:
+     add.d t0, t1, t0
+     st.b t2, t0, MIRROR_BYTE_ARRAY_DATA_OFFSET
+%  elif width == 16 and zext:
+     alsl.d t0, t1, t0, 1
+     st.h t2, t0, MIRROR_CHAR_ARRAY_DATA_OFFSET
+%  elif width == 16:
+     alsl.d t0, t1, t0, 1
+     st.h t2, t0, MIRROR_SHORT_ARRAY_DATA_OFFSET
+%  elif width == 32:
+     alsl.d t0, t1, t0, 2
+     st.w t2, t0, MIRROR_INT_ARRAY_DATA_OFFSET
+%  elif width == 64:
+     alsl.d t0, t1, t0, 3
+     st.d t2, t0, MIRROR_WIDE_ARRAY_DATA_OFFSET
+%  else:
+%    assert False, width
+%#:
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+.L${opcode}_null:
+   b common_errNullObject
+.L${opcode}_oob:
+   addi.w a0, t1, 0
+   move a1, t2
+   b common_errArrayIndex  // args a0 (index), a1 (length)
+
+
+// aput-wide vAA, vBB, vCC
+// Format 23x: AA|4c CC|BB
 %def op_aput_wide():
-%  op_aput(store="break 0x5", shift="3", data_offset="MIRROR_WIDE_ARRAY_DATA_OFFSET", wide="1", is_object="0")
+%  op_aput(width=64)
 
+
+// aput-object vAA, vBB, vCC
+// Format 23x: AA|4d CC|BB
 %def op_aput_object():
-%  op_aput(store="break 0x5", shift="2", data_offset="MIRROR_OBJECT_ARRAY_DATA_OFFSET", wide="0", is_object="1")
+%  array_prelude(array="a0", index="a1", length="a2", null_label=f".L{opcode}_null", oob_label=f".L{opcode}_oob")
+       // a0 := vBB array object, a1 := vCC zext index, a2 := array length
+
+   EXPORT_PC
+   srli.w a2, xINST, 8       // a2 := AA
+   GET_VREG_OBJECT a2, a2   // a2 := fp[AA]
+   addi.w a1, a1, 0         // a1 := sext index
+   bl art_quick_aput_obj  // args a0 (array obj), a1 (index), a2 (obj)
+
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+.L${opcode}_null:
+   b common_errNullObject
+.L${opcode}_oob:
+   addi.w a0, a1, 0
+   move a1, a2
+   b common_errArrayIndex  // args a0 (index), a1 (length)
+
+// aput-boolean vAA, vBB, vCC
+// Format 23x: AA|4e CC|BB
+%def op_aput_boolean():
+%  op_aput(width=8, zext=True)
+
+
+// aput-byte vAA, vBB, vCC
+// Format 23x: AA|4f CC|BB
+%def op_aput_byte():
+%  op_aput(width=8)
+
+
+// aput-char vAA, vBB, vCC
+// Format 23x: AA|50 CC|BB
+%def op_aput_char():
+%  op_aput(width=16, zext=True)
+
+
+// aput-short vAA, vBB, vCC
+// Format 23x: AA|51 CC|BB
+%def op_aput_short():
+%  op_aput(width=16)
