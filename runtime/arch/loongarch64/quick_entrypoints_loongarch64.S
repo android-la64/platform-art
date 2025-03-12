@@ -319,6 +319,72 @@ END \c_name
 .endm
 
 
+.macro DEOPT_OR_RETURN temp, is_ref = 0
+    ld.wu   \temp, $xSELF, THREAD_DEOPT_CHECK_REQUIRED_OFFSET
+    bnez  \temp, 2f
+    jirl $zero, $ra, 0
+2:
+    SETUP_SAVE_EVERYTHING_FRAME
+    li.d    $a2, \is_ref            // pass if result is a reference
+    move    $a1, $a0                // pass the result
+    move    $a0, $xSELF             // pass Thread::Current
+    bl  artDeoptimizeIfNeeded       // (Thread*, uintptr_t, bool)
+    RESTORE_SAVE_EVERYTHING_FRAME
+    jirl $zero, $ra, 0
+.endm
+
+
+.macro RETURN_OR_DEOPT_IF_INT_RESULT_IS_ZERO_OR_DELIVER
+    bnez  $a0, 1f
+    DEOPT_OR_RETURN $a1
+1:
+    DELIVER_PENDING_EXCEPTION
+.endm
+
+
+// Entry from managed code that tries to lock the object in a fast path and
+// calls `artLockObjectFromCode()` for the difficult cases, may block for GC.
+// A0 holds the possibly null object to lock.
+ENTRY art_quick_lock_object
+    LOCK_OBJECT_FAST_PATH $a0, art_quick_lock_object_no_inline, /*can_be_null*/ 1
+END art_quick_lock_object
+
+
+// Entry from managed code that calls `artLockObjectFromCode()`, may block for GC.
+// A0 holds the possibly null object to lock.
+    .extern artLockObjectFromCode
+ENTRY art_quick_lock_object_no_inline
+    // This is also the slow path for `art_quick_lock_object`.
+    SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case we block
+    move    $a1, $xSELF               // pass Thread::Current
+    bl  artLockObjectFromCode         // (Object*, Thread*)
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    RETURN_OR_DEOPT_IF_INT_RESULT_IS_ZERO_OR_DELIVER
+END art_quick_lock_object_no_inline
+
+
+// Entry from managed code that tries to unlock the object in a fast path and calls
+// `artUnlockObjectFromCode()` for the difficult cases and delivers exception on failure.
+// A0 holds the possibly null object to unlock.
+ENTRY art_quick_unlock_object
+    UNLOCK_OBJECT_FAST_PATH $a0, art_quick_unlock_object_no_inline, /*can_be_null*/ 1
+END art_quick_unlock_object
+
+
+// Entry from managed code that calls `artUnlockObjectFromCode()`
+// and delivers exception on failure.
+// A0 holds the possibly null object to unlock.
+    .extern artUnlockObjectFromCode
+ENTRY art_quick_unlock_object_no_inline
+    // This is also the slow path for `art_quick_unlock_object`.
+    SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case exception allocation triggers GC
+    move    $a1, $xSELF                   // pass Thread::Current
+    bl  artUnlockObjectFromCode     // (Object*, Thread*)
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    RETURN_OR_DEOPT_IF_INT_RESULT_IS_ZERO_OR_DELIVER
+END art_quick_unlock_object_no_inline
+
+
 // void art_quick_invoke_stub(ArtMethod* method,   // a0
 //                            uint32_t*  args,     // a1
 //                            uint32_t   argsize,  // a2
@@ -689,6 +755,8 @@ END art_quick_throw_null_pointer_exception_from_signal
 // Called by managed code to deliver an ArithmeticException.
 NO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING art_quick_throw_div_zero, artThrowDivZeroFromCode
 
+// Called by managed code to deliver an exception.
+ONE_ARG_RUNTIME_EXCEPTION art_quick_deliver_exception, artDeliverExceptionFromCode
 
 /*
  * Called to attempt to execute an obsolete method.
@@ -949,6 +1017,46 @@ END \name
 
 READ_BARRIER_MARK_REG art_quick_read_barrier_mark_reg10, $a0
 
+
+.macro N_ARG_DOWNCALL n, name, entrypoint, return
+    .extern \entrypoint
+ENTRY \name
+    SETUP_SAVE_REFS_ONLY_FRAME        // Save callee saves in case of GC.
+    move    $a\n, $xSELF                  // Pass Thread::Current().
+    bl  \entrypoint                 // (<n args>, Thread*)
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    \return
+END \name
+.endm
+
+
+.macro ONE_ARG_DOWNCALL name, entrypoint, return
+    N_ARG_DOWNCALL 1, \name, \entrypoint, \return
+.endm
+
+
+.macro TWO_ARG_DOWNCALL name, entrypoint, return
+    N_ARG_DOWNCALL 2, \name, \entrypoint, \return
+.endm
+
+
+.macro THREE_ARG_DOWNCALL name, entrypoint, return
+    N_ARG_DOWNCALL 3, \name, \entrypoint, \return
+.endm
+
+
+.macro FOUR_ARG_DOWNCALL name, entrypoint, return
+    N_ARG_DOWNCALL 4, \name, \entrypoint, \return
+.endm
+
+
+// Entry from managed code that calls artHandleFillArrayDataFromCode and
+// delivers exception on failure.
+TWO_ARG_DOWNCALL art_quick_handle_fill_data, \
+                 artHandleFillArrayDataFromCode, \
+                 RETURN_OR_DEOPT_IF_INT_RESULT_IS_ZERO_OR_DELIVER
+
+
 // Called by managed code to create and deliver a StackOverflowError.
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
 
@@ -1131,16 +1239,11 @@ UNDEFINED art_quick_get32_static
 UNDEFINED art_quick_get64_static
 UNDEFINED art_quick_get_obj_static
 UNDEFINED art_quick_aput_obj
-UNDEFINED art_quick_lock_object_no_inline
-UNDEFINED art_quick_lock_object
-UNDEFINED art_quick_unlock_object_no_inline
-UNDEFINED art_quick_unlock_object
 UNDEFINED art_quick_invoke_direct_trampoline_with_access_check
 UNDEFINED art_quick_invoke_interface_trampoline_with_access_check
 UNDEFINED art_quick_invoke_static_trampoline_with_access_check
 UNDEFINED art_quick_invoke_super_trampoline_with_access_check
 UNDEFINED art_quick_invoke_virtual_trampoline_with_access_check
-UNDEFINED art_quick_deliver_exception
 UNDEFINED art_quick_throw_array_bounds
 UNDEFINED art_quick_throw_string_bounds
 UNDEFINED art_quick_update_inline_cache
