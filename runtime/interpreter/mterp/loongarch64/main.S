@@ -685,6 +685,14 @@ NTERP_NEW_ARRAY_RESUME_HELPER:
     slli.w          t0, t0, 0x7
     add.d           t0, s5, t0
     jr              t0    // GOTO_OPCODE t0
+NTERP_IGET_SLOW_HELPER:
+    move a0, s1
+    ld.d a1, sp, 0  // a1 := caller ArtMethod*
+    move a2, s3
+    move a3, zero
+    st.d s3, s6, -16
+    jr t5
+
 
 
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
@@ -718,6 +726,7 @@ EndExecuteNterpImpl:
 NTERP_TRAMPOLINE nterp_filled_new_array, NterpFilledNewArray
 NTERP_TRAMPOLINE nterp_filled_new_array_range, NterpFilledNewArrayRange
 NTERP_TRAMPOLINE nterp_get_class, NterpGetClass
+NTERP_TRAMPOLINE nterp_get_instance_field_offset, NterpGetInstanceFieldOffset
 NTERP_TRAMPOLINE nterp_get_method, NterpGetMethod
 NTERP_TRAMPOLINE nterp_get_static_field, NterpGetStaticField
 NTERP_TRAMPOLINE nterp_hot_method, NterpHotMethod
