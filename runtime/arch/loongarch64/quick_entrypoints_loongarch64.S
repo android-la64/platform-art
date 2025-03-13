@@ -334,6 +334,14 @@ END \c_name
 .endm
 
 
+.macro RETURN_OR_DEOPT_IF_RESULT_IS_NON_NULL_OR_DELIVER
+    beqz  $a0, 1f
+    DEOPT_OR_RETURN $a1, /*is_ref=*/ 1
+1:
+    DELIVER_PENDING_EXCEPTION
+.endm
+
+
 .macro RETURN_OR_DEOPT_IF_INT_RESULT_IS_ZERO_OR_DELIVER
     bnez  $a0, 1f
     DEOPT_OR_RETURN $a1
@@ -686,7 +694,50 @@ END art_quick_resolution_trampoline
 UNDEFINED art_quick_deoptimize_from_compiled_code
 UNDEFINED art_quick_string_builder_append
 UNDEFINED art_quick_compile_optimized
-UNDEFINED art_quick_check_instance_of
+
+
+// Entry from managed code that calls artInstanceOfFromCode and on failure calls
+// artThrowClassCastExceptionForObject.
+    .extern artInstanceOfFromCode
+    .extern artThrowClassCastExceptionForObject
+ENTRY art_quick_check_instance_of
+    // Type check using the bit string passes null as the target class. In that case just throw.
+    beqz  $a1, .Lthrow_class_cast_exception_for_bitstring_check
+
+    // Store arguments and return address register.
+    // Stack needs to be 16B aligned on calls.
+    INCREASE_FRAME 32
+    st.d    $a0, $sp, 0*8
+    st.d    $a1, $sp, 1*8
+    SAVE_GPR $ra, 3*8
+
+    // Call runtime code.
+    bl  artInstanceOfFromCode
+
+    // Restore RA.
+    RESTORE_GPR $ra, 3*8
+
+    // Check for exception.
+    CFI_REMEMBER_STATE
+    beqz $a0, .Lthrow_class_cast_exception
+
+    // Remove spill area and return (no need to restore A0 and A1).
+    DECREASE_FRAME 32
+    ret
+
+.Lthrow_class_cast_exception:
+    CFI_RESTORE_STATE_AND_DEF_CFA $sp, 32
+    // Restore A0 and remove spill area.
+    ld.d    $a0, $sp, 0*8
+    ld.d    $a1, $sp, 1*8
+    DECREASE_FRAME 32
+
+.Lthrow_class_cast_exception_for_bitstring_check:
+    SETUP_SAVE_ALL_CALLEE_SAVES_FRAME         // Save all registers as basis for long jump context.
+    move    $a2, $xSELF                       // Pass Thread::Current().
+    bl  artThrowClassCastExceptionForObject   // (Object*, Class*, Thread*)
+    break 0x5                                 // We should not return here...
+END art_quick_check_instance_of
 
 
 .macro N_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING n, c_name, cxx_name
@@ -1198,6 +1249,7 @@ END \name
 
 // Z-TODO: match la abi.
 READ_BARRIER_MARK_REG art_quick_read_barrier_mark_reg10, $a0
+READ_BARRIER_MARK_REG art_quick_read_barrier_mark_reg11, $a1
 READ_BARRIER_MARK_REG art_quick_read_barrier_mark_reg13, $a3
 READ_BARRIER_MARK_REG art_quick_read_barrier_mark_reg14, $a4
 
@@ -1234,6 +1286,154 @@ END \name
 .endm
 
 
+.macro ALLOC_ARRAY_TLAB_FAST_PATH_RESOLVED_WITH_SIZE \
+    slowPathLabel, class, count, temp0, temp1, temp2
+    li.d $t7, OBJECT_ALIGNMENT_MASK_TOGGLED64
+    and  \temp1, \temp1, $t7                                // Apply alignment mask
+                                                            // (addr + 7) & ~7. The mask must
+                                                            // be 64 bits to keep high bits in
+                                                            // case of overflow.
+    // Negative sized arrays are handled here since xCount holds a zero extended 32 bit value.
+    // Negative ints become large 64 bit unsigned ints which will always be larger than max signed
+    // 32 bit int. Since the max shift for arrays is 3, it can not become a negative 64 bit int.
+    li.d    \temp2, MIN_LARGE_OBJECT_THRESHOLD              // Possibly a large object, go slow
+    bgeu  \temp1, \temp2, \slowPathLabel                    // path.
+
+    ld.d    \temp0, $xSELF, THREAD_LOCAL_POS_OFFSET          // Check tlab for space, note that
+                                                            // we use (end - begin) to handle
+                                                            // negative size arrays. It is
+                                                            // assumed that a negative size will
+                                                            // always be greater unsigned than
+                                                            // region size.
+    ld.d    \temp2, $xSELF, THREAD_LOCAL_END_OFFSET
+    sub.d   \temp2, \temp2, \temp0
+
+    // The array class is always initialized here. Unlike new-instance,
+    // this does not act as a double test.
+    bgtu  \temp1, \temp2, \slowPathLabel
+    // "Point of no slow path". Won't go to the slow path from here on. OK to clobber x0 and x1.
+                                                            // Move old thread_local_pos to x0
+                                                            // for the return value.
+    move    $a0, \temp0
+    add.d   \temp0, \temp0, \temp1
+    st.d    \temp0, $xSELF, THREAD_LOCAL_POS_OFFSET            // Store new thread_local_pos.
+    POISON_HEAP_REF \class
+    st.w    \class, $a0, MIRROR_OBJECT_CLASS_OFFSET            // Store the class pointer.
+    st.w    \count, $a0, MIRROR_ARRAY_LENGTH_OFFSET            // Store the array length.
+// new-array is special. The class is loaded and immediately goes to the Initialized state
+// before it is published. Therefore the only fence needed is for the publication of the object.
+// See ClassLinker::CreateArrayClass() for more details.
+
+// For publication of the new array, we don't need a 'fence w, w' here.
+// The compiler generates 'fence w, w' for all new-array insts.
+    ret
+.endm
+
+// Caller must execute a constructor fence after this.
+.macro GENERATE_ALLOC_ARRAY_TLAB name, entrypoint, size_setup
+ENTRY \name
+    // Fast path array allocation for region tlab allocation.
+    // a0: mirror::Class* type
+    // a1: int32_t component_count
+    // a2-a7: free.
+    move    $a3, $a0
+    \size_setup $a3, $a1, $a4, $a5, $a6
+    ALLOC_ARRAY_TLAB_FAST_PATH_RESOLVED_WITH_SIZE .Lslow_path\name, $a3, $a1, $a4, $a5, $a6
+.Lslow_path\name:
+    // a0: mirror::Class* klass
+    // a1: int32_t component_count
+    // a2: Thread* self
+    SETUP_SAVE_REFS_ONLY_FRAME                              // Save callee saves in case of GC.
+    move    $a2, $xSELF                                         // Pass Thread::Current().
+    bl  \entrypoint
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    RETURN_OR_DEOPT_IF_RESULT_IS_NON_NULL_OR_DELIVER
+END \name
+.endm
+
+
+// If isInitialized=1 then the compiler assumes the object's class has already been initialized.
+// If isInitialized=0 the compiler can only assume it's been at least resolved.
+.macro ALLOC_OBJECT_TLAB_FAST_PATH_RESOLVED slowPathLabel isInitialized
+    ld.d    $a4, $xSELF, THREAD_LOCAL_POS_OFFSET
+    ld.d    $a5, $xSELF, THREAD_LOCAL_END_OFFSET
+    ld.wu   $a7, $a0, MIRROR_CLASS_OBJECT_SIZE_ALLOC_FAST_PATH_OFFSET  // Load the object size (a7).
+    add.d   $a6, $a4, $a7                                   // Add object size to tlab pos.
+                                                            // Check if it fits, overflow works
+                                                            // since the tlab pos and end are 32
+                                                            // bit values.
+
+    // If the class is not yet visibly initialized, or it is finalizable,
+    // the object size will be very large to force the branch below to be taken.
+    //
+    // See Class::SetStatus() in class.cc for more details.
+    bgtu  $a6, $a5, \slowPathLabel
+    st.d    $a6, $xSELF, THREAD_LOCAL_POS_OFFSET            // Store new thread_local_pos.
+    POISON_HEAP_REF $a0
+    st.w    $a0, $a4, MIRROR_OBJECT_CLASS_OFFSET                // Store the class pointer.
+    move    $a0, $a4
+    // No barrier. The class is already observably initialized (otherwise the fast
+    // path size check above would fail) and new-instance allocations are protected
+    // from publishing by the compiler which inserts its own StoreStore barrier.
+    ret
+.endm
+
+// The common code for art_quick_alloc_object_*region_tlab
+// Currently the implementation ignores isInitialized. TODO(b/172087402): clean this up.
+// Caller must execute a constructor fence after this.
+.macro GENERATE_ALLOC_OBJECT_RESOLVED_TLAB name, entrypoint, isInitialized
+ENTRY \name
+    // Fast path region tlab allocation.
+    // a0: type, xSELF(s1): Thread::Current
+    // a1-a7: free.
+    ALLOC_OBJECT_TLAB_FAST_PATH_RESOLVED .Lslow_path\name, \isInitialized
+.Lslow_path\name:
+    SETUP_SAVE_REFS_ONLY_FRAME                            // Save callee saves in case of GC.
+    move    $a1, $xSELF                                   // Pass Thread::Current().
+    bl  \entrypoint                                       // (mirror::Class*, Thread*)
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    RETURN_OR_DEOPT_IF_RESULT_IS_NON_NULL_OR_DELIVER
+END \name
+.endm
+
+GENERATE_ALLOC_OBJECT_RESOLVED_TLAB \
+    art_quick_alloc_object_resolved_region_tlab, \
+    artAllocObjectFromCodeResolvedRegionTLAB, /* isInitialized */ 0
+GENERATE_ALLOC_OBJECT_RESOLVED_TLAB \
+    art_quick_alloc_object_initialized_region_tlab, \
+    artAllocObjectFromCodeInitializedRegionTLAB, /* isInitialized */ 1
+GENERATE_ALLOC_OBJECT_RESOLVED_TLAB \
+    art_quick_alloc_object_resolved_tlab, \
+    artAllocObjectFromCodeResolvedTLAB, /* isInitialized */ 0
+GENERATE_ALLOC_OBJECT_RESOLVED_TLAB \
+    art_quick_alloc_object_initialized_tlab, \
+    artAllocObjectFromCodeInitializedTLAB, /* isInitialized */ 1
+
+
+.macro COMPUTE_ARRAY_SIZE_UNKNOWN class, count, temp0, temp1, temp2
+    // Array classes are never finalizable or uninitialized, no need to check.
+    ld.wu   \temp0, \class, MIRROR_CLASS_COMPONENT_TYPE_OFFSET// Load component type
+    UNPOISON_HEAP_REF \temp0
+    ld.wu   \temp0, \temp0, MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET
+    srli.d  \temp0, \temp0, PRIMITIVE_TYPE_SIZE_SHIFT_SHIFT   // Component size shift is in high 16
+                                                            // bits.
+    bstrpick.d \temp1, \count, 31, 0                        // From \count we use a 32 bit value,
+                                                            // it can not overflow.
+    sll.d   \temp1, \temp1, \temp0                          // Calculate data size
+    // Add array data offset and alignment.
+    addi.d   \temp1, \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
+#if MIRROR_LONG_ARRAY_DATA_OFFSET != MIRROR_INT_ARRAY_DATA_OFFSET + 4
+#error Long array data offset must be 4 greater than int array data offset.
+#endif
+
+    addi.d  \temp0, \temp0, 1                               // Add 4 to the length only if the
+                                                            // component size shift is 3
+                                                            // (for 64 bit alignment).
+    andi  \temp0, \temp0, 4
+    add.d   \temp1, \temp1, \temp0
+.endm
+
+
 // Entry from managed code that calls artHandleFillArrayDataFromCode and
 // delivers exception on failure.
 TWO_ARG_DOWNCALL art_quick_handle_fill_data, \
@@ -1244,6 +1444,11 @@ TWO_ARG_DOWNCALL art_quick_handle_fill_data, \
 // Called by managed code to create and deliver a StackOverflowError.
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
 
+// TODO(ngeoffray): art_quick_alloc_array_resolved_region_tlab is not used for arm64, remove
+// the entrypoint once all backends have been updated to use the size variants.
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved_tlab, \
+                          artAllocArrayFromCodeResolvedTLAB, \
+                          COMPUTE_ARRAY_SIZE_UNKNOWN
 
 UNDEFINED art_quick_osr_stub
 
@@ -1319,7 +1524,6 @@ UNDEFINED art_quick_alloc_string_from_chars_bump_pointer
 UNDEFINED art_quick_alloc_string_from_chars_bump_pointer_instrumented
 UNDEFINED art_quick_alloc_string_from_string_bump_pointer
 UNDEFINED art_quick_alloc_string_from_string_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_array_resolved_tlab
 UNDEFINED art_quick_alloc_array_resolved_tlab_instrumented
 UNDEFINED art_quick_alloc_array_resolved8_tlab
 UNDEFINED art_quick_alloc_array_resolved8_tlab_instrumented
@@ -1329,9 +1533,7 @@ UNDEFINED art_quick_alloc_array_resolved32_tlab
 UNDEFINED art_quick_alloc_array_resolved32_tlab_instrumented
 UNDEFINED art_quick_alloc_array_resolved64_tlab
 UNDEFINED art_quick_alloc_array_resolved64_tlab_instrumented
-UNDEFINED art_quick_alloc_object_resolved_tlab
 UNDEFINED art_quick_alloc_object_resolved_tlab_instrumented
-UNDEFINED art_quick_alloc_object_initialized_tlab
 UNDEFINED art_quick_alloc_object_initialized_tlab_instrumented
 UNDEFINED art_quick_alloc_object_with_checks_tlab
 UNDEFINED art_quick_alloc_object_with_checks_tlab_instrumented
@@ -1377,9 +1579,7 @@ UNDEFINED art_quick_alloc_array_resolved32_region_tlab
 UNDEFINED art_quick_alloc_array_resolved32_region_tlab_instrumented
 UNDEFINED art_quick_alloc_array_resolved64_region_tlab
 UNDEFINED art_quick_alloc_array_resolved64_region_tlab_instrumented
-UNDEFINED art_quick_alloc_object_resolved_region_tlab
 UNDEFINED art_quick_alloc_object_resolved_region_tlab_instrumented
-UNDEFINED art_quick_alloc_object_initialized_region_tlab
 UNDEFINED art_quick_alloc_object_initialized_region_tlab_instrumented
 UNDEFINED art_quick_alloc_object_with_checks_region_tlab
 UNDEFINED art_quick_alloc_object_with_checks_region_tlab_instrumented

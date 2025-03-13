@@ -795,9 +795,14 @@
 
 // Macros to branch based on the value of a specific bit.
 .macro BRANCH_IF_BIT_CLEAR tmp, reg, bit, dest
-    slli.d    \tmp, \reg, (63 - \bit) // tested bit => sign bit
-    bge    \tmp, $zero, \dest
+    slli.d  \tmp, \reg, (63 - \bit) // tested bit => sign bit
+    bge     \tmp, $zero, \dest
 .endm
 
+
+.macro BRANCH_IF_BIT_SET tmp, reg, bit, dest
+    slli.d  \tmp, \reg, (63 - \bit) // tested bit => sign bit
+    bltz    \tmp, \dest
+.endm
 
 #endif  // ART_RUNTIME_ARCH_LOONGARCH64_ASM_SUPPORT_LOONGARCH64_S_
