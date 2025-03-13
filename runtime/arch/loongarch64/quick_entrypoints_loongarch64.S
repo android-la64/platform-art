@@ -15,6 +15,7 @@
  */
 
 #include "asm_support_loongarch64.S"
+#include "arch/quick_alloc_entrypoints.S"
 
 // Wrap ExecuteSwitchImpl in assembly method which specifies DEX PC for unwinding.
 //  Argument 0: a0: The context pointer for ExecuteSwitchImpl.
@@ -1441,156 +1442,207 @@ TWO_ARG_DOWNCALL art_quick_handle_fill_data, \
                  RETURN_OR_DEOPT_IF_INT_RESULT_IS_ZERO_OR_DELIVER
 
 
-// Called by managed code to create and deliver a StackOverflowError.
-NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
+// Generate the allocation entrypoints for each allocator.
+GENERATE_ALLOC_ENTRYPOINTS_FOR_NON_TLAB_ALLOCATORS
+// Comment out allocators that have riscv64 specific asm.
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_region_tlab, RegionTLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_region_tlab, RegionTLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_WITH_ACCESS_CHECK(_region_tlab, RegionTLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_OBJECT(_region_tlab, RegionTLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_region_tlab, RegionTLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED8(_region_tlab, RegionTLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED16(_region_tlab, RegionTLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED32(_region_tlab, RegionTLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED64(_region_tlab, RegionTLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_FROM_BYTES(_region_tlab, RegionTLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_FROM_CHARS(_region_tlab, RegionTLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_FROM_STRING(_region_tlab, RegionTLAB)
 
-// TODO(ngeoffray): art_quick_alloc_array_resolved_region_tlab is not used for arm64, remove
-// the entrypoint once all backends have been updated to use the size variants.
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_tlab, TLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_tlab, TLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_WITH_ACCESS_CHECK(_tlab, TLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_OBJECT(_tlab, TLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_tlab, TLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED8(_tlab, TLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED16(_tlab, TLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED32(_tlab, TLAB)
+// GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED64(_tlab, TLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_FROM_BYTES(_tlab, TLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_FROM_CHARS(_tlab, TLAB)
+GENERATE_ALLOC_ENTRYPOINTS_ALLOC_STRING_FROM_STRING(_tlab, TLAB)
+
+
+// If isInitialized=1 then the compiler assumes the object's class has already been initialized.
+// If isInitialized=0 the compiler can only assume it's been at least resolved.
+.macro ART_QUICK_ALLOC_OBJECT_ROSALLOC c_name, cxx_name, isInitialized
+ENTRY \c_name
+    // Fast path rosalloc allocation.
+    // a0: type, xSELF(s1): Thread::Current
+    // a1-a7: free.
+    ld.d   $a3, $xSELF, THREAD_LOCAL_ALLOC_STACK_TOP_OFFSET// Check if the thread local
+                                                            // allocation stack has room.
+                                                            // ldp won't work due to large offset.
+    ld.d   $a4, $xSELF, THREAD_LOCAL_ALLOC_STACK_END_OFFSET
+    bgeu   $a3, $a4, .Lslow_path\c_name
+    ld.wu  $a3, $a0, MIRROR_CLASS_OBJECT_SIZE_ALLOC_FAST_PATH_OFFSET  // Load the object size (a3)
+    li.d   $a5, ROSALLOC_MAX_THREAD_LOCAL_BRACKET_SIZE      // Check if the size is for a thread
+                                                            // local allocation.
+    // If the class is not yet visibly initialized, or it is finalizable,
+    // the object size will be very large to force the branch below to be taken.
+    //
+    // See Class::SetStatus() in class.cc for more details.
+    bgeu  $a3, $a5, .Lslow_path\c_name
+                                                            // Compute the rosalloc bracket index
+                                                            // from the size. Since the size is
+                                                            // already aligned we can combine the
+                                                            // two shifts together.
+#if ROSALLOC_BRACKET_QUANTUM_SIZE_SHIFT != POINTER_SIZE_SHIFT
+#error "Unexpected ROSALLOC_BRACKET_QUANTUM_SIZE_SHIFT != POINTER_SIZE_SHIFT"
+#endif
+    // No-op: srli  a3, a3, (ROSALLOC_BRACKET_QUANTUM_SIZE_SHIFT - POINTER_SIZE_SHIFT)
+    add.d  $a4, $xSELF, $a3
+                                                            // Subtract pointer size since there
+                                                            // are no runs for 0 byte allocations
+                                                            // and the size is already aligned.
+    ld.d   $a4, $a4, (THREAD_ROSALLOC_RUNS_OFFSET - __SIZEOF_POINTER__)
+                                                            // Load the free list head (a3). This
+                                                            // will be the return val.
+    ld.d   $a3, $a4, (ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_HEAD_OFFSET)
+    beqz   $a3, .Lslow_path\c_name
+    // "Point of no slow path". Won't go to the slow path from here on. OK to clobber a0 and a1.
+    ld.d   $a1, $a3, ROSALLOC_SLOT_NEXT_OFFSET              // Load the next pointer of the head
+                                                            // and update the list head with the
+                                                            // next pointer.
+    st.d   $a1, $a4, (ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_HEAD_OFFSET)
+                                                            // Store the class pointer in the
+                                                            // header. This also overwrites the
+                                                            // next pointer. The offsets are
+                                                            // asserted to match.
+
+#if ROSALLOC_SLOT_NEXT_OFFSET != MIRROR_OBJECT_CLASS_OFFSET
+#error "Class pointer needs to overwrite next pointer."
+#endif
+    POISON_HEAP_REF $a0
+    st.w   $a0, $a3, MIRROR_OBJECT_CLASS_OFFSET
+                                                            // Push the new object onto the thread
+                                                            // local allocation stack and
+                                                            // increment the thread local
+                                                            // allocation stack top.
+    ld.d   $a1, $xSELF, THREAD_LOCAL_ALLOC_STACK_TOP_OFFSET
+    st.w   $a3, $a1, 0
+    addi.d $a1, $a1, COMPRESSED_REFERENCE_SIZE              // Increment A1 to point to next slot.
+    st.d   $a1, $xSELF, THREAD_LOCAL_ALLOC_STACK_TOP_OFFSET // Decrement the size of the free list.
+
+    // After this "SD" the object is published to the thread local allocation stack,
+    // and it will be observable from a runtime internal (eg. Heap::VisitObjects) point of view.
+    // It is not yet visible to the running (user) compiled code until after the return.
+    //
+    // To avoid the memory barrier prior to the "SD", a trick is employed, by differentiating
+    // the state of the allocation stack slot. It can be a pointer to one of:
+    // 0) Null entry, because the stack was bumped but the new pointer wasn't written yet.
+    //       (The stack initial state is "null" pointers).
+    // 1) A partially valid object, with an invalid class pointer to the next free rosalloc slot.
+    // 2) A fully valid object, with a valid class pointer pointing to a real class.
+    // Other states are not allowed.
+    //
+    // An object that is invalid only temporarily, and will eventually become valid.
+    // The internal runtime code simply checks if the object is not null or is partial and then
+    // ignores it.
+    //
+    // (Note: The actual check is done by seeing if a non-null object has a class pointer pointing
+    // to ClassClass, and that the ClassClass's class pointer is self-cyclic. A rosalloc free slot
+    // "next" pointer is not-cyclic.)
+    //
+    // See also b/28790624 for a listing of CLs dealing with this race.
+    ld.wu  $a1, $a4, (ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_SIZE_OFFSET)
+    addi.d $a1, $a1, -1
+    st.w   $a1, $a4, (ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_SIZE_OFFSET)
+
+    move   $a0, $a3                                            // Set the return value and return.
+    // No barrier. The class is already observably initialized (otherwise the fast
+    // path size check above would fail) and new-instance allocations are protected
+    // from publishing by the compiler which inserts its own StoreStore barrier.
+    ret
+.Lslow_path\c_name:
+    SETUP_SAVE_REFS_ONLY_FRAME                              // Save callee saves in case of GC.
+    move    $a1, $xSELF                                         // Pass Thread::Current().
+    bl  \cxx_name
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    RETURN_OR_DEOPT_IF_RESULT_IS_NON_NULL_OR_DELIVER
+END \c_name
+.endm
+
+ART_QUICK_ALLOC_OBJECT_ROSALLOC art_quick_alloc_object_resolved_rosalloc, \
+                                artAllocObjectFromCodeResolvedRosAlloc, /* isInitialized */ 0
+ART_QUICK_ALLOC_OBJECT_ROSALLOC art_quick_alloc_object_initialized_rosalloc, \
+                                artAllocObjectFromCodeInitializedRosAlloc, /* isInitialized */ 1
+
+
+.macro COMPUTE_ARRAY_SIZE_8 class, count, temp0, temp1, temp2
+    // Add array data offset and alignment adjustment to the `\count`.
+    li.d     \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
+    bstrpick.d $t5, \count ,31, 0
+    add.w \temp1, $t5, \temp1
+.endm
+
+.macro COMPUTE_ARRAY_SIZE_16 class, count, temp0, temp1, temp2
+    // Add array data offset and alignment adjustment to the shifted `\count`.
+    li.d     \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
+    bstrpick.d $t5, \count ,31, 0
+    alsl.w \temp1, $t5, \temp1, 1
+.endm
+
+.macro COMPUTE_ARRAY_SIZE_32 class, count, temp0, temp1, temp2
+    // Add array data offset and alignment adjustment to the shifted `\count`.
+    li.d     \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
+    bstrpick.d $t5, \count ,31, 0
+    alsl.w \temp1, $t5, \temp1, 2
+.endm
+
+.macro COMPUTE_ARRAY_SIZE_64 class, count, temp0, temp1, temp2
+    // Add array data offset and alignment adjustment to the shifted `\count`.
+    li.d     \temp1, (MIRROR_WIDE_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
+    bstrpick.d $t5, \count ,31, 0
+    alsl.w \temp1, $t5, \temp1, 3
+.endm
+
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved_region_tlab, \
+                          artAllocArrayFromCodeResolvedRegionTLAB, \
+                          COMPUTE_ARRAY_SIZE_UNKNOWN
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved8_region_tlab, \
+                          artAllocArrayFromCodeResolvedRegionTLAB, \
+                          COMPUTE_ARRAY_SIZE_8
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved16_region_tlab, \
+                          artAllocArrayFromCodeResolvedRegionTLAB, \
+                          COMPUTE_ARRAY_SIZE_16
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved32_region_tlab, \
+                          artAllocArrayFromCodeResolvedRegionTLAB, \
+                          COMPUTE_ARRAY_SIZE_32
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved64_region_tlab, \
+                          artAllocArrayFromCodeResolvedRegionTLAB, \
+                          COMPUTE_ARRAY_SIZE_64
 GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved_tlab, \
                           artAllocArrayFromCodeResolvedTLAB, \
                           COMPUTE_ARRAY_SIZE_UNKNOWN
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved8_tlab, \
+                          artAllocArrayFromCodeResolvedTLAB, \
+                          COMPUTE_ARRAY_SIZE_8
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved16_tlab, \
+                          artAllocArrayFromCodeResolvedTLAB, \
+                          COMPUTE_ARRAY_SIZE_16
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved32_tlab, \
+                          artAllocArrayFromCodeResolvedTLAB, \
+                          COMPUTE_ARRAY_SIZE_32
+GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved64_tlab, \
+                          artAllocArrayFromCodeResolvedTLAB, \
+                          COMPUTE_ARRAY_SIZE_64
+
+
+// Called by managed code to create and deliver a StackOverflowError.
+NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
+
 
 UNDEFINED art_quick_osr_stub
-
-UNDEFINED art_quick_alloc_array_resolved_dlmalloc
-UNDEFINED art_quick_alloc_array_resolved_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved8_dlmalloc
-UNDEFINED art_quick_alloc_array_resolved8_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved16_dlmalloc
-UNDEFINED art_quick_alloc_array_resolved16_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved32_dlmalloc
-UNDEFINED art_quick_alloc_array_resolved32_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved64_dlmalloc
-UNDEFINED art_quick_alloc_array_resolved64_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_object_resolved_dlmalloc
-UNDEFINED art_quick_alloc_object_resolved_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_object_initialized_dlmalloc
-UNDEFINED art_quick_alloc_object_initialized_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_object_with_checks_dlmalloc
-UNDEFINED art_quick_alloc_object_with_checks_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_string_object_dlmalloc
-UNDEFINED art_quick_alloc_string_object_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_string_from_bytes_dlmalloc
-UNDEFINED art_quick_alloc_string_from_bytes_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_string_from_chars_dlmalloc
-UNDEFINED art_quick_alloc_string_from_chars_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_string_from_string_dlmalloc
-UNDEFINED art_quick_alloc_string_from_string_dlmalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved_rosalloc
-UNDEFINED art_quick_alloc_array_resolved_rosalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved8_rosalloc
-UNDEFINED art_quick_alloc_array_resolved8_rosalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved16_rosalloc
-UNDEFINED art_quick_alloc_array_resolved16_rosalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved32_rosalloc
-UNDEFINED art_quick_alloc_array_resolved32_rosalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved64_rosalloc
-UNDEFINED art_quick_alloc_array_resolved64_rosalloc_instrumented
-UNDEFINED art_quick_alloc_object_resolved_rosalloc
-UNDEFINED art_quick_alloc_object_resolved_rosalloc_instrumented
-UNDEFINED art_quick_alloc_object_initialized_rosalloc
-UNDEFINED art_quick_alloc_object_initialized_rosalloc_instrumented
-UNDEFINED art_quick_alloc_object_with_checks_rosalloc
-UNDEFINED art_quick_alloc_object_with_checks_rosalloc_instrumented
-UNDEFINED art_quick_alloc_string_object_rosalloc
-UNDEFINED art_quick_alloc_string_object_rosalloc_instrumented
-UNDEFINED art_quick_alloc_string_from_bytes_rosalloc
-UNDEFINED art_quick_alloc_string_from_bytes_rosalloc_instrumented
-UNDEFINED art_quick_alloc_string_from_chars_rosalloc
-UNDEFINED art_quick_alloc_string_from_chars_rosalloc_instrumented
-UNDEFINED art_quick_alloc_string_from_string_rosalloc
-UNDEFINED art_quick_alloc_string_from_string_rosalloc_instrumented
-UNDEFINED art_quick_alloc_array_resolved_bump_pointer
-UNDEFINED art_quick_alloc_array_resolved_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_array_resolved8_bump_pointer
-UNDEFINED art_quick_alloc_array_resolved8_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_array_resolved16_bump_pointer
-UNDEFINED art_quick_alloc_array_resolved16_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_array_resolved32_bump_pointer
-UNDEFINED art_quick_alloc_array_resolved32_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_array_resolved64_bump_pointer
-UNDEFINED art_quick_alloc_array_resolved64_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_object_resolved_bump_pointer
-UNDEFINED art_quick_alloc_object_resolved_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_object_initialized_bump_pointer
-UNDEFINED art_quick_alloc_object_initialized_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_object_with_checks_bump_pointer
-UNDEFINED art_quick_alloc_object_with_checks_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_string_object_bump_pointer
-UNDEFINED art_quick_alloc_string_object_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_string_from_bytes_bump_pointer
-UNDEFINED art_quick_alloc_string_from_bytes_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_string_from_chars_bump_pointer
-UNDEFINED art_quick_alloc_string_from_chars_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_string_from_string_bump_pointer
-UNDEFINED art_quick_alloc_string_from_string_bump_pointer_instrumented
-UNDEFINED art_quick_alloc_array_resolved_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved8_tlab
-UNDEFINED art_quick_alloc_array_resolved8_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved16_tlab
-UNDEFINED art_quick_alloc_array_resolved16_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved32_tlab
-UNDEFINED art_quick_alloc_array_resolved32_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved64_tlab
-UNDEFINED art_quick_alloc_array_resolved64_tlab_instrumented
-UNDEFINED art_quick_alloc_object_resolved_tlab_instrumented
-UNDEFINED art_quick_alloc_object_initialized_tlab_instrumented
-UNDEFINED art_quick_alloc_object_with_checks_tlab
-UNDEFINED art_quick_alloc_object_with_checks_tlab_instrumented
-UNDEFINED art_quick_alloc_string_object_tlab
-UNDEFINED art_quick_alloc_string_object_tlab_instrumented
-UNDEFINED art_quick_alloc_string_from_bytes_tlab
-UNDEFINED art_quick_alloc_string_from_bytes_tlab_instrumented
-UNDEFINED art_quick_alloc_string_from_chars_tlab
-UNDEFINED art_quick_alloc_string_from_chars_tlab_instrumented
-UNDEFINED art_quick_alloc_string_from_string_tlab
-UNDEFINED art_quick_alloc_string_from_string_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved_region
-UNDEFINED art_quick_alloc_array_resolved_region_instrumented
-UNDEFINED art_quick_alloc_array_resolved8_region
-UNDEFINED art_quick_alloc_array_resolved8_region_instrumented
-UNDEFINED art_quick_alloc_array_resolved16_region
-UNDEFINED art_quick_alloc_array_resolved16_region_instrumented
-UNDEFINED art_quick_alloc_array_resolved32_region
-UNDEFINED art_quick_alloc_array_resolved32_region_instrumented
-UNDEFINED art_quick_alloc_array_resolved64_region
-UNDEFINED art_quick_alloc_array_resolved64_region_instrumented
-UNDEFINED art_quick_alloc_object_resolved_region
-UNDEFINED art_quick_alloc_object_resolved_region_instrumented
-UNDEFINED art_quick_alloc_object_initialized_region
-UNDEFINED art_quick_alloc_object_initialized_region_instrumented
-UNDEFINED art_quick_alloc_object_with_checks_region
-UNDEFINED art_quick_alloc_object_with_checks_region_instrumented
-UNDEFINED art_quick_alloc_string_object_region
-UNDEFINED art_quick_alloc_string_object_region_instrumented
-UNDEFINED art_quick_alloc_string_from_bytes_region
-UNDEFINED art_quick_alloc_string_from_bytes_region_instrumented
-UNDEFINED art_quick_alloc_string_from_chars_region
-UNDEFINED art_quick_alloc_string_from_chars_region_instrumented
-UNDEFINED art_quick_alloc_string_from_string_region
-UNDEFINED art_quick_alloc_string_from_string_region_instrumented
-UNDEFINED art_quick_alloc_array_resolved_region_tlab
-UNDEFINED art_quick_alloc_array_resolved_region_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved8_region_tlab
-UNDEFINED art_quick_alloc_array_resolved8_region_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved16_region_tlab
-UNDEFINED art_quick_alloc_array_resolved16_region_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved32_region_tlab
-UNDEFINED art_quick_alloc_array_resolved32_region_tlab_instrumented
-UNDEFINED art_quick_alloc_array_resolved64_region_tlab
-UNDEFINED art_quick_alloc_array_resolved64_region_tlab_instrumented
-UNDEFINED art_quick_alloc_object_resolved_region_tlab_instrumented
-UNDEFINED art_quick_alloc_object_initialized_region_tlab_instrumented
-UNDEFINED art_quick_alloc_object_with_checks_region_tlab
-UNDEFINED art_quick_alloc_object_with_checks_region_tlab_instrumented
-UNDEFINED art_quick_alloc_string_object_region_tlab
-UNDEFINED art_quick_alloc_string_object_region_tlab_instrumented
-UNDEFINED art_quick_alloc_string_from_bytes_region_tlab
-UNDEFINED art_quick_alloc_string_from_bytes_region_tlab_instrumented
-UNDEFINED art_quick_alloc_string_from_chars_region_tlab
-UNDEFINED art_quick_alloc_string_from_chars_region_tlab_instrumented
-UNDEFINED art_quick_alloc_string_from_string_region_tlab
-UNDEFINED art_quick_alloc_string_from_string_region_tlab_instrumented
 
 UNDEFINED art_quick_initialize_static_storage
 UNDEFINED art_quick_resolve_type_and_verify_access
