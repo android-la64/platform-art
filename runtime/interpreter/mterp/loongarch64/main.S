@@ -697,7 +697,17 @@ NTERP_IGET_SLOW_HELPER:
     move a3, zero
     st.d s3, s6, -16
     jr t5
-
+NTERP_INSTANCE_OF_HELPER:
+    alsl.d          t1, s7, s2, 0x2  // set_vreg("a0", "s7", z0="t1")
+    st.w            a0, t1, 0
+    alsl.d          t1, s7, s6, 0x2
+    st.w            zero, t1, 0
+    ld.hu           s4, s3, 4        // FETCH_ADVANCE_INST 2
+    addi.d          s3, s3, 4
+    andi            t0, s4, 0xff     // GET_INST_OPCODE t0
+    slli.w          t0, t0, 0x7      // GOTO_OPCODE t0
+    add.d           t0, s5, t0
+    jr              t0
 
 
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
@@ -728,6 +738,7 @@ NAME_END nterp_helper
 EndExecuteNterpImpl:
 
 // Entrypoints into runtime.
+NTERP_TRAMPOLINE nterp_allocate_object, NterpAllocateObject
 NTERP_TRAMPOLINE nterp_filled_new_array, NterpFilledNewArray
 NTERP_TRAMPOLINE nterp_filled_new_array_range, NterpFilledNewArrayRange
 NTERP_TRAMPOLINE nterp_get_class, NterpGetClass

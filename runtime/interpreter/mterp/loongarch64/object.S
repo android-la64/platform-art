@@ -1,14 +1,236 @@
+// check-cast vAA, type@BBBB
+// Format 21c: AA|1f BBBB
+// Throw a ClassCastException if the reference in the given register cannot be cast to the indicated
+// type.
 %def op_check_cast():
-    break 0x5
+   FETCH_FROM_THREAD_CACHE /*expected klass*/a1, .L${opcode}_miss, t0, t1
+.L${opcode}_miss_resume:
 
-%def op_check_cast_slow_path():
-    break 0x5
+   srli.w t0, xINST, 8         // t0 := AA
+%  get_vreg("a0", "t0", is_unsigned=True)  # a0 := fp[AA], zext
+   beqz a0, .L${opcode}_next  // null
+   ld.wu a2, a0, MIRROR_OBJECT_CLASS_OFFSET  // a2 := actual klass
+   UNPOISON_HEAP_REF a2
+   // Fast path: compare without read barrier.
+   bne a1, a2, .L${opcode}_slow
 
+.L${opcode}_next:
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+.L${opcode}_miss:
+   EXPORT_PC
+   move a0, xSELF
+   ld.d a1, sp, 0  // caller ArtMethod*
+   move a2, xPC
+   bl nterp_get_class
+   move a1, a0
+   b .L${opcode}_miss_resume
+
+.L${opcode}_slow:
+   // A0 and A1 in position for quick call.
+%  slow_path = add_slow_path(op_check_cast_slow_path, "t0", "t1", "t2")
+   b $slow_path  // slow offset exceeds branch imm
+                    // args a0, a1, a2
+
+
+.macro CLEAR_STATIC_VOLATILE_MARKER reg
+    bstrins.d \reg, zero, 0, 0
+.endm
+
+
+// Checks cases for (1) interface, (2) array, and (3) super classes.
+// Hardcoded: a0 (obj), a1 (expected klass), a2 (actual klass)
+//
+// Note. We don't do read barriers for simplicity. However, this means that fetched objects may be a
+// from-space reference. That's OK as we only fetch constant information from the references. This
+// also means that some of the comparisons below may lead to false negative due to stale data, so
+// all negative cases must pass through the runtime, via potential read barrier.
+%def op_check_cast_slow_path(z0, z1, z2):
+   // Interface check: cut to runtime.
+   ld.wu $z0, a1, MIRROR_CLASS_ACCESS_FLAGS_OFFSET
+   BRANCH_IF_BIT_SET $z0, $z0, MIRROR_CLASS_IS_INTERFACE_FLAG_BIT, .L${opcode}_runtime
+
+   // Array check handled below.
+   ld.wu $z0, a1, MIRROR_CLASS_COMPONENT_TYPE_OFFSET
+   // Defer z0 unpoison to array path.
+   bnez $z0, .L${opcode}_array
+
+   // Super check: find expected class, else cut to runtime.
+.L${opcode}_super:
+   ld.wu a2, a2, MIRROR_CLASS_SUPER_CLASS_OFFSET
+   UNPOISON_HEAP_REF a2
+   beq a2, a1, .L${opcode}_slow_next
+   bnez a2, .L${opcode}_super
+
+.L${opcode}_runtime:
+   TEST_IF_MARKING $z0, .L${opcode}_mark
+.L${opcode}_mark_resume:
+   EXPORT_PC
+   bl art_quick_check_instance_of  // args a0 (obj), a1 (expected klass)
+
+   // Advancement logic replicated here for branch distance.
+.L${opcode}_slow_next:
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE $z0
+   GOTO_OPCODE $z0
+
+.L${opcode}_mark:
+   bl art_quick_read_barrier_mark_reg11  // a1, expected klass
+   b .L${opcode}_mark_resume
+
+.L${opcode}_array:
+   UNPOISON_HEAP_REF $z0          // z0 = expected.component
+   ld.wu $z1, a2, MIRROR_CLASS_COMPONENT_TYPE_OFFSET  // z1 := actual.component
+   beqz $z1, .L${opcode}_runtime  // null: actual not an array
+   UNPOISON_HEAP_REF $z1
+   ld.wu $z2, $z0, MIRROR_CLASS_SUPER_CLASS_OFFSET  // z2 := expected.component.super
+   // z2 can skip unpoison for null check
+   bnez $z2, .L${opcode}_runtime  // super type exists
+   // expected.component.super is null: expected is either Object[] or primitive array.
+   ld.hu $z2, $z0, MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET  // z2 := expected.component.primitive
+   bnez $z2, .L${opcode}_runtime  // expected's component is primitive
+   ld.wu $z2, $z1, MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET  // z2 := actual.component.primitive
+   bnez $z2, .L${opcode}_runtime  // actual's component is primitive
+   // Here, z0 is Object, and z1 is a subclass of Object.
+   b .L${opcode}_slow_next
+
+
+// instance-of vA, vB, type@CCCC
+// Format 22c: B|A|20 CCCC
+// vA := 1 if vB instance-of CCCC, else 0
+// Store in the given destination register 1 if the indicated reference is an instance of the given
+// type, or 0 if not.
 %def op_instance_of():
-    break 0x5
+   srli.w s7, xINST, 8    // s7 := B|A
+   srli.w s8, xINST, 12   // s8 := B
+   andi s7, s7, 0xF      // s7 := A, used in slow path
+   FETCH_FROM_THREAD_CACHE /*expected klass*/ a1, .L${opcode}_miss, t0, t1
+.L${opcode}_miss_resume:
 
-%def op_instance_of_slow_path():
-    break 0x5
+%  get_vreg("a0", "s8", is_unsigned=True)  # a0 := fp[B], zext
+   beqz a0, .L${opcode}_next  // a0 = null = dst value "false"
+   ld.wu a2, a0, MIRROR_OBJECT_CLASS_OFFSET  // a2 := actual klass
+   UNPOISON_HEAP_REF a2
+   // Fast path: compare without read barrier.
+   bne a1, a2, .L${opcode}_slow
+
+   li.d a0, 1  // dst value "true"
+
+.L${opcode}_next:
+   la.local t5, NTERP_INSTANCE_OF_HELPER
+   jr t5
+
+.L${opcode}_miss:
+   EXPORT_PC
+   move a0, xSELF
+   ld.d a1, sp, 0  // caller ArtMethod*
+   move a2, xPC
+   bl nterp_get_class
+   move a1, a0
+   b .L${opcode}_miss_resume
+
+.L${opcode}_slow:
+   // A0 and A1 in position for quick call.
+%  slow_path = add_slow_path(op_instance_of_slow_path, "s7", "t0", "t1", "t2")
+   b $slow_path  // slow offset exceeds branch imm
+                    // args a0, a1, a2
+
+
+// Checks cases for (1) interface, (2) array, and (3) super classes.
+// Hardcoded: a0 (obj), a1 (expected klass), a2 (actual klass)
+//
+// Npte. If marking, don't bother with read barrier calls - cut to runtime. This arrangement allows
+// the (non marking) super class fast path's negative case to skip the read barrier and runtime
+// call, and correctly diagnose the situation with fp[A] := 0.
+%def op_instance_of_slow_path(vA, z0, z1, z2):
+   TEST_IF_MARKING $z0, .L${opcode}_runtime_with_read_barrier
+
+   // Interface check: cut to runtime.
+   ld.wu $z0, a1, MIRROR_CLASS_ACCESS_FLAGS_OFFSET
+   BRANCH_IF_BIT_SET $z0, $z0, MIRROR_CLASS_IS_INTERFACE_FLAG_BIT, .L${opcode}_runtime
+
+   // Array check handled below.
+   ld.wu $z0, a1, MIRROR_CLASS_COMPONENT_TYPE_OFFSET
+   // Defer z0 unpoison to array path.
+   bnez $z0, .L${opcode}_array
+
+   // Super check: find klass up the hierarchy.
+.L${opcode}_super:
+   ld.wu a2, a2, MIRROR_CLASS_SUPER_CLASS_OFFSET
+   UNPOISON_HEAP_REF a2
+   beq a2, a1, .L${opcode}_super_exit
+   bnez a2, .L${opcode}_super
+.L${opcode}_super_exit:
+   sltu a0, zero, a2  // a0 := 1 if (a1 = a2 != null), else 0 (because a2 = null)
+
+.L${opcode}_slow_next:
+%  set_vreg("a0", vA, z0=z0)  # fp[A] := a0
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE $z0
+   GOTO_OPCODE $z0
+
+.L${opcode}_runtime_with_read_barrier:
+   bl art_quick_read_barrier_mark_reg11  // a1, expected klass
+.L${opcode}_runtime:
+   EXPORT_PC
+   bl artInstanceOfFromCode  // args a0 (obj), a1 (expected klass)
+       // return a0: 1 if true, else 0
+   b .L${opcode}_slow_next
+
+.L${opcode}_array:
+   UNPOISON_HEAP_REF $z0           // z0 = expected.component
+   ld.wu $z1, $z0, MIRROR_CLASS_SUPER_CLASS_OFFSET  // z1 := expected.component.super
+   // z1 can skip unpoison for null check
+   bnez $z1, .L${opcode}_runtime   // super type exists
+   // Here, expected.component.super is null: expected is either Object[] or primitive array.
+   ld.wu a0, a2, MIRROR_CLASS_COMPONENT_TYPE_OFFSET  // a0 := actual.component
+   beqz a0, .L${opcode}_slow_next  // actual not an array, a0 = null = dst value "false"
+   UNPOISON_HEAP_REF a0
+   ld.hu $z1, $z0, MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET  // z1 := expected.component.primitive
+   ld.hu $z2, a0, MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET   // z2 := actual.component.primitive
+   or a0, $z1, $z2  // a0 := 0 if z1 = z2 = 0, else non-zero (Primitive::Type enum)
+   sltui a0, a0, 1  // a0 := 1 if both are class types, else 0
+   // Here, when a0 = 1, expected.component is Object, and actual.component is a subclass of Object.
+   b .L${opcode}_slow_next
+
+
+// new-instance vAA, type@BBBB
+// Format 21c: AA|22 BBBB
+// Construct a new instance of the indicated type, storing a reference to it in the destination. The
+// type must refer to a non-array class.
+%def op_new_instance():
+   EXPORT_PC
+   srli.w s7, xINST, 8  // s7 := AA
+   FETCH_FROM_THREAD_CACHE /*resolved klass*/a0, .L${opcode}_miss, t0, t1
+   TEST_IF_MARKING t0, .L${opcode}_mark
+.L${opcode}_mark_resume:
+
+   ld.d t0, xSELF, THREAD_ALLOC_OBJECT_ENTRYPOINT_OFFSET
+   jirl ra, t0, 0     // arg a0 (klass)
+               // return a0 := new-obj
+   dbar 0xa    // fence w, w; main.S has details
+
+.L${opcode}_miss_resume:
+   SET_VREG_OBJECT a0, s7, z0=t0  // refs[AA] := new-obj
+   FETCH_ADVANCE_INST 2
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+.L${opcode}_mark:
+   bl art_quick_read_barrier_mark_reg10  // a0, klass
+   b .L${opcode}_mark_resume
+
+.L${opcode}_miss:
+   EXPORT_PC
+   move a0, xSELF
+   ld.d a1, sp, 0  // caller ArtMethod*
+   move a2, xPC
+   bl nterp_allocate_object
+       // return a0 := new-obj, plus cache entry is updated with the resolved klass
+   b .L${opcode}_miss_resume
+
 
 // *** sget ***
 
@@ -740,11 +962,3 @@
    add.d $z1, $z0, $z1
    st.b $z0, $z1, 0
 .L${uniq}_skip_write_barrier:
-
-
-%def op_new_instance():
-    break 0x5
-
-.macro CLEAR_STATIC_VOLATILE_MARKER reg
-    bstrins.d \reg, zero, 0, 0
-.endm

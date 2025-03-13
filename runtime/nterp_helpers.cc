@@ -292,7 +292,11 @@ bool CanMethodUseNterp(ArtMethod* method, InstructionSet isa) {
         case Instruction::SGET_SHORT:
         case Instruction::MONITOR_ENTER:
         case Instruction::MONITOR_EXIT:
+        case Instruction::CHECK_CAST:
+        case Instruction::INSTANCE_OF:
         case Instruction::ARRAY_LENGTH:
+        case Instruction::NEW_INSTANCE:
+        case Instruction::NEW_ARRAY:
         case Instruction::FILLED_NEW_ARRAY:
         case Instruction::FILLED_NEW_ARRAY_RANGE:
         case Instruction::FILL_ARRAY_DATA:
