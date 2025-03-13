@@ -120,7 +120,8 @@
      // Okay to clobber T1. It is not read if nan_zeroed=True.
      fclass.${src} ft1, ft0  // fclass.s or fclass.d on the source register ft0
      movfr2gr.${src} t1, ft1
-     sltui t1, t1, 0x2    // t1 := 1 if NaN, per dex spec. Skip the conversion.
+     // Z-TODO: verify all situations, here QNaN only.
+     sltui t1, t1, 0x1    // t1 := 1 if NaN, per dex spec. Skip the conversion.
      bnez t1, 1f
 %  if gtf:
 %    if src == "w":
