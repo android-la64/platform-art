@@ -315,6 +315,30 @@ END \name
     b \if_not_hot
 .endm
 
+// Update xPC by \units code units. On back edges, perform hotness and suspend.
+.macro BRANCH units
+    alsl.d xPC, \units, xPC, 1
+    blez \units, 2f  // If branch is <= 0, increase hotness and do a suspend check.
+1:
+    FETCH_INST
+    GET_INST_OPCODE t0
+    GOTO_OPCODE t0
+2:
+    ld.d a0, sp, 0
+    ld.hu t0, a0, ART_METHOD_HOTNESS_COUNT_OFFSET  // t0 := hotness
+#if (NTERP_HOTNESS_VALUE != 0)
+#error Expected 0 for hotness value
+#endif
+    // If the counter is at zero (hot), handle it in the runtime.
+    beqz t0, 3f
+    addi.d t0, t0, -1  // increase hotness
+    st.h t0, a0, ART_METHOD_HOTNESS_COUNT_OFFSET
+    DO_SUSPEND_CHECK continue=1b
+    b 1b
+3:
+    b NterpHandleHotnessOverflow  // arg a0 (ArtMethod*)
+.endm
+
 // Increase method hotness before starting the method.
 // Hardcoded:
 // - a0: ArtMethod*
@@ -708,6 +732,57 @@ NTERP_INSTANCE_OF_HELPER:
     slli.w          t0, t0, 0x7      // GOTO_OPCODE t0
     add.d           t0, s5, t0
     jr              t0
+NTERP_BINCMP_HELPER:
+    srli.w          t0, s4, 0x8      // t0 := B|A
+    srli.w          t1, s4, 0xc      // t1 := B
+    andi            t0, t0, 0xf      // t0 := A
+    alsl.d          t0, t0, s2, 0x2  // t0 := vA
+    ld.w            t0, t0, 0
+    alsl.d          t1, t1, s2, 0x2  // t1 := vB
+    ld.w            t1, t1, 0
+    jr t5
+
+// Arg a0: ArtMethod*
+NterpHandleHotnessOverflow:
+   CHECK_AND_UPDATE_SHARED_MEMORY_METHOD if_hot=.Lhotspill_hot, if_not_hot=.Lhotspill_suspend
+.Lhotspill_hot:
+   move a1, xPC
+   move a2, xFP
+   bl nterp_hot_method  // args a0, a1, a2
+   bnez a0, .Lhotspill_osr
+.Lhotspill_advance:
+   FETCH_INST
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+.Lhotspill_osr:
+   // a0 = OsrData*
+   // Drop most of the current nterp frame, but keep the callee-saves.
+   // The nterp callee-saves (count and layout) match the OSR frame's callee-saves.
+   ld.d sp, xREFS, -8  // caller's interpreted frame pointer
+   .cfi_def_cfa sp, NTERP_SIZE_SAVE_CALLEE_SAVES
+   ld.wu t0, a0, OSR_DATA_FRAME_SIZE
+   addi.d t0, t0, -NTERP_SIZE_SAVE_CALLEE_SAVES  // t0 := osr frame - callee saves, in bytes
+   move s7, sp         // Remember CFA in a callee-save register.
+   .cfi_def_cfa_register s7
+   sub.d sp, sp, t0    // OSR size guaranteed to be stack aligned (16 bytes).
+
+   addi.d t1, a0, OSR_DATA_MEMORY  // t1 := read start
+   add.d t1, t1, t0                // t1 := read end (exclusive)
+   move t2, s7                     // t2 := write end (exclusive)
+   // t0 >= 8 (OSR places ArtMethod* at bottom of frame), so loop will terminate.
+.Lhotspill_osr_copy_loop:
+   addi.d t1, t1, -8
+   ld.d t3, t1, 0
+   addi.d t2, t2, -8
+   st.d t3, t2, 0
+   bne t2, sp, .Lhotspill_osr_copy_loop
+
+   ld.d s8, a0, OSR_DATA_NATIVE_PC  // s8 := native PC; jump after free
+   bl free  // arg a0; release OsrData*
+   jr s8      // Jump to the compiled code.
+.Lhotspill_suspend:
+   DO_SUSPEND_CHECK continue=.Lhotspill_advance
+   b .Lhotspill_advance
 
 
 // This is the logical end of ExecuteNterpImpl, where the frame info applies.
@@ -766,7 +841,11 @@ artNterpAsmInstructionStart = .L_op_nop
     .hidden artNterpAsmInstructionEnd
     .global artNterpAsmInstructionEnd
 artNterpAsmInstructionEnd:
-    break 0x5
+    // artNterpAsmInstructionEnd is used as landing pad for exception handling.
+    // xPC (S3) for the exception handler was set just prior to the long jump coming here.
+    FETCH_INST
+    GET_INST_OPCODE t0
+    GOTO_OPCODE t0
 
 %def opcode_pre():
 %   pass

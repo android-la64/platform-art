@@ -1,3 +1,73 @@
+// Note: Floating point operations must follow IEEE 754 rules, using round-to-nearest and gradual
+// underflow, except where stated otherwise.
+
+//
+// floating-point comparators vAA, vBB, vCC
+// Note: Perform the indicated floating point comparison, setting a to 0 if b == c, 1 if b > c, or
+// -1 if b < c. The "bias" listed indicates how NaN comparisons are treated: "gt bias" instructions
+// return 1 for NaN comparisons, and "lt bias" instructions return -1.
+//
+
+// cmpl-float vAA, vBB, vCC
+// Format 23x: AA|2d CC|BB
+// LT bias, if NaN then vAA := -1
+%def op_cmpl_float(is_double=False):
+   FETCH t1, count=1     // t1 := CC|BB
+   srli.w t0, xINST, 8   // t0 := AA
+   srli.w t2, t1, 8      // t2 := CC
+   andi t1, t1, 0xFF     // t1 := BB
+%  get_vreg_float("ft1", "t1", is_double=is_double)  # ft1 := fp[BB]
+%  get_vreg_float("ft2", "t2", is_double=is_double)  # ft2 := fp[CC]
+   // Note: Formula "((FLE r,l) - 1) + (FLT r,l)" lifted from compiler.
+%  precision = "d" if is_double else "s"
+   fcmp.cle.${precision} $$fcc1, ft2, ft1
+   fcmp.clt.${precision} $$fcc2, ft2, ft1
+   movcf2gr t1, $$fcc1
+   movcf2gr t2, $$fcc2
+   addi.d t1, t1, -1
+   add.d t2, t2, t1
+   FETCH_ADVANCE_INST 2
+%  set_vreg("t2", "t0", z0="t1")  # fp[AA] := result
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+// cmpg-float vvAA, vBB, vCC
+// Format 23x: AA|2e CC|BB
+// GT bias, if NaN then vAA := 1
+%def op_cmpg_float(is_double=False):
+   FETCH t1, count=1     // t1 := CC|BB
+   srli.w t0, xINST, 8   // t0 := AA
+   srli.w t2, t1, 8      // t2 := CC
+   andi t1, t1, 0xFF     // t1 := BB
+%  get_vreg_float("ft1", "t1", is_double=is_double)  # ft1 := fp[BB]
+%  get_vreg_float("ft2", "t2", is_double=is_double)  # ft2 := fp[CC]
+   // Note: Formula "((FLE l,r) ^ 1) - (FLT l,r)" lifted from compiler.
+%  precision = "d" if is_double else "s"
+   fcmp.cle.${precision} $$fcc1, ft1, ft2
+   fcmp.clt.${precision} $$fcc2, ft1, ft2
+   movcf2gr t1, $$fcc1
+   movcf2gr t2, $$fcc2
+   xori t1, t1, 1
+   sub.d t2, t1, t2
+   FETCH_ADVANCE_INST 2
+%  set_vreg("t2", "t0", z0="t1")  # fp[AA] := result
+   GET_INST_OPCODE t0
+   GOTO_OPCODE t0
+
+// cmpl-double vAA, vBB, vCC
+// Format 23x: AA|2f CC|BB
+// LT bias, if NaN then vAA := -1
+%def op_cmpl_double():
+%  op_cmpl_float(is_double=True)
+
+// cmpg-double vAA, vBB, vCC
+// Format 23x: AA|30 CC|BB
+// Note: Formula "((FLE l,r) ^ 1) - (FLT l,r)" lifted from compiler.
+// GT bias, if NaN then vAA := 1
+%def op_cmpg_double():
+%  op_cmpg_float(is_double=True)
+
+
 // neg-float vA, vB
 // Format 12x: B|A|7f
 %def op_neg_float():
@@ -121,7 +191,7 @@
      fclass.${src} ft1, ft0  // fclass.s or fclass.d on the source register ft0
      movfr2gr.${src} t1, ft1
      // Z-TODO: verify all situations, here QNaN only.
-     sltui t1, t1, 0x1    // t1 := 1 if NaN, per dex spec. Skip the conversion.
+     sltui t1, t1, 0x1    // t1 := 0 if NaN, per dex spec. Skip the conversion.
      bnez t1, 1f
 %  if gtf:
 %    if src == "w":
@@ -327,16 +397,3 @@
 %  set_vreg_float("fa0", "s8", z0="t0", is_double=is_double)
                             // fp[A] := fa0
    GOTO_OPCODE t1           // continue to next
-
-
-%def op_cmpl_float():
-    break 0x5
-
-%def op_cmpg_float():
-    break 0x5
-
-%def op_cmpl_double():
-    break 0x5
-
-%def op_cmpg_double():
-    break 0x5
