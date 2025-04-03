@@ -1879,7 +1879,6 @@ bool Runtime::Init(RuntimeArgumentMap&& runtime_options_in) {
       FALLTHROUGH_INTENDED;
     case InstructionSet::kArm:
     case InstructionSet::kThumb2:
-    case InstructionSet::kLoongarch64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:
@@ -2837,7 +2836,6 @@ void Runtime::SetInstructionSet(InstructionSet instruction_set) {
       break;
     case InstructionSet::kArm:
     case InstructionSet::kArm64:
-    case InstructionSet::kLoongarch64:
     case InstructionSet::kRiscv64:
     case InstructionSet::kX86:
     case InstructionSet::kX86_64:

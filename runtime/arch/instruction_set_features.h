@@ -31,7 +31,6 @@ class Arm64InstructionSetFeatures;
 class Riscv64InstructionSetFeatures;
 class X86InstructionSetFeatures;
 class X86_64InstructionSetFeatures;
-class Loongarch64InstructionSetFeatures;
 
 // Abstraction used to describe features of a different instruction sets.
 class InstructionSetFeatures {
@@ -130,9 +129,6 @@ class InstructionSetFeatures {
 
   // Down cast this X86_64InstructionFeatures.
   const X86_64InstructionSetFeatures* AsX86_64InstructionSetFeatures() const;
-
-  // Down cast this Loongarch64InstructionFeatures.
-  const Loongarch64InstructionSetFeatures* AsLoongarch64InstructionSetFeatures() const;
 
   virtual ~InstructionSetFeatures() {}
 

@@ -117,9 +117,7 @@ class CompilerOptions final {
   }
 
   bool IsAnyCompilationEnabled() const {
-    return CompilerFilter::IsAnyCompilationEnabled(compiler_filter_) &&
-           // TODO(loongarch64): remove this when we have compiler support for LOONGARCH
-           GetInstructionSet() != InstructionSet::kLoongarch64;
+    return CompilerFilter::IsAnyCompilationEnabled(compiler_filter_);
   }
 
   size_t GetHugeMethodThreshold() const {
