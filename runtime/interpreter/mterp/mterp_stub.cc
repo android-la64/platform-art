@@ -30,7 +30,7 @@ void CheckMterpAsmConstants() {
 }
 
 void InitMterpTls(Thread* self) {
-  (void)self;
+  self->SetMterpCurrentIBase(nullptr);
 }
 
 bool CanUseMterp()
@@ -39,6 +39,7 @@ bool CanUseMterp()
   return
       kRuntimeISA != InstructionSet::kLoongarch64 &&
       !runtime->IsAotCompiler() &&
+      !runtime->GetInstrumentation()->IsActive() &&
       // mterp only knows how to deal with the normal exits. It cannot handle any of the
       // non-standard force-returns.
       !runtime->AreNonStandardExitsEnabled() &&
