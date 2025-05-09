@@ -159,7 +159,7 @@ class AssemblerTestBase : public testing::Test {
       case InstructionSet::kX86_64:
         return {FindTool("clang"), "--compile", "-target", "x86_64-linux-gnu"};
       case InstructionSet::kLoongarch64:
-        return {"/home/zqz/tools/llvm/llvm-project-18.1.1.src/build/bin/clang", "--compile", "-target", "loongarch64-linux-gnu", "-march=la464"};
+        return {FindTool("clang"), "--compile", "-target", "loongarch64-linux-gnu", "-march=la464"};
       default:
         LOG(FATAL) << "Unknown instruction set: " << isa;
         UNREACHABLE();

@@ -168,8 +168,81 @@ class AssemblerLOONGARCH64Test : public AssemblerTest<Loongarch64Assembler,
     UNREACHABLE();
   }
 
-  std::vector<XRegister*> GetRegisters() override { return registers_; }
-  std::vector<FRegister*> GetFPRegisters() override { return fp_registers_; }
+  ArrayRef<const XRegister> GetRegisters() override {
+    static constexpr XRegister kXRegisters[] = {
+        Zero,
+        RA,
+        TP,
+        SP,
+        A0,
+        A1,
+        A2,
+        A3,
+        A4,
+        A5,
+        A6,
+        A7,
+        T0,
+        T1,
+        T2,
+        T3,
+        T4,
+        T5,
+        T6,
+        T7,
+        T8,
+        R21,
+        FP,
+        S0,
+        S1,
+        S2,
+        S3,
+        S4,
+        S5,
+        S6,
+        S7,
+        S8,
+    };
+    return ArrayRef<const XRegister>(kXRegisters);
+}
+
+ArrayRef<const FRegister> GetFPRegisters() override {
+    static constexpr FRegister kFRegisters[] = {
+        FA0,
+        FA1,
+        FA2,
+        FA3,
+        FA4,
+        FA5,
+        FA6,
+        FA7,
+        FT0,
+        FT1,
+        FT2,
+        FT3,
+        FT4,
+        FT5,
+        FT6,
+        FT7,
+        FT8,
+        FT9,
+        FT10,
+        FT11,
+        FT12,
+        FT13,
+        FT14,
+        FT15,
+        FS0,
+        FS1,
+        FS2,
+        FS3,
+        FS4,
+        FS5,
+        FS6,
+        FS7,
+    };
+    return ArrayRef<const FRegister>(kFRegisters);
+}
 
   std::string GetSecondaryRegisterName(const XRegister& reg) override {
     CHECK(secondary_register_names_.find(reg) != secondary_register_names_.end());
@@ -459,14 +532,14 @@ class AssemblerLOONGARCH64Test : public AssemblerTest<Loongarch64Assembler,
                   "pcalau12i " + rd_name + ", %pc_hi20(" + label + "f)\n" +
                   load + " " + rd_name + ", " + rd_name + ", %pc_lo12(" + label + "f)\n";
     };
-    for (XRegister* reg : GetRegisters()) {
-      if (*reg != Zero) {
-        __ Ld_W(*reg, narrow_literal);
-        print_load("ld.w", *reg, "2");
-        __ Ld_WU(*reg, narrow_literal);
-        print_load("ld.wu", *reg, "2");
-        __ Ld_D(*reg, wide_literal);
-        print_load("ld.d", *reg, "3");
+    for (XRegister reg : GetRegisters()) {
+      if (reg != Zero) {
+        __ Ld_W(reg, narrow_literal);
+        print_load("ld.w", reg, "2");
+        __ Ld_WU(reg, narrow_literal);
+        print_load("ld.wu", reg, "2");
+        __ Ld_D(reg, wide_literal);
+        print_load("ld.d", reg, "3");
       }
     }
     // All literal loads above emit 8 bytes of code. The narrow literal shall emit 4 bytes of code.
@@ -844,10 +917,10 @@ TEST_F(AssemblerLOONGARCH64Test, BcondElimination) {
   Loongarch64Label label;
   __ Bind(&label);
   __ Nop();
-  for (XRegister* reg : GetRegisters()) {
-    __ Bne(*reg, *reg, &label);
-    __ Blt(*reg, *reg, &label);
-    __ Bltu(*reg, *reg, &label);
+  for (XRegister reg : GetRegisters()) {
+    __ Bne(reg, reg, &label);
+    __ Blt(reg, reg, &label);
+    __ Bltu(reg, reg, &label);
   }
   DriverStr("nop\n", "BcondElimination");
 }
@@ -856,10 +929,10 @@ TEST_F(AssemblerLOONGARCH64Test, BcondUnconditional) {
   Loongarch64Label label;
   __ Bind(&label);
   __ Nop();
-  for (XRegister* reg : GetRegisters()) {
-    __ Beq(*reg, *reg, &label);
-    __ Bge(*reg, *reg, &label);
-    __ Bgeu(*reg, *reg, &label);
+  for (XRegister reg : GetRegisters()) {
+    __ Beq(reg, reg, &label);
+    __ Bge(reg, reg, &label);
+    __ Bgeu(reg, reg, &label);
   }
   std::string expected =
       "1:\n"

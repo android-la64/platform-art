@@ -25,9 +25,9 @@
 #include "arch/loongarch64/instruction_set_features_loongarch64.h"
 #include "arch/loongarch64/registers_loongarch64.h"
 #include "base/arena_containers.h"
-#include "base/enums.h"
 #include "base/globals.h"
 #include "base/macros.h"
+#include "base/pointer_size.h"
 #include "managed_register_loongarch64.h"
 #include "utils/assembler.h"
 #include "utils/label.h"
@@ -324,11 +324,9 @@ class Loongarch64Assembler final : public Assembler {
   // Emit data (e.g. encoded instruction or immediate) to the instruction stream.
   void Emit(uint32_t value);
 
-  // Emit slow paths queued during assembly and promote short branches to long if needed.
+  // Emit slow paths queued during assembly, promote short branches to long if needed,
+  // and emit branches.
   void FinalizeCode() override;
-
-  // Emit branches and finalize all instructions.
-  void FinalizeInstructions(const MemoryRegion& region) override;
 
   // Returns the current location of a label.
   //

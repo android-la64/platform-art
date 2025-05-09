@@ -47,15 +47,12 @@ ALWAYS_INLINE static inline std::pair<uint32_t, int32_t> SplitOffset(bool bits12
 
 
 void Loongarch64Assembler::FinalizeCode() {
+  Assembler::FinalizeCode();
   ReserveJumpTableSpace();
   EmitLiterals();
   PromoteBranches();
-}
-
-void Loongarch64Assembler::FinalizeInstructions(const MemoryRegion& region) {
   EmitBranches();
   EmitJumpTables();
-  Assembler::FinalizeInstructions(region);
   PatchCFI();
 }
 
