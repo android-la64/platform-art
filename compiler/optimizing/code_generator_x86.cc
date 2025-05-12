@@ -1931,36 +1931,6 @@ void InstructionCodeGeneratorX86::VisitGoto(HGoto* got) {
   HandleGoto(got, got->GetSuccessor());
 }
 
-void LocationsBuilderX86::VisitNop(HNop* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorX86::VisitNop(HNop* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void LocationsBuilderX86::VisitMethodEntryHook(HMethodEntryHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorX86::VisitMethodEntryHook(HMethodEntryHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void LocationsBuilderX86::VisitMethodExitHook(HMethodExitHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorX86::VisitMethodExitHook(HMethodExitHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
 void LocationsBuilderX86::VisitTryBoundary(HTryBoundary* try_boundary) {
   try_boundary->SetLocations(nullptr);
 }

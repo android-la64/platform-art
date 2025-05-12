@@ -2500,37 +2500,6 @@ void InstructionCodeGeneratorARM64::VisitAnd(HAnd* instruction) {
   HandleBinaryOp(instruction);
 }
 
-
-void LocationsBuilderARM64::VisitNop(HNop* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorARM64::VisitNop(HNop* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void LocationsBuilderARM64::VisitMethodEntryHook(HMethodEntryHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorARM64::VisitMethodEntryHook(HMethodEntryHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void LocationsBuilderARM64::VisitMethodExitHook(HMethodExitHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorARM64::VisitMethodExitHook(HMethodExitHook* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
 void LocationsBuilderARM64::VisitBitwiseNegatedRight(HBitwiseNegatedRight* instr) {
   DCHECK(DataType::IsIntegralType(instr->GetType())) << instr->GetType();
   LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instr);
