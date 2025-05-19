@@ -49,7 +49,44 @@ static constexpr FRegister kRuntimeParameterFpuRegisters[] = {
 static constexpr size_t kRuntimeParameterFpuRegistersLength =
     arraysize(kRuntimeParameterFpuRegisters);
 
-#define UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(V) INTRINSICS_LIST(V)
+#define UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(V) \
+  V(SystemArrayCopyByte)                            \
+  V(SystemArrayCopyChar)                            \
+  V(SystemArrayCopyInt)                             \
+  V(FP16Ceil)                                       \
+  V(FP16Compare)                                    \
+  V(FP16Floor)                                      \
+  V(FP16Rint)                                       \
+  V(FP16ToFloat)                                    \
+  V(FP16ToHalf)                                     \
+  V(FP16Greater)                                    \
+  V(FP16GreaterEquals)                              \
+  V(FP16Less)                                       \
+  V(FP16LessEquals)                                 \
+  V(FP16Min)                                        \
+  V(FP16Max)                                        \
+  V(StringStringIndexOf)                            \
+  V(StringStringIndexOfAfter)                       \
+  V(StringBufferAppend)                             \
+  V(StringBufferLength)                             \
+  V(StringBufferToString)                           \
+  V(StringBuilderAppendObject)                      \
+  V(StringBuilderAppendString)                      \
+  V(StringBuilderAppendCharSequence)                \
+  V(StringBuilderAppendCharArray)                   \
+  V(StringBuilderAppendBoolean)                     \
+  V(StringBuilderAppendChar)                        \
+  V(StringBuilderAppendInt)                         \
+  V(StringBuilderAppendLong)                        \
+  V(StringBuilderAppendFloat)                       \
+  V(StringBuilderAppendDouble)                      \
+  V(StringBuilderLength)                            \
+  V(StringBuilderToString)                          \
+  V(CRC32Update)                                    \
+  V(CRC32UpdateBytes)                               \
+  V(CRC32UpdateByteBuffer)                          \
+  V(MethodHandleInvokeExact)                        \
+  V(MethodHandleInvoke)
 
 // Method register on invoke.
 static const XRegister kArtMethodRegister = A0;
@@ -359,7 +396,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
     return static_cast<uint32_t>(kLoongarch64PointerSize);
   }
 
-  void Finalize(CodeAllocator* allocator) override;
+  void Finalize() override;
 
   // Generate code to invoke a runtime entry point.
   void InvokeRuntime(QuickEntrypointEnum entrypoint,

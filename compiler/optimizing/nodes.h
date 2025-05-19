@@ -6726,29 +6726,6 @@ class HNop : public HExpression<0> {
   bool needs_environment_;
 };
 
-// Pseudo-instruction which doesn't generate any code.
-// If `emit_environment` is true, it can be used to generate an environment. It is used, for
-// example, to provide the native debugger with mapping information. It ensures that we can generate
-// line number and local variables at this point.
-class HNop : public HExpression<0> {
- public:
-  explicit HNop(uint32_t dex_pc, bool needs_environment)
-      : HExpression<0>(kNop, SideEffects::None(), dex_pc), needs_environment_(needs_environment) {
-  }
-
-  bool NeedsEnvironment() const override {
-    return needs_environment_;
-  }
-
-  DECLARE_INSTRUCTION(Nop);
-
- protected:
-  DEFAULT_COPY_CONSTRUCTOR(Nop);
-
- private:
-  bool needs_environment_;
-};
-
 /**
  * Instruction to load a Class object.
  */

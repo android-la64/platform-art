@@ -1583,18 +1583,6 @@ void InstructionCodeGeneratorLOONGARCH64::VisitInstanceFieldSet(HInstanceFieldSe
   LOG(FATAL) << "Unimplemented";
 }
 
-void LocationsBuilderLOONGARCH64::VisitPredicatedInstanceFieldGet(
-    HPredicatedInstanceFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorLOONGARCH64::VisitPredicatedInstanceFieldGet(
-    HPredicatedInstanceFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
 void LocationsBuilderLOONGARCH64::VisitInstanceOf(HInstanceOf* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
@@ -1841,13 +1829,13 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNeg(HNeg* instruction) {
   LOG(FATAL) << "Unimplemented";
 }
 
-void LocationsBuilderLOONGARCH64::VisitNativeDebugInfo(HNativeDebugInfo* info) {
+void LocationsBuilderLOONGARCH64::VisitNop(HNop* info) {
   UNUSED(info);
   LOG(FATAL) << "Unimplemented";
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitNativeDebugInfo(HNativeDebugInfo*) {
-  // MaybeRecordNativeDebugInfo is already called implicitly in CodeGenerator::Compile.
+void InstructionCodeGeneratorLOONGARCH64::VisitNop(HNop*) {
+  // The environment recording already happened in CodeGenerator::Compile.
 }
 
 void LocationsBuilderLOONGARCH64::VisitNewArray(HNewArray* instruction) {
@@ -1866,16 +1854,6 @@ void LocationsBuilderLOONGARCH64::VisitNewInstance(HNewInstance* instruction) {
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNewInstance(HNewInstance* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void LocationsBuilderLOONGARCH64::VisitNop(HNop* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
-}
-
-void InstructionCodeGeneratorLOONGARCH64::VisitNop(HNop* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
 }
@@ -2220,6 +2198,16 @@ void InstructionCodeGeneratorLOONGARCH64::VisitXor(HXor* instruction) {
   LOG(FATAL) << "Unimplemented";
 }
 
+void LocationsBuilderLOONGARCH64::VisitBitwiseNegatedRight(HBitwiseNegatedRight* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorLOONGARCH64::VisitBitwiseNegatedRight(HBitwiseNegatedRight* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
 void LocationsBuilderLOONGARCH64::VisitVecReplicateScalar(HVecReplicateScalar* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
@@ -2531,12 +2519,32 @@ void InstructionCodeGeneratorLOONGARCH64::VisitVecPredWhile(HVecPredWhile* instr
   LOG(FATAL) << "Unimplemented";
 }
 
-void LocationsBuilderLOONGARCH64::VisitVecPredCondition(HVecPredCondition* instruction) {
+void LocationsBuilderLOONGARCH64::VisitVecPredToBoolean(HVecPredToBoolean* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitVecPredCondition(HVecPredCondition* instruction) {
+void InstructionCodeGeneratorLOONGARCH64::VisitVecPredToBoolean(HVecPredToBoolean* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void LocationsBuilderLOONGARCH64::VisitVecCondition(HVecCondition* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorLOONGARCH64::VisitVecCondition(HVecCondition* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void LocationsBuilderLOONGARCH64::VisitVecPredNot(HVecPredNot* instruction) {
+  UNUSED(instruction);
+  LOG(FATAL) << "Unimplemented";
+}
+
+void InstructionCodeGeneratorLOONGARCH64::VisitVecPredNot(HVecPredNot* instruction) {
   UNUSED(instruction);
   LOG(FATAL) << "Unimplemented";
 }
@@ -2559,6 +2567,14 @@ struct IsUnimplemented {
 UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(TRUE_OVERRIDE)
 #undef TRUE_OVERRIDE
 
+static constexpr bool kIsIntrinsicUnimplemented[] = {
+    false,  // kNone
+#define IS_UNIMPLEMENTED(Intrinsic, ...) \
+    IsUnimplemented<Intrinsics::k##Intrinsic>().is_unimplemented,
+    ART_INTRINSICS_LIST(IS_UNIMPLEMENTED)
+#undef IS_UNIMPLEMENTED
+};
+
 }  // namespace detail
 
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
@@ -2573,7 +2589,9 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
                     ComputeRegisterMask(reinterpret_cast<const int*>(kCoreCalleeSaves), arraysize(kCoreCalleeSaves)),
                     ComputeRegisterMask(reinterpret_cast<const int*>(kFpuCalleeSaves), arraysize(kFpuCalleeSaves)),
                     compiler_options,
-                    stats),
+                    stats,
+                    ArrayRef<const bool>
+                    (detail::kIsIntrinsicUnimplemented)),
       assembler_(graph->GetAllocator(),
                  compiler_options.GetInstructionSetFeatures()->AsLoongarch64InstructionSetFeatures()),
       location_builder_(graph, this),
@@ -2949,7 +2967,7 @@ void CodeGeneratorLOONGARCH64::DumpFloatingPointRegister(std::ostream& stream, i
   stream << FRegister(reg);
 }
 
-void CodeGeneratorLOONGARCH64::Finalize(CodeAllocator* allocator) {
+void CodeGeneratorLOONGARCH64::Finalize() {
   // Ensure that we fix up branches and literal loads and emit the literal pool.
   __ FinalizeCode();
 
@@ -2977,7 +2995,7 @@ void CodeGeneratorLOONGARCH64::Finalize(CodeAllocator* allocator) {
     }
   }
 
-  CodeGenerator::Finalize(allocator);
+  CodeGenerator::Finalize();
 }
 
 // Generate code to invoke a runtime entry point.
@@ -3063,6 +3081,7 @@ HLoadClass::LoadKind CodeGeneratorLOONGARCH64::GetSupportedLoadClassKind(
       break;
     case HLoadClass::LoadKind::kBootImageLinkTimePcRelative:
     case HLoadClass::LoadKind::kBootImageRelRo:
+    case HLoadClass::LoadKind::kAppImageRelRo:
     case HLoadClass::LoadKind::kBssEntry:
     case HLoadClass::LoadKind::kBssEntryPublic:
     case HLoadClass::LoadKind::kBssEntryPackage:

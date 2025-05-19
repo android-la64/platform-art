@@ -283,16 +283,16 @@ ArrayRef<const FRegister> GetFPRegisters() override {
     }
     // Test various registers with a few small values.
     // (Even Zero is an accepted register even if that does not really load the requested value.)
-    for (XRegister* reg : GetRegisters()) {
-      if (can_use_tmp && *reg == TMP) {
+    for (XRegister reg : GetRegisters()) {
+      if (can_use_tmp && reg == TMP) {
         continue;  // Not a valid target register.
       }
-      std::string rd = GetRegisterName(*reg);
-      emit_load_const(*reg, -1);
+      std::string rd = GetRegisterName(reg);
+      emit_load_const(reg, -1);
       expected += "li.d " + rd + ", -1\n";
-      emit_load_const(*reg, 0);
+      emit_load_const(reg, 0);
       expected += "li.d " + rd + ", 0\n";
-      emit_load_const(*reg, 1);
+      emit_load_const(reg, 1);
       expected += "li.d " + rd + ", 1\n";
     }
     // TODO
@@ -673,25 +673,25 @@ ArrayRef<const FRegister> GetFPRegisters() override {
     std::string tmp_name = GetRegisterName(TMP);
 
     std::string expected;
-    for (XRegister* rd : GetRegisters()) {
-      std::string rd_name = GetRegisterName(*rd);
+    for (XRegister rd : GetRegisters()) {
+      std::string rd_name = GetRegisterName(rd);
       std::string addi_rd = "addi." + suffix + " " + rd_name + ", ";
       std::string add_rd = "add." + suffix + " " + rd_name + ", ";
-      for (XRegister* rs1 : GetRegisters()) {
+      for (XRegister rs1 : GetRegisters()) {
         // TMP can be the destination register but not the source register.
-        if (*rs1 == TMP) {
+        if (rs1 == TMP) {
           continue;
         }
-        std::string rs1_name = GetRegisterName(*rs1);
+        std::string rs1_name = GetRegisterName(rs1);
 
         for (int64_t imm : kImm12s) {
-          emit_op(*rd, *rs1, imm);
+          emit_op(rd, rs1, imm);
           expected += addi_rd + rs1_name + ", " + std::to_string(imm) + "\n";
         }
 
         auto emit_simple_ops = [&](ArrayRef<const int64_t> imms, int64_t adjustment) {
           for (int64_t imm : imms) {
-            emit_op(*rd, *rs1, imm);
+            emit_op(rd, rs1, imm);
             expected += addi_rd + rs1_name + ", " + std::to_string(adjustment) + "\n" +
                         addi_rd + rd_name + ", " + std::to_string(imm - adjustment) + "\n";
           }
@@ -700,7 +700,7 @@ ArrayRef<const FRegister> GetFPRegisters() override {
         emit_simple_ops(ArrayRef<const int64_t>(kSimpleNegativeValues), -0x800);
 
         for (int64_t imm : large_values) {
-          emit_op(*rd, *rs1, imm);
+          emit_op(rd, rs1, imm);
           expected += "li.d " + tmp_name + ", " + std::to_string(imm) + "\n" +
                       add_rd + rs1_name + ", " + tmp_name + "\n";
         }
@@ -742,20 +742,20 @@ ArrayRef<const FRegister> GetFPRegisters() override {
 
     std::string tmp_name = GetRegisterName(TMP);
     std::string expected;
-    for (XRegister* rs1 : GetRegisters()) {
-      if (*rs1 == TMP) {
+    for (XRegister rs1 : GetRegisters()) {
+      if (rs1 == TMP) {
         continue;  // TMP cannot be the address base register.
       }
-      std::string rs1_name = GetRegisterName(*rs1);
+      std::string rs1_name = GetRegisterName(rs1);
 
       for (int64_t imm : kImm12s) {
-        emit_op(*rs1, imm);
+        emit_op(rs1, imm);
         expected += head + ", " + rs1_name + ", " + std::to_string(imm) + "\n";
       }
 
       auto emit_simple_ops = [&](ArrayRef<const int64_t> imms, int64_t adjustment) {
         for (int64_t imm : imms) {
-          emit_op(*rs1, imm);
+          emit_op(rs1, imm);
           expected +=
               "addi.d " + tmp_name + ", " + rs1_name + ", " + std::to_string(adjustment) + "\n" +
               head + ", " + tmp_name + ", " + std::to_string(imm - adjustment) + "\n";
@@ -793,16 +793,16 @@ ArrayRef<const FRegister> GetFPRegisters() override {
                                     void (Loongarch64Assembler::*fn)(XRegister, XRegister, int32_t),
                                     bool is_store) {
     std::string expected;
-    for (XRegister* rd : GetRegisters()) {
+    for (XRegister rd : GetRegisters()) {
       // TMP can be the target register for loads but not for stores where loading the
       // adjusted address to TMP would clobber the value we want to store.
-      if (is_store && *rd == TMP) {
+      if (is_store && rd == TMP) {
         continue;
       }
       if(is_store) {};
       expected += RepeatLoadStoreArbitraryOffset(
-          insn + " " + GetRegisterName(*rd),
-          [&](XRegister rs1, int64_t offset) { (GetAssembler()->*fn)(*rd, rs1, offset); });
+          insn + " " + GetRegisterName(rd),
+          [&](XRegister rs1, int64_t offset) { (GetAssembler()->*fn)(rd, rs1, offset); });
     }
     DriverStr(expected, test_name);
   }
