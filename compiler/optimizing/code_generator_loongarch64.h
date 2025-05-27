@@ -50,6 +50,54 @@ static constexpr size_t kRuntimeParameterFpuRegistersLength =
     arraysize(kRuntimeParameterFpuRegisters);
 
 #define UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(V) \
+  V(IntegerRemainderUnsigned)                   \
+  V(LongRemainderUnsigned)                      \
+  V(MathFmaDouble)                              \
+  V(MathFmaFloat)                               \
+  V(SystemArrayCopyByte)                        \
+  V(SystemArrayCopyInt)                         \
+  V(FP16Compare)                                \
+  V(FP16Min)                                    \
+  V(FP16Max)                                    \
+  V(UnsafeGetByte)                              \
+  V(UnsafePutByte)                              \
+  V(JdkUnsafeCASInt)                            \
+  V(JdkUnsafeCASLong)                           \
+  V(JdkUnsafeCASObject)                         \
+  V(JdkUnsafeCompareAndSetInt)                  \
+  V(JdkUnsafeCompareAndSetLong)                 \
+  V(JdkUnsafeCompareAndSetReference)            \
+  V(JdkUnsafeGet)                               \
+  V(JdkUnsafeGetVolatile)                       \
+  V(JdkUnsafeGetAcquire)                        \
+  V(JdkUnsafeGetReference)                      \
+  V(JdkUnsafeGetReferenceVolatile)              \
+  V(JdkUnsafeGetReferenceAcquire)               \
+  V(JdkUnsafeGetLong)                           \
+  V(JdkUnsafeGetLongVolatile)                   \
+  V(JdkUnsafeGetLongAcquire)                    \
+  V(JdkUnsafeGetByte)                           \
+  V(JdkUnsafePut)                               \
+  V(JdkUnsafePutOrdered)                        \
+  V(JdkUnsafePutRelease)                        \
+  V(JdkUnsafePutVolatile)                       \
+  V(JdkUnsafePutReference)                      \
+  V(JdkUnsafePutObjectOrdered)                  \
+  V(JdkUnsafePutReferenceVolatile)              \
+  V(JdkUnsafePutReferenceRelease)               \
+  V(JdkUnsafePutLong)                           \
+  V(JdkUnsafePutLongOrdered)                    \
+  V(JdkUnsafePutLongVolatile)                   \
+  V(JdkUnsafePutLongRelease)                    \
+  V(JdkUnsafePutByte)                           \
+  V(JdkUnsafeGetAndAddInt)                      \
+  V(JdkUnsafeGetAndAddLong)                     \
+  V(JdkUnsafeGetAndSetInt)                      \
+  V(JdkUnsafeGetAndSetLong)                     \
+  V(JdkUnsafeGetAndSetReference)                \
+  V(ByteValueOf)                                \
+  V(ShortValueOf)                               \
+  V(CharacterValueOf)                           \
   V(DoubleDoubleToRawLongBits)                  \
   V(DoubleIsInfinite)                           \
   V(DoubleLongBitsToDouble)                     \
