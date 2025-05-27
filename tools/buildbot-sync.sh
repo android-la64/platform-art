@@ -92,8 +92,8 @@ activate_apex() {
   # see a directory we assume buildbot-build.sh has already done it for us and
   # just use it.
   src_apex_path=$ANDROID_PRODUCT_OUT/system/apex/${src_apex}
-  if [ ! -d $src_apex_path ]; then
-    unset src_apex_file
+  # if [ ! -d $src_apex_path ]; then
+  rm -rf $src_apex_path
     if [ -f "${src_apex_path}.apex" ]; then
       src_apex_file="${src_apex_path}.apex"
     elif [ -f "${src_apex_path}.capex" ]; then
@@ -108,7 +108,7 @@ activate_apex() {
     $ANDROID_HOST_OUT/bin/deapexer --debugfs_path $ANDROID_HOST_OUT/bin/debugfs_static \
       --fsckerofs_path $ANDROID_HOST_OUT/bin/fsck.erofs \
       extract ${src_apex_file} $src_apex_path
-  fi
+  # fi
 
   msginfo "Activating APEX ${src_apex} as ${dst_apex}..."
   if [[ -n "$ART_TEST_ON_VM" ]]; then
