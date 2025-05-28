@@ -350,6 +350,10 @@ if [[ $build_target == "yes" ]]; then
   for apex in ${apexes[@]}; do
     src="$ANDROID_PRODUCT_OUT/system/apex/${apex}"
     if [[ $apex == com.android.art.* ]]; then
+      if [[ -n $OUT_DIR ]]; then
+        src=${src//out/"${OUT_DIR}"}
+        src=${src//system/}
+      fi
       dst="$linkerconfig_root/apex/com.android.art"
     else
       dst="$linkerconfig_root/apex/${apex}"

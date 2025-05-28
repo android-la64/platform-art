@@ -273,6 +273,7 @@ art_cc_defaults {
         },
         loongarch64: {
             srcs: [
+                "jni/quick/loongarch64/calling_convention_loongarch64.cc",
                 "optimizing/code_generator_loongarch64.cc",
                 "optimizing/intrinsics_loongarch64.cc",
                 "utils/loongarch64/assembler_loongarch64.cc",
