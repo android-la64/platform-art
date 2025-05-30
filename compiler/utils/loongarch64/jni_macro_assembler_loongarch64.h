@@ -25,13 +25,13 @@
 
 #include "assembler_loongarch64.h"
 #include "base/arena_containers.h"
-#include "base/enums.h"
 #include "base/macros.h"
+#include "base/pointer_size.h"
 #include "offsets.h"
 #include "utils/assembler.h"
 #include "utils/jni_macro_assembler.h"
 
-namespace art {
+namespace art HIDDEN {
 namespace loongarch64 {
 
 class Loongarch64JNIMacroAssembler : public JNIMacroAssemblerFwd<Loongarch64Assembler, PointerSize::k64> {
@@ -56,69 +56,29 @@ class Loongarch64JNIMacroAssembler : public JNIMacroAssemblerFwd<Loongarch64Asse
   void IncreaseFrameSize(size_t adjust) override;
   void DecreaseFrameSize(size_t adjust) override;
 
+  ManagedRegister CoreRegisterWithSize(ManagedRegister src, size_t size) override;
+
   // Store routines.
   void Store(FrameOffset offs, ManagedRegister src, size_t size) override;
-  void StoreRawPtr(FrameOffset dest, ManagedRegister src) override;
-  void StoreStackPointerToThread(ThreadOffset64 thr_offs) override;
-  // unused
-  void StoreRef(FrameOffset dest, ManagedRegister src) override;
-  void StoreImmediateToFrame(FrameOffset dest, uint32_t imm) override;
-  void StoreStackOffsetToThread(ThreadOffset64 thr_offs, FrameOffset fr_offs) override;
-  void StoreSpanning(FrameOffset dest, ManagedRegister src, FrameOffset in_off) override;
+  void Store(ManagedRegister base, MemberOffset offs, ManagedRegister src, size_t size) override;
+  void StoreRawPtr(FrameOffset offs, ManagedRegister src) override;
+  void StoreStackPointerToThread(ThreadOffset64 offs, bool tag_sp) override;
 
   // Load routines.
-  void Load(ManagedRegister dest, FrameOffset src, size_t size) override;
-  void LoadFromThread(ManagedRegister dest, ThreadOffset64 src, size_t size) override;
+  void Load(ManagedRegister dest, FrameOffset offs, size_t size) override;
+  void Load(ManagedRegister dest, ManagedRegister base, MemberOffset offs, size_t size) override;
   void LoadRawPtrFromThread(ManagedRegister dest, ThreadOffset64 offs) override;
-  // unused
-  void LoadRef(ManagedRegister dest, FrameOffset src) override;
-  void LoadRef(ManagedRegister dest,
-               ManagedRegister base,
-               MemberOffset offs,
-               bool unpoison_reference) override;
-  void LoadRawPtr(ManagedRegister dest, ManagedRegister base, Offset offs) override;
+  void LoadGcRootWithoutReadBarrier(ManagedRegister dest,
+                                    ManagedRegister base,
+                                    MemberOffset offs) override;
+  void LoadStackReference(ManagedRegister dest, FrameOffset offs) override;
 
   // Copying routines.
-  void MoveArguments(ArrayRef<ArgumentLocation> dests, ArrayRef<ArgumentLocation> srcs) override;
+  void MoveArguments(ArrayRef<ArgumentLocation> dests,
+                     ArrayRef<ArgumentLocation> srcs,
+                     ArrayRef<FrameOffset> refs) override;
   void Move(ManagedRegister dest, ManagedRegister src, size_t size) override;
-  void CopyRawPtrFromThread(FrameOffset fr_offs, ThreadOffset64 thr_offs) override;
-  void Copy(FrameOffset dest, FrameOffset src, size_t size) override;
-  void MemoryBarrier(ManagedRegister scratch) override;
-  // unused
-  void CopyRawPtrToThread(ThreadOffset64 thr_offs, FrameOffset fr_offs, ManagedRegister scratch)
-      override;
-  void CopyRef(FrameOffset dest, FrameOffset src) override;
-  void CopyRef(FrameOffset dest,
-               ManagedRegister base,
-               MemberOffset offs,
-               bool unpoison_reference) override;
-  void Copy(FrameOffset dest,
-            ManagedRegister src_base,
-            Offset src_offset,
-            ManagedRegister scratch,
-            size_t size) override;
-  void Copy(ManagedRegister dest_base,
-            Offset dest_offset,
-            FrameOffset src,
-            ManagedRegister scratch,
-            size_t size) override;
-  void Copy(FrameOffset dest,
-            FrameOffset src_base,
-            Offset src_offset,
-            ManagedRegister scratch,
-            size_t size) override;
-  void Copy(ManagedRegister dest,
-            Offset dest_offset,
-            ManagedRegister src,
-            Offset src_offset,
-            ManagedRegister scratch,
-            size_t size) override;
-  void Copy(FrameOffset dest,
-            Offset dest_offset,
-            FrameOffset src,
-            Offset src_offset,
-            ManagedRegister scratch,
-            size_t size) override;
+  void Move(ManagedRegister dest, size_t value) override;
 
   // Sign extension.
   void SignExtend(ManagedRegister mreg, size_t size) override;
@@ -127,23 +87,13 @@ class Loongarch64JNIMacroAssembler : public JNIMacroAssemblerFwd<Loongarch64Asse
   void ZeroExtend(ManagedRegister mreg, size_t size) override;
 
   // Exploit fast access in managed code to Thread::Current().
-  void GetCurrentThread(ManagedRegister tr) override;
-  void GetCurrentThread(FrameOffset dest_offset) override;
+  void GetCurrentThread(ManagedRegister dest) override;
+  void GetCurrentThread(FrameOffset offset) override;
 
-  // unused
-  // Set up `out_reg` to hold a `jobject` (`StackReference<Object>*` to a spilled value),
-  // or to be null if the value is null and `null_allowed`. `in_reg` holds a possibly
-  // stale reference that can be used to avoid loading the spilled value to
-  // see if the value is null.
-  void CreateJObject(ManagedRegister out_reg,
-                     FrameOffset spilled_reference_offset,
-                     ManagedRegister in_reg,
-                     bool null_allowed) override;
-  // Set up `out_off` to hold a `jobject` (`StackReference<Object>*` to a spilled value),
-  // or to be null if the value is null and `null_allowed`.
-  void CreateJObject(FrameOffset out_off,
-                     FrameOffset spilled_reference_offset,
-                     bool null_allowed) override;
+  // Decode JNI transition or local `jobject`. For (weak) global `jobject`, jump to slow path.
+  void DecodeJNITransitionOrLocalJObject(ManagedRegister reg,
+                                         JNIMacroLabel* slow_path,
+                                         JNIMacroLabel* resume) override;
 
   // Heap::VerifyObject on src. In some cases (such as a reference to this) we
   // know that src may not be null.
@@ -155,13 +105,29 @@ class Loongarch64JNIMacroAssembler : public JNIMacroAssemblerFwd<Loongarch64Asse
 
   // Call to address held at [base+offset].
   void Call(ManagedRegister base, Offset offset) override;
-  void Call(FrameOffset base, Offset offset) override;
   void CallFromThread(ThreadOffset64 offset) override;
 
-  // Generate code to check if Thread::Current()->exception_ is non-null
-  // and branch to a ExceptionSlowPath if it is.
-  void ExceptionPoll(size_t stack_adjust) override;
+  // Generate fast-path for transition to Native. Go to `label` if any thread flag is set.
+  // The implementation can use `scratch_regs` which should be callee save core registers
+  // (already saved before this call) and must preserve all argument registers.
+  void TryToTransitionFromRunnableToNative(JNIMacroLabel* label,
+                                           ArrayRef<const ManagedRegister> scratch_regs) override;
 
+  // Generate fast-path for transition to Runnable. Go to `label` if any thread flag is set.
+  // The implementation can use `scratch_regs` which should be core argument registers
+  // not used as return registers and it must preserve the `return_reg` if any.
+  void TryToTransitionFromNativeToRunnable(JNIMacroLabel* label,
+                                           ArrayRef<const ManagedRegister> scratch_regs,
+                                           ManagedRegister return_reg) override;
+
+  // Generate suspend check and branch to `label` if there is a pending suspend request.
+  void SuspendCheck(JNIMacroLabel* label) override;
+
+  // Generate code to check if Thread::Current()->exception_ is non-null
+  // and branch to the `label` if it is.
+  void ExceptionPoll(JNIMacroLabel* label) override;
+  // Deliver pending exception.
+  void DeliverPendingException() override;
 
   // Create a new label that can be used with Jump/Bind calls.
   std::unique_ptr<JNIMacroLabel> CreateLabel() override;
@@ -169,12 +135,20 @@ class Loongarch64JNIMacroAssembler : public JNIMacroAssemblerFwd<Loongarch64Asse
   void Jump(JNIMacroLabel* label) override;
   // Emit a conditional jump to the label by applying a unary condition test to the GC marking flag.
   void TestGcMarking(JNIMacroLabel* label, JNIMacroUnaryCondition cond) override;
+  // Emit a conditional jump to the label by applying a unary condition test to object's mark bit.
+  void TestMarkBit(ManagedRegister ref, JNIMacroLabel* label, JNIMacroUnaryCondition cond) override;
+  // Emit a conditional jump to label if the loaded value from specified locations is not zero.
+  void TestByteAndJumpIfNotZero(uintptr_t address, JNIMacroLabel* label) override;
   // Code at this offset will serve as the target for the Jump call.
   void Bind(JNIMacroLabel* label) override;
 
-private:
-  void Store(ManagedRegister base, MemberOffset offs, ManagedRegister src, size_t size);
+ private:
+  void CreateJObject(ManagedRegister m_dest,
+                     FrameOffset spilled_reference_offset,
+                     ManagedRegister m_ref,
+                     bool null_allowed);
 
+  ART_FRIEND_TEST(JniMacroAssemblerLoongarch64Test, CreateJObject);
 };
 
 class Loongarch64JNIMacroLabel final

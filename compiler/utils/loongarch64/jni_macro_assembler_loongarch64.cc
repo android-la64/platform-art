@@ -15,69 +15,97 @@
  */
 
 #include "jni_macro_assembler_loongarch64.h"
-#include <cstdint>
 
-#include "android-base/macros.h"
+#include "base/bit_utils_iterator.h"
+#include "dwarf/register.h"
 #include "entrypoints/quick/quick_entrypoints.h"
+#include "gc_root.h"
+#include "indirect_reference_table.h"
+#include "lock_word.h"
 #include "managed_register_loongarch64.h"
 #include "offsets.h"
+#include "stack_reference.h"
 #include "thread.h"
-#include "utils/managed_register.h"
 
-namespace art {
+namespace art HIDDEN {
 namespace loongarch64 {
+
+static constexpr size_t kSpillSize = 8;  // Both GPRs and FPRs
+
+static __attribute__((unused)) std::pair<uint32_t, uint32_t> GetCoreAndFpSpillMasks(
+    ArrayRef<const ManagedRegister> callee_save_regs) {
+// TODO：This function is used by BuildFrame/RemoveFrame for calculating callee-save mask.
+// Temporarily marked as 'unused' to avoid -Wunused-function/-Werror build failure
+// because those functions are not yet implemented. Remove __attribute__((unused))
+// after BuildFrame/RemoveFrame are implemented and use this function.
+  uint32_t core_spill_mask = 0u;
+  uint32_t fp_spill_mask = 0u;
+  for (ManagedRegister r : callee_save_regs) {
+    Loongarch64ManagedRegister reg = r.AsLoongarch64();
+    if (reg.IsXRegister()) {
+      core_spill_mask |= 1u << reg.AsXRegister();
+    } else {
+      DCHECK(reg.IsFRegister());
+      fp_spill_mask |= 1u << reg.AsFRegister();
+    }
+  }
+  DCHECK_EQ(callee_save_regs.size(),
+            dchecked_integral_cast<size_t>(POPCOUNT(core_spill_mask) + POPCOUNT(fp_spill_mask)));
+  return {core_spill_mask, fp_spill_mask};
+}
 
 #define __ asm_.
 
-Loongarch64JNIMacroAssembler::~Loongarch64JNIMacroAssembler() {
-}
+Loongarch64JNIMacroAssembler::~Loongarch64JNIMacroAssembler() {}
 
 void Loongarch64JNIMacroAssembler::FinalizeCode() {
-  __ FinalizeCode();
+  // TODO(loongarch64): Implement this.
 }
 
 void Loongarch64JNIMacroAssembler::BuildFrame(size_t frame_size,
-                                          ManagedRegister method_reg,
-                                          ArrayRef<const ManagedRegister> callee_save_regs) {
+                                              ManagedRegister method_reg,
+                                              ArrayRef<const ManagedRegister> callee_save_regs) {
   // TODO(loongarch64): Implement this.
+  // Increase frame to required size.
+  // Must at least have space for Method* if we're going to spill it.
   UNUSED(frame_size, method_reg, callee_save_regs);
 }
 
 void Loongarch64JNIMacroAssembler::RemoveFrame(size_t frame_size,
-                                           ArrayRef<const ManagedRegister> callee_save_regs,
-                                           bool may_suspend) {
+                                               ArrayRef<const ManagedRegister> callee_save_regs,
+                                               [[maybe_unused]] bool may_suspend) {
   // TODO(loongarch64): Implement this.
+  // Restore callee-saves.
   UNUSED(frame_size, callee_save_regs, may_suspend);
 }
 
 void Loongarch64JNIMacroAssembler::IncreaseFrameSize(size_t adjust) {
-  if (adjust != 0u) {
-    CHECK_ALIGNED(adjust, kStackAlignment);
-    __ AddConst64(SP, SP, -adjust);
-    __ cfi().AdjustCFAOffset(adjust);
-  }
+  // TODO(loongarch64): Implement this.
+  UNUSED(adjust);
 }
 
 void Loongarch64JNIMacroAssembler::DecreaseFrameSize(size_t adjust) {
-  if (adjust != 0u) {
-    CHECK_ALIGNED(adjust, kStackAlignment);
-    __ AddConst64(SP, SP, adjust);
-    __ cfi().AdjustCFAOffset(-adjust);
-  }
+  // TODO(loongarch64): Implement this.
+  UNUSED(adjust);
 }
 
+ManagedRegister Loongarch64JNIMacroAssembler::CoreRegisterWithSize(ManagedRegister src, size_t size) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(src, size);
+  return src;
+}
 
 void Loongarch64JNIMacroAssembler::Store(FrameOffset offs, ManagedRegister m_src, size_t size) {
   // TODO(loongarch64): Implement this.
   UNUSED(offs, m_src, size);
 }
 
-void Loongarch64JNIMacroAssembler::Store(ManagedRegister base,
-                                     MemberOffset offs,
-                                     ManagedRegister m_src,
-                                     size_t size) {
+void Loongarch64JNIMacroAssembler::Store(ManagedRegister m_base,
+                                         MemberOffset offs,
+                                         ManagedRegister m_src,
+                                         size_t size) {
   // TODO(loongarch64): Implement this.
-  UNUSED(base, offs, m_src, size);
+  UNUSED(m_base, offs, m_src, size);
 }
 
 void Loongarch64JNIMacroAssembler::StoreRawPtr(FrameOffset offs, ManagedRegister m_src) {
@@ -85,36 +113,22 @@ void Loongarch64JNIMacroAssembler::StoreRawPtr(FrameOffset offs, ManagedRegister
   UNUSED(offs, m_src);
 }
 
-void Loongarch64JNIMacroAssembler::StoreStackPointerToThread(ThreadOffset64 tr_offs) {
+void Loongarch64JNIMacroAssembler::StoreStackPointerToThread(ThreadOffset64 offs, bool tag_sp) {
   // TODO(loongarch64): Implement this.
-  UNUSED(tr_offs);
+  UNUSED(offs, tag_sp);
 }
 
-// unused
-void Loongarch64JNIMacroAssembler::StoreRef(FrameOffset dest, ManagedRegister src) {
-  UNUSED(dest, src);
-}
-
-void Loongarch64JNIMacroAssembler::StoreImmediateToFrame(FrameOffset dest, uint32_t imm) {
-  UNUSED(dest, imm);
-}
-
-void Loongarch64JNIMacroAssembler::StoreStackOffsetToThread(ThreadOffset64 thr_offs, FrameOffset fr_offs) {
-  UNUSED(thr_offs, fr_offs);
-}
-
-void Loongarch64JNIMacroAssembler::StoreSpanning(FrameOffset dest, ManagedRegister src, FrameOffset in_off) {
-  UNUSED(dest, src, in_off);
-}
-
-void Loongarch64JNIMacroAssembler::Load(ManagedRegister m_dest, FrameOffset src, size_t size) {
+void Loongarch64JNIMacroAssembler::Load(ManagedRegister m_dest, FrameOffset offs, size_t size) {
   // TODO(loongarch64): Implement this.
-  UNUSED(m_dest, src, size);
+  UNUSED(m_dest, offs, size);
 }
 
-void Loongarch64JNIMacroAssembler::LoadFromThread(ManagedRegister dest, ThreadOffset64 src, size_t size) {
+void Loongarch64JNIMacroAssembler::Load(ManagedRegister m_dest,
+                                        ManagedRegister m_base,
+                                        MemberOffset offs,
+                                        size_t size) {
   // TODO(loongarch64): Implement this.
-  UNUSED(dest, src, size);
+  UNUSED(m_dest, m_base, offs, size);
 }
 
 void Loongarch64JNIMacroAssembler::LoadRawPtrFromThread(ManagedRegister m_dest, ThreadOffset64 offs) {
@@ -122,23 +136,23 @@ void Loongarch64JNIMacroAssembler::LoadRawPtrFromThread(ManagedRegister m_dest, 
   UNUSED(m_dest, offs);
 }
 
-// unused
-void Loongarch64JNIMacroAssembler::LoadRef(ManagedRegister dest, FrameOffset src) {
-  UNUSED(dest, src);
+void Loongarch64JNIMacroAssembler::LoadGcRootWithoutReadBarrier(ManagedRegister m_dest,
+                                                                ManagedRegister m_base,
+                                                                MemberOffset offs) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_dest, m_base, offs);
 }
 
-void Loongarch64JNIMacroAssembler::LoadRef(ManagedRegister dest, ManagedRegister base, MemberOffset offs, bool unpoison_reference) {
-  UNUSED(dest, base, offs, unpoison_reference);
-}
-
-void Loongarch64JNIMacroAssembler::LoadRawPtr(ManagedRegister dest, ManagedRegister base, Offset offs) {
-  UNUSED(dest, base, offs);
+void Loongarch64JNIMacroAssembler::LoadStackReference(ManagedRegister m_dest, FrameOffset offs) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_dest, offs);
 }
 
 void Loongarch64JNIMacroAssembler::MoveArguments(ArrayRef<ArgumentLocation> dests,
-                                             ArrayRef<ArgumentLocation> srcs) {
+                                                 ArrayRef<ArgumentLocation> srcs,
+                                                 ArrayRef<FrameOffset> refs) {
   // TODO(loongarch64): Implement this.
-  UNUSED(dests, srcs);
+  UNUSED(dests, srcs, refs);
 }
 
 void Loongarch64JNIMacroAssembler::Move(ManagedRegister m_dest, ManagedRegister m_src, size_t size) {
@@ -146,74 +160,24 @@ void Loongarch64JNIMacroAssembler::Move(ManagedRegister m_dest, ManagedRegister 
   UNUSED(m_dest, m_src, size);
 }
 
-void Loongarch64JNIMacroAssembler::CopyRawPtrFromThread(FrameOffset fr_offs, ThreadOffset64 tr_offs) {
+void Loongarch64JNIMacroAssembler::Move(ManagedRegister m_dest, size_t value) {
   // TODO(loongarch64): Implement this.
-  UNUSED(fr_offs, tr_offs);
+  UNUSED(m_dest, value);
 }
 
-void Loongarch64JNIMacroAssembler::Copy(FrameOffset dest, FrameOffset src, size_t size) {
-  DCHECK(size == 4 || size == 8) << size;
-  if(size == 8) {
-    __ Load_D(TMP2, SP, src.Int32Value());
-    __ Store_D(TMP2, SP, dest.Int32Value());
-  } else {
-    __ Load_W(TMP2, SP, src.Int32Value());
-    __ Store_W(TMP2, SP, dest.Int32Value());
-  }
-}
-
-void Loongarch64JNIMacroAssembler::MemoryBarrier(ManagedRegister m_scratch) {
+void Loongarch64JNIMacroAssembler::SignExtend([[maybe_unused]] ManagedRegister mreg,
+                                              [[maybe_unused]] size_t size) {
   // TODO(loongarch64): Implement this.
-  UNUSED(m_scratch);
 }
 
-// unused
-void Loongarch64JNIMacroAssembler::CopyRawPtrToThread(ThreadOffset64 thr_offs, FrameOffset fr_offs, ManagedRegister scratch) {
-  UNUSED(thr_offs, fr_offs, scratch);
-}
-
-void Loongarch64JNIMacroAssembler::CopyRef(FrameOffset dest, FrameOffset src) {
-  UNUSED(dest, src);
-}
-
-void Loongarch64JNIMacroAssembler::CopyRef(FrameOffset dest, ManagedRegister base, MemberOffset offs, bool unpoison_reference) {
-  UNUSED(dest, base, offs, unpoison_reference);
-}
-
-void Loongarch64JNIMacroAssembler::Copy(FrameOffset dest, ManagedRegister src_base, Offset src_offset, ManagedRegister scratch, size_t size) {
-  UNUSED(dest, src_base, src_offset, scratch, size);
-}
-
-void Loongarch64JNIMacroAssembler::Copy(ManagedRegister dest_base, Offset dest_offset, FrameOffset src, ManagedRegister scratch,
-            size_t size) {
-  UNUSED(dest_base, dest_offset, src, scratch, size);
-}
-
-void Loongarch64JNIMacroAssembler::Copy(FrameOffset dest, FrameOffset src_base, Offset src_offset, ManagedRegister scratch, size_t size) {
-  UNUSED(dest, src_base, src_offset, scratch, size);
-}
-
-void Loongarch64JNIMacroAssembler::Copy(ManagedRegister dest, Offset dest_offset, ManagedRegister src, Offset src_offset, ManagedRegister scratch, size_t size) {
-  UNUSED(dest, dest_offset, src, src_offset, scratch, size);
-}
-
-void Loongarch64JNIMacroAssembler::Copy(FrameOffset dest, Offset dest_offset, FrameOffset src, Offset src_offset, ManagedRegister scratch, size_t size) {
-  UNUSED(dest, dest_offset, src, src_offset, scratch, size);
-}
-
-void Loongarch64JNIMacroAssembler::SignExtend(ManagedRegister mreg, size_t size) {
+void Loongarch64JNIMacroAssembler::ZeroExtend([[maybe_unused]] ManagedRegister mreg,
+                                              [[maybe_unused]] size_t size) {
   // TODO(loongarch64): Implement this.
-  UNUSED(mreg, size);
 }
 
-void Loongarch64JNIMacroAssembler::ZeroExtend(ManagedRegister mreg, size_t size) {
+void Loongarch64JNIMacroAssembler::GetCurrentThread(ManagedRegister dest) {
   // TODO(loongarch64): Implement this.
-  UNUSED(mreg, size);
-}
-
-void Loongarch64JNIMacroAssembler::GetCurrentThread(ManagedRegister tr) {
-  // TODO(loongarch64): Implement this.
-  UNUSED(tr);
+  UNUSED(dest);
 }
 
 void Loongarch64JNIMacroAssembler::GetCurrentThread(FrameOffset offset) {
@@ -221,94 +185,108 @@ void Loongarch64JNIMacroAssembler::GetCurrentThread(FrameOffset offset) {
   UNUSED(offset);
 }
 
-// unused
-void Loongarch64JNIMacroAssembler::CreateJObject(ManagedRegister out_reg, FrameOffset spilled_reference_offset, ManagedRegister in_reg, bool null_allowed) {
-  UNUSED(out_reg, spilled_reference_offset, in_reg, null_allowed);
+void Loongarch64JNIMacroAssembler::DecodeJNITransitionOrLocalJObject(ManagedRegister m_reg,
+                                                                     JNIMacroLabel* slow_path,
+                                                                     JNIMacroLabel* resume) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_reg, slow_path, resume);
 }
-
-void Loongarch64JNIMacroAssembler::CreateJObject(FrameOffset out_off, FrameOffset spilled_reference_offset, bool null_allowed) {
-  UNUSED(out_off, spilled_reference_offset, null_allowed);
-}
-
 
 void Loongarch64JNIMacroAssembler::VerifyObject([[maybe_unused]] ManagedRegister m_src,
-                                            [[maybe_unused]] bool could_be_null) {
+                                                [[maybe_unused]] bool could_be_null) {
   // TODO: not validating references.
 }
 
 void Loongarch64JNIMacroAssembler::VerifyObject([[maybe_unused]] FrameOffset src,
-                                            [[maybe_unused]] bool could_be_null) {
+                                                [[maybe_unused]] bool could_be_null) {
   // TODO: not validating references.
 }
 
 void Loongarch64JNIMacroAssembler::Jump(ManagedRegister m_base, Offset offs) {
-  Loongarch64ManagedRegister base = m_base.AsLoongarch64();
-  CHECK(base.IsXRegister()) << base;
-  XRegister scratch = TMP;
-  __ Load_D(scratch, base.AsXRegister(), offs.Int32Value());
-  __ Jr(scratch);
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_base, offs);
 }
 
 void Loongarch64JNIMacroAssembler::Call(ManagedRegister m_base, Offset offs) {
-  Loongarch64ManagedRegister base = m_base.AsLoongarch64();
-  CHECK(base.IsXRegister()) << base;
-  XRegister scratch = TMP2;
-  __ Load_D(scratch, base.AsXRegister(), offs.Int32Value());
-  __ Jirl(RA, scratch, 0);
-}
-
-void Loongarch64JNIMacroAssembler::Call(FrameOffset base, Offset offs) {
-  // Call *(*(SP + base) + offset)
-  __ Load_D(TMP2, SP, base.Int32Value());
-  __ Load_D(TMP2, TMP2, offs.Int32Value());
-  __ Jirl(RA, TMP2, 0);
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_base, offs);
 }
 
 void Loongarch64JNIMacroAssembler::CallFromThread(ThreadOffset64 offset) {
-  Call(Loongarch64ManagedRegister::FromXRegister(TR), offset);
+  // TODO(loongarch64): Implement this.
+  UNUSED(offset);
 }
 
-void Loongarch64JNIMacroAssembler::ExceptionPoll(size_t stack_adjust) {
-  UNUSED(stack_adjust);
+void Loongarch64JNIMacroAssembler::TryToTransitionFromRunnableToNative(
+    JNIMacroLabel* label,
+    ArrayRef<const ManagedRegister> scratch_regs) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(label, scratch_regs);
+}
+
+void Loongarch64JNIMacroAssembler::TryToTransitionFromNativeToRunnable(
+    JNIMacroLabel* label,
+    ArrayRef<const ManagedRegister> scratch_regs,
+    ManagedRegister return_reg) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(label, scratch_regs, return_reg);
+}
+
+void Loongarch64JNIMacroAssembler::SuspendCheck(JNIMacroLabel* label) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(label);
+}
+
+void Loongarch64JNIMacroAssembler::ExceptionPoll(JNIMacroLabel* label) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(label);
+}
+
+void Loongarch64JNIMacroAssembler::DeliverPendingException() {
+  // TODO(loongarch64): Implement this.
 }
 
 std::unique_ptr<JNIMacroLabel> Loongarch64JNIMacroAssembler::CreateLabel() {
-  return std::unique_ptr<JNIMacroLabel>(new Loongarch64JNIMacroLabel());
+  // TODO(loongarch64): Implement this.
+  return std::unique_ptr<JNIMacroLabel>(nullptr);
 }
 
 void Loongarch64JNIMacroAssembler::Jump(JNIMacroLabel* label) {
-  CHECK(label != nullptr);
-  __ B(down_cast<Loongarch64Label*>(Loongarch64JNIMacroLabel::Cast(label)->AsLoongarch64()));
+  // TODO(loongarch64): Implement this.
+  UNUSED(label);
 }
 
 void Loongarch64JNIMacroAssembler::TestGcMarking(JNIMacroLabel* label, JNIMacroUnaryCondition cond) {
-  CHECK(label != nullptr);
+  // TODO(loongarch64): Implement this.
+  UNUSED(label, cond);
+}
 
-  DCHECK_EQ(Thread::IsGcMarkingSize(), 4u);
-  DCHECK(kUseReadBarrier);
+void Loongarch64JNIMacroAssembler::TestMarkBit(ManagedRegister m_ref,
+                                               JNIMacroLabel* label,
+                                               JNIMacroUnaryCondition cond) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_ref, label, cond);
+}
 
-  XRegister test_reg = TMP;
-  int32_t is_gc_marking_offset = Thread::IsGcMarkingOffset<kArm64PointerSize>().Int32Value();
-  __ Load_W(test_reg, TR, is_gc_marking_offset);
-  switch (cond) {
-    case JNIMacroUnaryCondition::kZero:
-      __ Beqz(test_reg, down_cast<Loongarch64Label*>(Loongarch64JNIMacroLabel::Cast(label)->AsLoongarch64()));
-      break;
-    case JNIMacroUnaryCondition::kNotZero:
-      __ Bnez(test_reg, down_cast<Loongarch64Label*>(Loongarch64JNIMacroLabel::Cast(label)->AsLoongarch64()));
-      break;
-    default:
-      LOG(FATAL) << "Not implemented unary condition: " << static_cast<int>(cond);
-      UNREACHABLE();
-  }
+void Loongarch64JNIMacroAssembler::TestByteAndJumpIfNotZero(uintptr_t address, JNIMacroLabel* label) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(address, label);
 }
 
 void Loongarch64JNIMacroAssembler::Bind(JNIMacroLabel* label) {
-  CHECK(label != nullptr);
-  __ Bind(Loongarch64JNIMacroLabel::Cast(label)->AsLoongarch64());
+  // TODO(loongarch64): Implement this.
+  UNUSED(label);
 }
 
-#undef ___
+void Loongarch64JNIMacroAssembler::CreateJObject(ManagedRegister m_dest,
+                                                 FrameOffset spilled_reference_offset,
+                                                 ManagedRegister m_ref,
+                                                 bool null_allowed) {
+  // TODO(loongarch64): Implement this.
+  UNUSED(m_dest, spilled_reference_offset, m_ref, null_allowed);
+}
+
+#undef __
 
 }  // namespace loongarch64
 }  // namespace art
