@@ -47,6 +47,9 @@ art_cc_defaults {
         x86_64: {
             srcs: ["disassembler_x86.cc"],
         },
+        loongarch64: {
+            srcs: ["disassembler_loongarch64.cc"],
+        },
     },
     shared_libs: [
         "libbase",

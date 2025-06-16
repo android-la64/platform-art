@@ -37,6 +37,10 @@
 # include "disassembler_x86.h"
 #endif
 
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+# include "disassembler_loongarch64.h"
+#endif
+
 using android::base::StringPrintf;
 
 namespace art {
@@ -68,6 +72,10 @@ Disassembler* Disassembler::Create(InstructionSet instruction_set, DisassemblerO
 #ifdef ART_ENABLE_CODEGEN_x86_64
     case InstructionSet::kX86_64:
       return new x86::DisassemblerX86(options, /* supports_rex= */ true);
+#endif
+#ifdef ART_ENABLE_CODEGEN_x86_64
+    case InstructionSet::kLoongarch64:
+      return new loongarch64::DisassemblerLoongarch64(options, /* supports_rex= */ true);
 #endif
     default:
       UNUSED(options);

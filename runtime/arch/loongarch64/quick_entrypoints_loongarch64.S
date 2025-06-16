@@ -706,7 +706,6 @@ END art_quick_compile_optimized
 
 UNDEFINED art_quick_deoptimize_from_compiled_code
 UNDEFINED art_quick_string_builder_append
-UNDEFINED art_quick_compile_optimized
 
 
 // Entry from managed code that calls artInstanceOfFromCode and on failure calls
