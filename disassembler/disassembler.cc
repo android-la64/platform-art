@@ -75,7 +75,7 @@ Disassembler* Disassembler::Create(InstructionSet instruction_set, DisassemblerO
 #endif
 #ifdef ART_ENABLE_CODEGEN_x86_64
     case InstructionSet::kLoongarch64:
-      return new loongarch64::DisassemblerLoongarch64(options, /* supports_rex= */ true);
+      return new loongarch64::DisassemblerLoongarch64(options);
 #endif
     default:
       UNUSED(options);

@@ -201,6 +201,14 @@ void Loongarch64Assembler::Bl(Loongarch64Label* label, bool is_bare) {
   Buncond(label, XRegister::RA, is_bare);
 }
 
+void Loongarch64Assembler::Bgez(XRegister rs, Loongarch64Label* label, bool is_bare) {
+  Bge(rs, Zero, label, is_bare);
+}
+
+void Loongarch64Assembler::Bltz(XRegister rs, Loongarch64Label* label, bool is_bare) {
+  Blt(rs, Zero, label, is_bare);
+}
+
 void Loongarch64Assembler::Beq(XRegister rs, XRegister rt, Loongarch64Label* label, bool is_bare) {
   Bcond(label, is_bare, kCondEQ, rs, rt);
 }
@@ -483,6 +491,25 @@ void Loongarch64Assembler::Store_D(XRegister rs2, XRegister rs1, int32_t offset)
   St_D(rs2, rs1, offset);
 }
 
+void Loongarch64Assembler::FLoad_S(FRegister fd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  FLd_s(fd, rs1, offset);
+}
+
+void Loongarch64Assembler::FLoad_D(FRegister fd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  FLd_d(fd, rs1, offset);
+}
+
+void Loongarch64Assembler::FStore_S(FRegister fd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  FSt_s(fd, rs1, offset);
+}
+
+void Loongarch64Assembler::FStore_D(FRegister fd, XRegister rs1, int32_t offset) {
+  AdjustBaseAndOffset(rs1, offset);
+  FSt_d(fd, rs1, offset);
+}
 /////////////////////////////// LOONGARCH64 PC_relative Instructions ///////////////////////////////
 void Loongarch64Assembler::Lu12i_W(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xa, imm20, rd);
@@ -552,6 +579,21 @@ void Loongarch64Assembler::Ld_WU(XRegister rd, XRegister rs1, int32_t offset) {
   Emit2RI12(0xaa, offset, rs1, rd);
 }
 
+// F L/S signed instructions : opcode from 00 1010 1100
+//                                       ~ 00 1010 1111
+void Loongarch64Assembler::FLd_s(FRegister fd, XRegister rs1, int32_t si12) {
+  Emit2RI12(0xac, si12, rs1, fd);
+}
+void Loongarch64Assembler::FSt_s(FRegister fd, XRegister rs1, int32_t si12) {
+  Emit2RI12(0xad, si12, rs1, fd);
+}
+void Loongarch64Assembler::FLd_d(FRegister fd, XRegister rs1, int32_t si12) {
+  Emit2RI12(0xae, si12, rs1, fd);
+}
+void Loongarch64Assembler::FSt_d(FRegister fd, XRegister rs1, int32_t si12) {
+  Emit2RI12(0xaf, si12, rs1, fd);
+}
+
 // Store instructions : opcode from 00 1010 0100 
 //                                ~ 00 1010 0111
 void Loongarch64Assembler::St_B(XRegister rd, XRegister rs1, int32_t offset) {
@@ -603,9 +645,14 @@ void Loongarch64Assembler::Xori(XRegister rd, XRegister rs1, uint32_t imm12) {
   Emit2RI12_U(0x0f, imm12, rs1, rd);
 }
 
+void Loongarch64Assembler::brk(uint32_t imm15) {
+  EmitI15(0x54, imm15);
+}
+
 /////////////////////////////// LOONGARCH64 pseudo Instructions ///////////////////////////////
 void Loongarch64Assembler::Move(XRegister rd, XRegister rj) { Or(rd, rj, Zero); }
 void Loongarch64Assembler::Jr(XRegister rd) { Jirl(Zero, rd, 0); };
+void Loongarch64Assembler::Ret() { Jirl(Zero, RA, 0); };
 void Loongarch64Assembler::Nop() { Andi(Zero, Zero, 0); }
 void Loongarch64Assembler::Li(XRegister rd, int64_t imm) {
   LoadImmediate(rd, imm);

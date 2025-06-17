@@ -177,6 +177,13 @@ class Loongarch64Assembler final : public Assembler {
   void Ld_HU(XRegister rd, XRegister rs1, int32_t offset);
   void Ld_WU(XRegister rd, XRegister rs1, int32_t offset);
 
+  // F L/S signed instructions : opcode from 00 1010 1100
+  //                                       ~ 00 1010 1111
+  void FLd_s(FRegister fd, XRegister rs1, int32_t si12);
+  void FSt_s(FRegister fd, XRegister rs1, int32_t si12);
+  void FLd_d(FRegister fd, XRegister rs1, int32_t si12);
+  void FSt_d(FRegister fd, XRegister rs1, int32_t si12);
+
   // 2RI12-Type
   // Store instructions : opcode from 00 1010 0100 
   //                                ~ 00 1010 0111
@@ -230,11 +237,6 @@ class Loongarch64Assembler final : public Assembler {
   void Pcaddu12i(XRegister rd, uint32_t imm20);
   void Pcaddu18i(XRegister rd, uint32_t imm20);
 
-  // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100 
-  //                                             ~ 0 0000 0000 0101 0110
-  // void Break();
-  // void Dbcl();
-  // void Syscall();
 
   // 3R-Type
   // mid-level ALU instructions : opcode from 0 0000 0000 0011 1000 
@@ -268,6 +270,10 @@ class Loongarch64Assembler final : public Assembler {
   void Store_H(XRegister rs2, XRegister rs1, int32_t offset);
   void Store_W(XRegister rs2, XRegister rs1, int32_t offset);
   void Store_D(XRegister rs2, XRegister rs1, int32_t offset);
+  void FLoad_S(FRegister fd, XRegister rs1, int32_t offset);
+  void FLoad_D(FRegister fd, XRegister rs1, int32_t offset);
+  void FStore_S(FRegister fd, XRegister rs1, int32_t offset);
+  void FStore_D(FRegister fd, XRegister rs1, int32_t offset);
 
   // Macros for loading constants.
   void LoadConst32(XRegister rd, int32_t value);
@@ -284,7 +290,6 @@ class Loongarch64Assembler final : public Assembler {
   // float branch
   // void Bceqz(XRegister rs, int32_t offset);
   // void Bcnez(XRegister rs, int32_t offset);
-  void Jirl(XRegister rd, XRegister rs1, int32_t offset16);
   void B(int32_t offset26);
   void Bl(int32_t offset26);
   void Beq(XRegister rd, XRegister rs1, int32_t offset16);
@@ -293,6 +298,8 @@ class Loongarch64Assembler final : public Assembler {
   void Bge(XRegister rd, XRegister rs1, int32_t offset16);
   void Bltu(XRegister rd, XRegister rs1, int32_t offset16);
   void Bgeu(XRegister rd, XRegister rs1, int32_t offset16);
+  void Jirl(XRegister rd, XRegister rs1, int32_t offset16);
+  void Ret();
 
   // Branch pseudo instructions
   void Bgt(XRegister );
@@ -308,6 +315,8 @@ class Loongarch64Assembler final : public Assembler {
 
 
   // Jumps and branches to a label.
+  void Bgez(XRegister rs, Loongarch64Label* label, bool is_bare = false);
+  void Bltz(XRegister rs, Loongarch64Label* label, bool is_bare = false);
   void Beqz(XRegister rs, Loongarch64Label* label, bool is_bare = false);
   void Bnez(XRegister rs, Loongarch64Label* label, bool is_bare = false);
   void Jirl(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
@@ -328,6 +337,11 @@ class Loongarch64Assembler final : public Assembler {
   // Barrier instructions
   void Dbar(uint32_t);
 
+  // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100
+  //                                             ~ 0 0000 0000 0101 0110
+  void brk(uint32_t imm15);
+  // void Dbcl();
+  // void Syscall();
 
 
 
@@ -668,10 +682,10 @@ class Loongarch64Assembler final : public Assembler {
   //   [            opcode 31:22         |    I12     | rj/rs1 |   rd     ]
   //   --------------------------------------------------------------------
   template <typename Reg2, typename Reg1>
-  void Emit2RI12(uint32_t opcode, int32_t imm12, Reg2 rj, Reg1 rd) {
+  void Emit2RI12(uint32_t opcode, int32_t imm12, Reg2 rj, Reg1 rd, bool check_imm12 = true) {
     DCHECK(IsUint<10>(opcode));
+    if (check_imm12) DCHECK(IsInt<12>(imm12)) << imm12; // Operators overloading when trigger assertion
     imm12 = imm12 & 0xfff;
-    DCHECK(IsUint<12>(imm12)) << imm12; // Operators overloading when trigger assertion
     DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
     uint32_t encoding = opcode << 22 | static_cast<uint32_t>(imm12) << 10 |
