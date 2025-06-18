@@ -543,6 +543,35 @@ void Loongarch64Assembler::Pcaddu18i(XRegister rd, uint32_t imm20) {
 
 
 
+/////////////////////////////// LOONGARCH64 "2RI14-Type" Instructions ///////////////////////////////
+
+// 2RI14-Type
+// LL/SC and LD/STPTR instructions : opcode from 0010 0000
+//                                             ~ 0010 0111
+void Loongarch64Assembler::LL_w(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x20, si14, rj, rd);
+}
+void Loongarch64Assembler::SC_w(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x21, si14, rj, rd);
+}
+void Loongarch64Assembler::LL_d(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x22, si14, rj, rd);
+}
+void Loongarch64Assembler::SC_d(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x23, si14, rj, rd);
+}
+void Loongarch64Assembler::Ldptr_w(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x24, si14, rj, rd);
+}
+void Loongarch64Assembler::Stptr_w(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x25, si14, rj, rd);
+}
+void Loongarch64Assembler::Ldptr_d(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x26, si14, rj, rd);
+}
+void Loongarch64Assembler::Stptr_d(XRegister rd, XRegister rj, int32_t si14) {
+  Emit2RI14(0x27, si14, rj, rd);
+}
 
 /////////////////////////////// LOONGARCH64 "2RI12-Type" Instructions ///////////////////////////////
 

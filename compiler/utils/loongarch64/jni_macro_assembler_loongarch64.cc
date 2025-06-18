@@ -452,20 +452,18 @@ void Loongarch64JNIMacroAssembler::CallFromThread(ThreadOffset64 offset) {
 }
 
 void Loongarch64JNIMacroAssembler::TryToTransitionFromRunnableToNative(
-    JNIMacroLabel* label,
-    ArrayRef<const ManagedRegister> scratch_regs) {
-  // TODO(loongarch64): Implement this.
-  UNIMPLEMENTED(FATAL) << "TryToTransitionFromRunnableToNative";
-  UNUSED(label, scratch_regs);
+    [[maybe_unused]] JNIMacroLabel* label,
+    [[maybe_unused]] ArrayRef<const ManagedRegister> scratch_regs) {
+    __ B(Loongarch64JNIMacroLabel::Cast(label)->AsLoongarch64());
+    // TODO: Add fast path.
 }
 
 void Loongarch64JNIMacroAssembler::TryToTransitionFromNativeToRunnable(
-    JNIMacroLabel* label,
-    ArrayRef<const ManagedRegister> scratch_regs,
-    ManagedRegister return_reg) {
-  // TODO(loongarch64): Implement this.
-  UNIMPLEMENTED(FATAL) << "TryToTransitionFromNativeToRunnable";
-  UNUSED(label, scratch_regs, return_reg);
+    [[maybe_unused]] JNIMacroLabel* label,
+    [[maybe_unused]] ArrayRef<const ManagedRegister> scratch_regs,
+    [[maybe_unused]] ManagedRegister return_reg) {
+  __ B(Loongarch64JNIMacroLabel::Cast(label)->AsLoongarch64());
+  // TODO: Add fast path.
 }
 
 void Loongarch64JNIMacroAssembler::SuspendCheck(JNIMacroLabel* label) {

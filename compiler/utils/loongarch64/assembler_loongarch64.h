@@ -164,6 +164,19 @@ class Loongarch64Assembler final : public Assembler {
   void Srai_d(XRegister rd, XRegister rj, int ui6);
   void Rotri_w(XRegister rd, XRegister rj, int ui5);
   void Rotri_d(XRegister rd, XRegister rj, int ui6);
+
+  // 2RI14-Type
+  // LL/SC and LD/STPTR instructions : opcode from 0010 0000
+  //                                             ~ 0010 0111
+  void LL_w(XRegister rd, XRegister rj, int32_t si14);
+  void SC_w(XRegister rd, XRegister rj, int32_t si14);
+  void LL_d(XRegister rd, XRegister rj, int32_t si14);
+  void SC_d(XRegister rd, XRegister rj, int32_t si14);
+  void Ldptr_w(XRegister rd, XRegister rj, int32_t si14);
+  void Stptr_w(XRegister rd, XRegister rj, int32_t si14);
+  void Ldptr_d(XRegister rd, XRegister rj, int32_t si14);
+  void Stptr_d(XRegister rd, XRegister rj, int32_t si14);
+
   // 2RI12-Type
   // Load signed instructions : opcode from 00 1010 0000 
   //                                      ~ 00 1010 0011
