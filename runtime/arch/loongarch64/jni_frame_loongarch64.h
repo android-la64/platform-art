@@ -36,26 +36,22 @@ static_assert(kLoongarch64StackAlignment == kStackAlignment);
 
 // Up to how many float-like (float, double) args can be in registers.
 // The rest of the args must go on the stack.
-constexpr size_t kMaxFloatOrDoubleRegisterArguments = 8u;
+constexpr size_t kMaxFloatOrDoubleArgumentRegisters = 8u;
 // Up to how many integer-like (pointers, objects, longs, int, short, bool, etc) args can be
 // in registers. The rest of the args must go on the stack.
-constexpr size_t kMaxIntLikeRegisterArguments = 8u;
+constexpr size_t kMaxIntLikeArgumentRegisters = 8u;
 
 // Get the size of the arguments for a native call.
 inline size_t GetNativeOutArgsSize(size_t num_fp_args, size_t num_non_fp_args) {
-  // Account for FP arguments passed through fa0-fa7.
-  size_t num_stack_fp_args =
-      num_fp_args - std::min(kMaxFloatOrDoubleRegisterArguments, num_fp_args);
-
-  // Account for other (integer and pointer) arguments passed through GPR (a0-a7).
-  size_t num_stack_non_fp_args =
-      num_non_fp_args - std::min(kMaxIntLikeRegisterArguments, num_non_fp_args);
-
-  if (num_non_fp_args < kMaxIntLikeRegisterArguments)
-    num_stack_fp_args -= std::min((kMaxIntLikeRegisterArguments - num_non_fp_args), num_stack_fp_args);
-
+  // Account for FP arguments passed through FA0-FA7.
+  size_t num_fp_args_without_fprs =
+      num_fp_args - std::min(kMaxFloatOrDoubleArgumentRegisters, num_fp_args);
+  // All other args are passed through A0-A7 (even FP args) and the stack.
+  size_t num_gpr_and_stack_args = num_non_fp_args + num_fp_args_without_fprs;
+  size_t num_stack_args =
+      num_gpr_and_stack_args - std::min(kMaxIntLikeArgumentRegisters, num_gpr_and_stack_args);
   // Each stack argument takes 8 bytes.
-  return (num_stack_fp_args + num_stack_non_fp_args) * static_cast<size_t>(kLoongarch64PointerSize);
+  return num_stack_args * static_cast<size_t>(kLoongarch64PointerSize);
 }
 
 // Get stack args size for @CriticalNative method calls.
