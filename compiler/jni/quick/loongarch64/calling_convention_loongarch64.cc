@@ -35,12 +35,12 @@ static constexpr ManagedRegister kXArgumentRegisters[] = {
     Loongarch64ManagedRegister::FromXRegister(A6),
     Loongarch64ManagedRegister::FromXRegister(A7),
 };
-static_assert(kMaxIntLikeRegisterArguments == arraysize(kXArgumentRegisters));
+static_assert(kMaxIntLikeArgumentRegisters == arraysize(kXArgumentRegisters));
 
 static const FRegister kFArgumentRegisters[] = {
   FA0, FA1, FA2, FA3, FA4, FA5, FA6, FA7
 };
-static_assert(kMaxFloatOrDoubleRegisterArguments == arraysize(kFArgumentRegisters));
+static_assert(kMaxFloatOrDoubleArgumentRegisters == arraysize(kFArgumentRegisters));
 
 static constexpr ManagedRegister kCalleeSaveRegisters[] = {
     // Core registers.
@@ -151,10 +151,10 @@ bool Loongarch64ManagedRuntimeCallingConvention::IsCurrentParamInRegister() {
   // Note: The managed ABI does not pass FP args in general purpose registers.
   // This differs from the native ABI which does that after using all FP arg registers.
   if (IsCurrentParamAFloatOrDouble()) {
-    return itr_float_and_doubles_ < kMaxFloatOrDoubleRegisterArguments;
+    return itr_float_and_doubles_ < kMaxFloatOrDoubleArgumentRegisters;
   } else {
     size_t non_fp_arg_number = itr_args_ - itr_float_and_doubles_;
-    return /* method */ 1u + non_fp_arg_number < kMaxIntLikeRegisterArguments;
+    return /* method */ 1u + non_fp_arg_number < kMaxIntLikeArgumentRegisters;
   }
 }
 
@@ -297,18 +297,17 @@ uint32_t Loongarch64JniCallingConvention::FpSpillMask() const {
   return is_critical_native_ ? 0u : kFpCalleeSpillMask;
 }
 
-
 bool Loongarch64JniCallingConvention::IsCurrentParamInRegister() {
   // FP args use FPRs, then GPRs and only then the stack.
-  if (itr_float_and_doubles_ < kMaxFloatOrDoubleRegisterArguments) {
+  if (itr_float_and_doubles_ < kMaxFloatOrDoubleArgumentRegisters) {
     if (IsCurrentParamAFloatOrDouble()) {
       return true;
     } else {
       size_t num_non_fp_args = itr_args_ - itr_float_and_doubles_;
-      return num_non_fp_args < kMaxIntLikeRegisterArguments;
+      return num_non_fp_args < kMaxIntLikeArgumentRegisters;
     }
   } else {
-    return (itr_args_ < kMaxFloatOrDoubleRegisterArguments + kMaxIntLikeRegisterArguments);
+    return (itr_args_ < kMaxFloatOrDoubleArgumentRegisters + kMaxIntLikeArgumentRegisters);
   }
 }
 
@@ -319,18 +318,18 @@ bool Loongarch64JniCallingConvention::IsCurrentParamOnStack() {
 ManagedRegister Loongarch64JniCallingConvention::CurrentParamRegister() {
   // FP args use FPRs, then GPRs and only then the stack.
   CHECK(IsCurrentParamInRegister());
-  if (itr_float_and_doubles_ < kMaxFloatOrDoubleRegisterArguments) {
+  if (itr_float_and_doubles_ < kMaxFloatOrDoubleArgumentRegisters) {
     if (IsCurrentParamAFloatOrDouble()) {
       return Loongarch64ManagedRegister::FromFRegister(kFArgumentRegisters[itr_float_and_doubles_]);
     } else {
       size_t num_non_fp_args = itr_args_ - itr_float_and_doubles_;
-      DCHECK_LT(num_non_fp_args, kMaxIntLikeRegisterArguments);
+      DCHECK_LT(num_non_fp_args, kMaxIntLikeArgumentRegisters);
       return kXArgumentRegisters[num_non_fp_args];
     }
   } else {
     // This argument is in a GPR, whether it's a FP arg or a non-FP arg.
-    DCHECK_LT(itr_args_, kMaxFloatOrDoubleRegisterArguments + kMaxIntLikeRegisterArguments);
-    return kXArgumentRegisters[itr_args_ - kMaxFloatOrDoubleRegisterArguments];
+    DCHECK_LT(itr_args_, kMaxFloatOrDoubleArgumentRegisters + kMaxIntLikeArgumentRegisters);
+    return kXArgumentRegisters[itr_args_ - kMaxFloatOrDoubleArgumentRegisters];
   }
 }
 
@@ -339,9 +338,9 @@ FrameOffset Loongarch64JniCallingConvention::CurrentParamStackOffset() {
   // Account for FP arguments passed through FA0-FA7.
   // All other args are passed through A0-A7 (even FP args) and the stack.
   size_t num_gpr_and_stack_args =
-      itr_args_ - std::min<size_t>(kMaxFloatOrDoubleRegisterArguments, itr_float_and_doubles_);
+      itr_args_ - std::min<size_t>(kMaxFloatOrDoubleArgumentRegisters, itr_float_and_doubles_);
   size_t args_on_stack =
-      num_gpr_and_stack_args - std::min(kMaxIntLikeRegisterArguments, num_gpr_and_stack_args);
+      num_gpr_and_stack_args - std::min(kMaxIntLikeArgumentRegisters, num_gpr_and_stack_args);
   size_t offset = displacement_.Int32Value() - OutFrameSize() + (args_on_stack * kFramePointerSize);
   CHECK_LT(offset, OutFrameSize());
   return FrameOffset(offset);
