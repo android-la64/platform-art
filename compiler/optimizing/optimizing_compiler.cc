@@ -441,6 +441,7 @@ static bool IsInstructionSetSupported(InstructionSet instruction_set) {
          instruction_set == InstructionSet::kArm64 ||
          instruction_set == InstructionSet::kThumb2 ||
          instruction_set == InstructionSet::kRiscv64 ||
+         instruction_set == InstructionSet::kLoongarch64 ||
          instruction_set == InstructionSet::kX86 ||
          instruction_set == InstructionSet::kX86_64;
 }
