@@ -19,12 +19,14 @@
 #include "android-base/logging.h"
 #include "android-base/macros.h"
 #include "arch/loongarch64/jni_frame_loongarch64.h"
-#include "thread.h"
 #include "arch/loongarch64/registers_loongarch64.h"
 #include "base/arena_containers.h"
 #include "base/macros.h"
+#include "class_root-inl.h"
 #include "code_generator_utils.h"
 #include "dwarf/register.h"
+#include "gc/heap.h"
+#include "gc/space/image_space.h"
 #include "heap_poisoning.h"
 #include "intrinsics_list.h"
 #include "intrinsics_loongarch64.h"
@@ -32,14 +34,21 @@
 #include "linker/linker_patch.h"
 #include "mirror/class-inl.h"
 #include "optimizing/nodes.h"
+#include "optimizing/profiling_info_builder.h"
 #include "stack_map_stream.h"
+#include "trace.h"
 #include "utils/label.h"
 #include "utils/loongarch64/assembler_loongarch64.h"
 #include "utils/stack_checks.h"
 #include "runtime.h"
+#include "scoped_thread_state_change-inl.h"
 
 namespace art {
 namespace loongarch64 {
+
+// Placeholder values embedded in instructions, patched at link time.
+constexpr uint32_t kLinkTimeOffsetPlaceholderHigh = 0x12345;
+constexpr uint32_t kLinkTimeOffsetPlaceholderLow = 0x678;
 
 // Compare-and-jump packed switch generates approx. 3 + 1.5 * N 32-bit
 // instructions for N cases.
@@ -116,6 +125,18 @@ static constexpr int64_t ShiftedSignExtendedClassStatusValue() {
   constexpr uint32_t kShiftedStatusValue = enum_cast<uint32_t>(kStatus) << status_lsb_position;
   static_assert(kShiftedStatusValue >= 0x80000000u);
   return static_cast<int64_t>(kShiftedStatusValue) - (INT64_C(1) << 32);
+}
+
+int32_t ReadBarrierMarkEntrypointOffset(Location ref) {
+  DCHECK(ref.IsRegister());
+  int reg = ref.reg();
+  DCHECK(T0 <= reg && reg <= T8 && reg != TR) << reg;
+  // Note: Entrypoints for registers r30 (S7) and r31 (S8) are stored in entries
+  // for X0 (Zero) and X1 (RA) because these are not valid registers for marking
+  // and we currently have slots only up to register 29.
+  // TO-verify
+  int entry_point_number = (reg >= 30) ? reg - 30 : reg;
+  return Thread::ReadBarrierMarkEntryPointsOffset<kLoongarch64PointerSize>(entry_point_number);
 }
 
 Location InvokeRuntimeCallingConvention::GetReturnLocation(DataType::Type return_type) {
@@ -435,6 +456,69 @@ class DeoptimizationSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
   DISALLOW_COPY_AND_ASSIGN(DeoptimizationSlowPathLOONGARCH64);
 };
 
+class ReadBarrierMarkSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  ReadBarrierMarkSlowPathLOONGARCH64(HInstruction* instruction, Location ref, Location entrypoint)
+      : SlowPathCodeLOONGARCH64(instruction), ref_(ref), entrypoint_(entrypoint) {
+    DCHECK(entrypoint.IsRegister());
+  }
+
+  const char* GetDescription() const override { return "ReadBarrierMarkSlowPathLOONGARCH64"; }
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    LocationSummary* locations = instruction_->GetLocations();
+    XRegister ref_reg = ref_.AsRegister<XRegister>();
+    DCHECK(locations->CanCall());
+    DCHECK(!locations->GetLiveRegisters()->ContainsCoreRegister(ref_reg)) << ref_reg;
+    DCHECK(instruction_->IsInstanceFieldGet() ||
+           instruction_->IsStaticFieldGet() ||
+           instruction_->IsArrayGet() ||
+           instruction_->IsArraySet() ||
+           instruction_->IsLoadClass() ||
+           instruction_->IsLoadString() ||
+           instruction_->IsInstanceOf() ||
+           instruction_->IsCheckCast() ||
+           (instruction_->IsInvoke() && instruction_->GetLocations()->Intrinsified()))
+        << "Unexpected instruction in read barrier marking slow path: "
+        << instruction_->DebugName();
+
+    __ Bind(GetEntryLabel());
+    // No need to save live registers; it's taken care of by the
+    // entrypoint. Also, there is no need to update the stack mask,
+    // as this runtime call will not trigger a garbage collection.
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    //DCHECK(ref_reg >= T0 && ref_reg != TR) << " reg_reg:" << ref_reg;
+
+    // "Compact" slow path, saving two moves.
+    //
+    // Instead of using the standard runtime calling convention (input
+    // and output in A0 and V0 respectively):
+    //
+    //   A0 <- ref
+    //   V0 <- ReadBarrierMark(A0)
+    //   ref <- V0
+    //
+    // we just use rX (the register containing `ref`) as input and output
+    // of a dedicated entrypoint:
+    //
+    //   rX <- ReadBarrierMarkRegX(rX)
+    //
+    loongarch64_codegen->ValidateInvokeRuntimeWithoutRecordingPcInfo(instruction_, this);
+    DCHECK_NE(entrypoint_.AsRegister<XRegister>(), TMP);  // A taken branch can clobber `TMP`.
+    __ Jirl(RA, entrypoint_.AsRegister<XRegister>(), 0);  // Clobbers `RA` (used as the `entrypoint_`).
+    __ B(GetExitLabel());
+  }
+
+ private:
+  // The location (register) of the marked object reference.
+  const Location ref_;
+
+  // The location of the already loaded entrypoint.
+  const Location entrypoint_;
+
+  DISALLOW_COPY_AND_ASSIGN(ReadBarrierMarkSlowPathLOONGARCH64);
+};
+
 #undef __
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
 
@@ -600,19 +684,91 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateReferenceLoadTwoRegisters(
   LOG(FATAL) << "Unimplemented";
 }
 
-void InstructionCodeGeneratorLOONGARCH64::GenerateGcRootFieldLoad(HInstruction* instruction,
-                                                              Location root,
-                                                              XRegister obj,
-                                                              uint32_t offset,
-                                                              ReadBarrierOption read_barrier_option,
-                                                              Loongarch64Label* label_low) {
-  UNUSED(instruction);
-  UNUSED(root);
-  UNUSED(obj);
-  UNUSED(offset);
-  UNUSED(read_barrier_option);
-  UNUSED(label_low);
-  LOG(FATAL) << "Unimplemented";
+SlowPathCodeLOONGARCH64* CodeGeneratorLOONGARCH64::AddGcRootBakerBarrierBarrierSlowPath(
+    HInstruction* instruction, Location root, Location temp) {
+  SlowPathCodeLOONGARCH64* slow_path =
+      new (GetScopedAllocator()) ReadBarrierMarkSlowPathLOONGARCH64(instruction, root, temp);
+  AddSlowPath(slow_path);
+  return slow_path;
+}
+
+void CodeGeneratorLOONGARCH64::EmitBakerReadBarierMarkingCheck(
+    SlowPathCodeLOONGARCH64* slow_path, Location root, Location temp) {
+  const int32_t entry_point_offset = ReadBarrierMarkEntrypointOffset(root);
+  // Loading the entrypoint does not require a load acquire since it is only changed when
+  // threads are suspended or running a checkpoint.
+  __ Load_D(temp.AsRegister<XRegister>(), TR, entry_point_offset);
+  __ Bnez(temp.AsRegister<XRegister>(), slow_path->GetEntryLabel());
+  __ Bind(slow_path->GetExitLabel());
+}
+
+void CodeGeneratorLOONGARCH64::GenerateGcRootFieldLoad(HInstruction* instruction,
+                                                       Location root,
+                                                       XRegister obj,
+                                                       uint32_t offset,
+                                                       ReadBarrierOption read_barrier_option,
+                                                       Loongarch64Label* label_low) {
+  DCHECK_IMPLIES(label_low != nullptr, offset == kLinkTimeOffsetPlaceholderLow) << offset;
+  XRegister root_reg = root.AsRegister<XRegister>();
+  if (read_barrier_option == kWithReadBarrier) {
+    DCHECK(EmitReadBarrier());
+    if (kUseBakerReadBarrier) {
+      // Note that we do not actually check the value of `GetIsGcMarking()`
+      // to decide whether to mark the loaded GC root or not.  Instead, we
+      // load into `temp` (T8) the read barrier mark entry point corresponding
+      // to register `root`. If `temp` is null, it means that `GetIsGcMarking()`
+      // is false, and vice versa.
+      //
+      //     GcRoot<mirror::Object> root = *(obj+offset);  // Original reference load.
+      //     temp = Thread::Current()->pReadBarrierMarkReg ## root.reg()
+      //     if (temp != null) {
+      //       root = temp(root)
+      //     }
+      //
+      // TODO(loongarch64): Introduce a "marking register" that holds the pointer to one of the
+      // register marking entrypoints if marking (null if not marking) and make sure that
+      // marking entrypoints for other registers are at known offsets, so that we can call
+      // them using the "marking register" plus the offset embedded in the JALR instruction.
+
+      if (label_low != nullptr) {
+        __ Bind(label_low);
+      }
+      // /* GcRoot<mirror::Object> */ root = *(obj + offset)
+      __ Load_WU(root_reg, obj, offset);
+      static_assert(
+          sizeof(mirror::CompressedReference<mirror::Object>) == sizeof(GcRoot<mirror::Object>),
+          "art::mirror::CompressedReference<mirror::Object> and art::GcRoot<mirror::Object> "
+          "have different sizes.");
+      static_assert(sizeof(mirror::CompressedReference<mirror::Object>) == sizeof(int32_t),
+                    "art::mirror::CompressedReference<mirror::Object> and int32_t "
+                    "have different sizes.");
+
+      // Use RA as temp. It is clobbered in the slow path anyway.
+      Location temp = Location::RegisterLocation(RA);
+      SlowPathCodeLOONGARCH64* slow_path =
+          AddGcRootBakerBarrierBarrierSlowPath(instruction, root, temp);
+      EmitBakerReadBarierMarkingCheck(slow_path, root, temp);
+    } else {
+      // GC root loaded through a slow path for read barriers other
+      // than Baker's.
+      // /* GcRoot<mirror::Object>* */ root = obj + offset
+      if (label_low != nullptr) {
+        __ Bind(label_low);
+      }
+      __ AddConst32(root_reg, obj, offset);
+      // /* mirror::Object* */ root = root->Read()
+      GenerateReadBarrierForRootSlow(instruction, root, root);
+    }
+  } else {
+    // Plain GC root load with no read barrier.
+    // /* GcRoot<mirror::Object> */ root = *(obj + offset)
+    if (label_low != nullptr) {
+      __ Bind(label_low);
+    }
+    __ Load_WU(root_reg, obj, offset);
+    // Note that GC roots are not affected by heap poisoning, thus we
+    // do not have to unpoison `root_reg` here.
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateTestAndBranch(HInstruction* instruction,
@@ -2004,13 +2160,155 @@ void InstructionCodeGeneratorLOONGARCH64::VisitLessThanOrEqual(HLessThanOrEqual*
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadClass(HLoadClass* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HLoadClass::LoadKind load_kind = instruction->GetLoadKind();
+  if (load_kind == HLoadClass::LoadKind::kRuntimeCall) {
+    InvokeRuntimeCallingConvention calling_convention;
+    Location loc = Location::RegisterLocation(calling_convention.GetRegisterAt(0));
+    DCHECK_EQ(DataType::Type::kReference, instruction->GetType());
+    DCHECK(loc.Equals(calling_convention.GetReturnLocation(DataType::Type::kReference)));
+    CodeGenerator::CreateLoadClassRuntimeCallLocationSummary(instruction, loc, loc);
+    return;
+  }
+  DCHECK_EQ(instruction->NeedsAccessCheck(),
+            load_kind == HLoadClass::LoadKind::kBssEntryPublic ||
+                load_kind == HLoadClass::LoadKind::kBssEntryPackage);
+
+  const bool requires_read_barrier = !instruction->IsInImage() && codegen_->EmitReadBarrier();
+  LocationSummary::CallKind call_kind = (instruction->NeedsEnvironment() || requires_read_barrier)
+      ? LocationSummary::kCallOnSlowPath
+      : LocationSummary::kNoCall;
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, call_kind);
+  if (kUseBakerReadBarrier && requires_read_barrier && !instruction->NeedsEnvironment()) {
+    locations->SetCustomSlowPathCallerSaves(RegisterSet::Empty());  // No caller-save registers.
+  }
+  if (load_kind == HLoadClass::LoadKind::kReferrersClass) {
+    locations->SetInAt(0, Location::RequiresRegister());
+  }
+  locations->SetOut(Location::RequiresRegister());
+  if (load_kind == HLoadClass::LoadKind::kBssEntry ||
+      load_kind == HLoadClass::LoadKind::kBssEntryPublic ||
+      load_kind == HLoadClass::LoadKind::kBssEntryPackage) {
+    if (codegen_->EmitNonBakerReadBarrier()) {
+      // For non-Baker read barriers we have a temp-clobbering call.
+    } else {
+      // Rely on the type resolution or initialization and marking to save everything we need.
+      locations->SetCustomSlowPathCallerSaves(OneRegInReferenceOutSaveEverythingCallerSaves());
+    }
+  }
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitLoadClass(HLoadClass* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitLoadClass(HLoadClass* instruction)  NO_THREAD_SAFETY_ANALYSIS {
+  HLoadClass::LoadKind load_kind = instruction->GetLoadKind();
+  if (load_kind == HLoadClass::LoadKind::kRuntimeCall) {
+    codegen_->GenerateLoadClassRuntimeCall(instruction);
+    return;
+  }
+  DCHECK_EQ(instruction->NeedsAccessCheck(),
+            load_kind == HLoadClass::LoadKind::kBssEntryPublic ||
+                load_kind == HLoadClass::LoadKind::kBssEntryPackage);
+
+  LocationSummary* locations = instruction->GetLocations();
+  Location out_loc = locations->Out();
+  XRegister out = out_loc.AsRegister<XRegister>();
+  const ReadBarrierOption read_barrier_option =
+      instruction->IsInImage() ? kWithoutReadBarrier : codegen_->GetCompilerReadBarrierOption();
+  bool generate_null_check = false;
+  switch (load_kind) {
+    case HLoadClass::LoadKind::kReferrersClass: {
+      DCHECK(!instruction->CanCallRuntime());
+      DCHECK(!instruction->MustGenerateClinitCheck());
+      // /* GcRoot<mirror::Class> */ out = current_method->declaring_class_
+      XRegister current_method = locations->InAt(0).AsRegister<XRegister>();
+      codegen_->GenerateGcRootFieldLoad(instruction,
+                                        out_loc,
+                                        current_method,
+                                        ArtMethod::DeclaringClassOffset().Int32Value(),
+                                        read_barrier_option);
+      break;
+    }
+    case HLoadClass::LoadKind::kBootImageLinkTimePcRelative: {
+      DCHECK(codegen_->GetCompilerOptions().IsBootImage() ||
+             codegen_->GetCompilerOptions().IsBootImageExtension());
+      DCHECK_EQ(read_barrier_option, kWithoutReadBarrier);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_high =
+          codegen_->NewBootImageTypePatch(instruction->GetDexFile(), instruction->GetTypeIndex());
+      codegen_->EmitPcRelativePcaddu12iPlaceholder(info_high, out);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_low =
+          codegen_->NewBootImageTypePatch(
+              instruction->GetDexFile(), instruction->GetTypeIndex(), info_high);
+      codegen_->EmitPcRelativeAddi_dPlaceholder(info_low, out, out);
+      break;
+    }
+    case HLoadClass::LoadKind::kBootImageRelRo: {
+      DCHECK(!codegen_->GetCompilerOptions().IsBootImage());
+      uint32_t boot_image_offset = codegen_->GetBootImageOffset(instruction);
+      codegen_->LoadBootImageRelRoEntry(out, boot_image_offset);
+      break;
+    }
+    case HLoadClass::LoadKind::kAppImageRelRo: {
+      DCHECK(codegen_->GetCompilerOptions().IsAppImage());
+      DCHECK_EQ(read_barrier_option, kWithoutReadBarrier);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_high =
+          codegen_->NewAppImageTypePatch(instruction->GetDexFile(), instruction->GetTypeIndex());
+      codegen_->EmitPcRelativePcaddu12iPlaceholder(info_high, out);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_low =
+          codegen_->NewAppImageTypePatch(
+              instruction->GetDexFile(), instruction->GetTypeIndex(), info_high);
+      codegen_->EmitPcRelativeLd_wuPlaceholder(info_low, out, out);
+      break;
+    }
+    case HLoadClass::LoadKind::kBssEntry:
+    case HLoadClass::LoadKind::kBssEntryPublic:
+    case HLoadClass::LoadKind::kBssEntryPackage: {
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* bss_info_high =
+          codegen_->NewTypeBssEntryPatch(instruction);
+      codegen_->EmitPcRelativePcaddu12iPlaceholder(bss_info_high, out);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_low = codegen_->NewTypeBssEntryPatch(
+          instruction, bss_info_high);
+      codegen_->GenerateGcRootFieldLoad(instruction,
+                                        out_loc,
+                                        out,
+                                        /* offset= */ kLinkTimeOffsetPlaceholderLow,
+                                        read_barrier_option,
+                                        &info_low->label);
+      generate_null_check = true;
+      break;
+    }
+    case HLoadClass::LoadKind::kJitBootImageAddress: {
+      DCHECK_EQ(read_barrier_option, kWithoutReadBarrier);
+      uint32_t address = reinterpret_cast32<uint32_t>(instruction->GetClass().Get());
+      DCHECK_NE(address, 0u);
+      __ Load_WU(out, codegen_->DeduplicateBootImageAddressLiteral(address));
+      break;
+    }
+    case HLoadClass::LoadKind::kJitTableAddress:
+      __ Load_WU(out, codegen_->DeduplicateJitClassLiteral(instruction->GetDexFile(),
+                                                          instruction->GetTypeIndex(),
+                                                          instruction->GetClass()));
+      codegen_->GenerateGcRootFieldLoad(
+          instruction, out_loc, out, /* offset= */ 0, read_barrier_option);
+      break;
+    case HLoadClass::LoadKind::kRuntimeCall:
+    case HLoadClass::LoadKind::kInvalid:
+      LOG(FATAL) << "UNREACHABLE";
+      UNREACHABLE();
+  }
+
+  if (generate_null_check || instruction->MustGenerateClinitCheck()) {
+    DCHECK(instruction->CanCallRuntime());
+    SlowPathCodeLOONGARCH64* slow_path =
+        new (codegen_->GetScopedAllocator()) LoadClassSlowPathLOONGARCH64(instruction, instruction);
+    codegen_->AddSlowPath(slow_path);
+    if (generate_null_check) {
+      __ Beqz(out, slow_path->GetEntryLabel());
+    }
+    if (instruction->MustGenerateClinitCheck()) {
+      GenerateClassInitializationCheck(slow_path, out);
+    } else {
+      __ Bind(slow_path->GetExitLabel());
+    }
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadException(HLoadException* instruction) {
@@ -3007,12 +3305,11 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
                     kNumberOfXRegisters,
                     kNumberOfFRegisters,
                     /*number_of_register_pairs=*/ 0u,
-                    ComputeRegisterMask(reinterpret_cast<const int*>(kCoreCalleeSaves), arraysize(kCoreCalleeSaves)),
-                    ComputeRegisterMask(reinterpret_cast<const int*>(kFpuCalleeSaves), arraysize(kFpuCalleeSaves)),
+                    ComputeRegisterMask(kCoreCalleeSaves, arraysize(kCoreCalleeSaves)),
+                    ComputeRegisterMask(kFpuCalleeSaves, arraysize(kFpuCalleeSaves)),
                     compiler_options,
                     stats,
-                    ArrayRef<const bool>
-                    (detail::kIsIntrinsicUnimplemented)),
+                    ArrayRef<const bool>(detail::kIsIntrinsicUnimplemented)),
       assembler_(graph->GetAllocator(),
                  compiler_options.GetInstructionSetFeatures()->AsLoongarch64InstructionSetFeatures()),
       location_builder_(graph, this),
@@ -3026,13 +3323,18 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
       boot_image_method_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       method_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       boot_image_type_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      app_image_type_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       type_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       public_type_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       package_type_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       boot_image_string_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       string_bss_entry_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
       boot_image_jni_entrypoint_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
-      boot_image_other_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)) {
+      boot_image_other_patches_(graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      jit_string_patches_(StringReferenceValueComparator(),
+                          graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)),
+      jit_class_patches_(TypeReferenceValueComparator(),
+                         graph->GetAllocator()->Adapter(kArenaAllocCodeGenerator)) {
   // Always mark the RA register to be saved.
   AddAllocatedRegister(Location::RegisterLocation(RA));
 }
@@ -3560,6 +3862,11 @@ CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBoot
   return NewPcRelativePatch(&dex_file, type_index.index_, info_high, &boot_image_type_patches_);
 }
 
+CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewAppImageTypePatch(
+    const DexFile& dex_file, dex::TypeIndex type_index, const PcRelativePatchInfo* info_high) {
+  return NewPcRelativePatch(&dex_file, type_index.index_, info_high, &app_image_type_patches_);
+}
+
 CodeGeneratorLOONGARCH64::PcRelativePatchInfo* CodeGeneratorLOONGARCH64::NewBootImageJniEntrypointPatch(
     MethodReference target_method, const PcRelativePatchInfo* info_high) {
   return NewPcRelativePatch(
@@ -3622,12 +3929,31 @@ Literal* CodeGeneratorLOONGARCH64::DeduplicateBootImageAddressLiteral(uint64_t a
   return DeduplicateUint32Literal(dchecked_integral_cast<uint32_t>(address));
 }
 
+Literal* CodeGeneratorLOONGARCH64::DeduplicateJitStringLiteral(const DexFile& dex_file,
+                                                           dex::StringIndex string_index,
+                                                           Handle<mirror::String> handle) {
+  ReserveJitStringRoot(StringReference(&dex_file, string_index), handle);
+  return jit_string_patches_.GetOrCreate(
+      StringReference(&dex_file, string_index),
+      [this]() { return __ NewLiteral<uint32_t>(/* value= */ 0u); });
+}
+
+Literal* CodeGeneratorLOONGARCH64::DeduplicateJitClassLiteral(const DexFile& dex_file,
+                                                          dex::TypeIndex type_index,
+                                                          Handle<mirror::Class> handle) {
+  ReserveJitClassRoot(TypeReference(&dex_file, type_index), handle);
+  return jit_class_patches_.GetOrCreate(
+      TypeReference(&dex_file, type_index),
+      [this]() { return __ NewLiteral<uint32_t>(/* value= */ 0u); });
+}
+
 void CodeGeneratorLOONGARCH64::EmitPcRelativePcaddu12iPlaceholder(PcRelativePatchInfo* info_high,
                                                           XRegister out) {
   DCHECK(info_high->pc_insn_label == &info_high->label);
   __ Bind(&info_high->label);
   __ Pcaddu12i(out, /*imm20=*/ 0x12345);  // Placeholder `imm20` patched at link time.
 }
+
 
 void CodeGeneratorLOONGARCH64::EmitPcRelativeAddi_dPlaceholder(PcRelativePatchInfo* info_low,
                                                          XRegister rd,
@@ -3642,7 +3968,7 @@ void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_wuPlaceholder(PcRelativePatchInf
                                                         XRegister rs1) {
   DCHECK(info_low->pc_insn_label != &info_low->label);
   __ Bind(&info_low->label);
-  __ Ld_WU(rd, rs1, /*offset=*/ 0x678);  // Placeholder `offset` patched at link time.
+  __ Ld_WU(rd, rs1, /*offset=*/ kLinkTimeOffsetPlaceholderLow);  // Placeholder `offset` patched at link time.
 }
 
 void CodeGeneratorLOONGARCH64::EmitPcRelativeLd_dPlaceholder(PcRelativePatchInfo* info_low,
@@ -3720,6 +4046,70 @@ void CodeGeneratorLOONGARCH64::EmitLinkerPatches(ArenaVector<linker::LinkerPatch
   EmitPcRelativeLinkerPatches<linker::LinkerPatch::RelativeJniEntrypointPatch>(
       boot_image_jni_entrypoint_patches_, linker_patches);
   DCHECK_EQ(size, linker_patches->size());
+}
+
+void CodeGeneratorLOONGARCH64::LoadTypeForBootImageIntrinsic(XRegister dest,
+                                                         TypeReference target_type) {
+  // Load the type the same way as for HLoadClass::LoadKind::kBootImageLinkTimePcRelative.
+  DCHECK(GetCompilerOptions().IsBootImage() || GetCompilerOptions().IsBootImageExtension());
+  PcRelativePatchInfo* info_high =
+      NewBootImageTypePatch(*target_type.dex_file, target_type.TypeIndex());
+  EmitPcRelativePcaddu12iPlaceholder(info_high, dest);
+  PcRelativePatchInfo* info_low =
+      NewBootImageTypePatch(*target_type.dex_file, target_type.TypeIndex(), info_high);
+  EmitPcRelativeAddi_dPlaceholder(info_low, dest, dest);
+}
+
+void CodeGeneratorLOONGARCH64::LoadBootImageRelRoEntry(XRegister dest, uint32_t boot_image_offset) {
+  PcRelativePatchInfo* info_high = NewBootImageRelRoPatch(boot_image_offset);
+  EmitPcRelativePcaddu12iPlaceholder(info_high, dest);
+  PcRelativePatchInfo* info_low = NewBootImageRelRoPatch(boot_image_offset, info_high);
+  // Note: Boot image is in the low 4GiB and the entry is always 32-bit, so emit a 32-bit load.
+  EmitPcRelativeLd_wuPlaceholder(info_low, dest, dest);
+}
+
+void CodeGeneratorLOONGARCH64::LoadBootImageAddress(XRegister dest, uint32_t boot_image_reference) {
+  if (GetCompilerOptions().IsBootImage()) {
+    PcRelativePatchInfo* info_high = NewBootImageIntrinsicPatch(boot_image_reference);
+    EmitPcRelativePcaddu12iPlaceholder(info_high, dest);
+    PcRelativePatchInfo* info_low = NewBootImageIntrinsicPatch(boot_image_reference, info_high);
+    EmitPcRelativeAddi_dPlaceholder(info_low, dest, dest);
+  } else if (GetCompilerOptions().GetCompilePic()) {
+    LoadBootImageRelRoEntry(dest, boot_image_reference);
+  } else {
+    DCHECK(GetCompilerOptions().IsJitCompiler());
+    gc::Heap* heap = Runtime::Current()->GetHeap();
+    DCHECK(!heap->GetBootImageSpaces().empty());
+    const uint8_t* address = heap->GetBootImageSpaces()[0]->Begin() + boot_image_reference;
+    // Note: Boot image is in the low 4GiB (usually the low 2GiB, requiring just LUI+ADDI).
+    // We may not have an available scratch register for `LoadConst64()` but it never
+    // emits better code than `Li()` for 32-bit unsigned constants anyway.
+    __ Li(dest, reinterpret_cast32<uint32_t>(address));
+  }
+}
+
+void CodeGeneratorLOONGARCH64::LoadIntrinsicDeclaringClass(XRegister dest, HInvoke* invoke) {
+  DCHECK_NE(invoke->GetIntrinsic(), Intrinsics::kNone);
+  if (GetCompilerOptions().IsBootImage()) {
+    MethodReference target_method = invoke->GetResolvedMethodReference();
+    dex::TypeIndex type_idx = target_method.dex_file->GetMethodId(target_method.index).class_idx_;
+    LoadTypeForBootImageIntrinsic(dest, TypeReference(target_method.dex_file, type_idx));
+  } else {
+    uint32_t boot_image_offset = GetBootImageOffsetOfIntrinsicDeclaringClass(invoke);
+    LoadBootImageAddress(dest, boot_image_offset);
+  }
+}
+
+void CodeGeneratorLOONGARCH64::LoadClassRootForIntrinsic(XRegister dest, ClassRoot class_root) {
+  if (GetCompilerOptions().IsBootImage()) {
+    ScopedObjectAccess soa(Thread::Current());
+    ObjPtr<mirror::Class> klass = GetClassRoot(class_root);
+    TypeReference target_type(&klass->GetDexFile(), klass->GetDexTypeIndex());
+    LoadTypeForBootImageIntrinsic(dest, target_type);
+  } else {
+    uint32_t boot_image_offset = GetBootImageOffset(class_root);
+    LoadBootImageAddress(dest, boot_image_offset);
+  }
 }
 
 void CodeGeneratorLOONGARCH64::LoadMethod(MethodLoadKind load_kind, Location temp, HInvoke* invoke) {

@@ -457,17 +457,7 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
                                          Location maybe_temp,
                                          ReadBarrierOption read_barrier_option);
 
-  // Generate a GC root reference load:
-  //
-  //   root <- *(obj + offset)
-  //
-  // while honoring read barriers (if any).
-  void GenerateGcRootFieldLoad(HInstruction* instruction,
-                               Location root,
-                               XRegister obj,
-                               uint32_t offset,
-                               ReadBarrierOption read_barrier_option,
-                               Loongarch64Label* label_low = nullptr);
+
 
   void GenerateTestAndBranch(HInstruction* instruction,
                              size_t condition_input_index,
@@ -536,8 +526,9 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   };
 
   size_t GetSIMDRegisterWidth() const override {
-    LOG(FATAL) << "Vector is not unimplemented";
-    UNREACHABLE();
+    // TODO(loongarch64): Implement SIMD with the Vector extension.
+    // Note: HLoopOptimization calls this function even for an ISA without SIMD support.
+    return kLoongarch64FloatRegSizeInBytes;
   };
 
   uintptr_t GetAddressOf(HBasicBlock* block) override {
@@ -667,6 +658,9 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   PcRelativePatchInfo* NewBootImageTypePatch(const DexFile& dex_file,
                                              dex::TypeIndex type_index,
                                              const PcRelativePatchInfo* info_high = nullptr);
+  PcRelativePatchInfo* NewAppImageTypePatch(const DexFile& dex_file,
+                                            dex::TypeIndex type_index,
+                                            const PcRelativePatchInfo* info_high = nullptr);
   PcRelativePatchInfo* NewTypeBssEntryPatch(HLoadClass* load_class,
                                             const PcRelativePatchInfo* info_high = nullptr);
   PcRelativePatchInfo* NewBootImageStringPatch(const DexFile& dex_file,
@@ -685,6 +679,18 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
 
   Literal* DeduplicateBootImageAddressLiteral(uint64_t address);
 
+  Literal* DeduplicateJitStringLiteral(const DexFile& dex_file,
+                                       dex::StringIndex string_index,
+                                       Handle<mirror::String> handle);
+  Literal* DeduplicateJitClassLiteral(const DexFile& dex_file,
+                                      dex::TypeIndex type_index,
+                                      Handle<mirror::Class> handle);
+  void LoadTypeForBootImageIntrinsic(XRegister dest, TypeReference target_type);
+  void LoadBootImageRelRoEntry(XRegister dest, uint32_t boot_image_offset);
+  void LoadBootImageAddress(XRegister dest, uint32_t boot_image_reference);
+  void LoadIntrinsicDeclaringClass(XRegister dest, HInvoke* invoke);
+  void LoadClassRootForIntrinsic(XRegister dest, ClassRoot class_root);
+
   void LoadMethod(MethodLoadKind load_kind, Location temp, HInvoke* invoke);
   void GenerateStaticOrDirectCall(HInvokeStaticOrDirect* invoke,
                                   Location temp,
@@ -699,6 +705,126 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   void MaybeIncrementHotness(bool is_frame_entry);
 
   bool CanUseImplicitSuspendCheck() const;
+
+  // Create slow path for a Baker read barrier for a GC root load within `instruction`.
+  SlowPathCodeLOONGARCH64* AddGcRootBakerBarrierBarrierSlowPath(
+      HInstruction* instruction, Location root, Location temp);
+
+  // Emit marking check for a Baker read barrier for a GC root load within `instruction`.
+  void EmitBakerReadBarierMarkingCheck(
+      SlowPathCodeLOONGARCH64* slow_path, Location root, Location temp);
+
+  // Generate a GC root reference load:
+  //
+  //   root <- *(obj + offset)
+  //
+  // while honoring read barriers (if any).
+  void GenerateGcRootFieldLoad(HInstruction* instruction,
+                               Location root,
+                               XRegister obj,
+                               uint32_t offset,
+                               ReadBarrierOption read_barrier_option,
+                               Loongarch64Label* label_low = nullptr);
+
+  // Fast path implementation of ReadBarrier::Barrier for a heap
+  // reference field load when Baker's read barriers are used.
+  void GenerateFieldLoadWithBakerReadBarrier(HInstruction* instruction,
+                                             Location ref,
+                                             XRegister obj,
+                                             uint32_t offset,
+                                             Location temp,
+                                             bool needs_null_check);
+  // Fast path implementation of ReadBarrier::Barrier for a heap
+  // reference array load when Baker's read barriers are used.
+  void GenerateArrayLoadWithBakerReadBarrier(HInstruction* instruction,
+                                             Location ref,
+                                             XRegister obj,
+                                             uint32_t data_offset,
+                                             Location index,
+                                             Location temp,
+                                             bool needs_null_check);
+  // Factored implementation, used by GenerateFieldLoadWithBakerReadBarrier,
+  // GenerateArrayLoadWithBakerReadBarrier and intrinsics.
+  void GenerateReferenceLoadWithBakerReadBarrier(HInstruction* instruction,
+                                                 Location ref,
+                                                 XRegister obj,
+                                                 uint32_t offset,
+                                                 Location index,
+                                                 Location temp,
+                                                 bool needs_null_check);
+
+  // Create slow path for a read barrier for a heap reference within `instruction`.
+  //
+  // This is a helper function for GenerateReadBarrierSlow() that has the same
+  // arguments. The creation and adding of the slow path is exposed for intrinsics
+  // that cannot use GenerateReadBarrierSlow() from their own slow paths.
+  SlowPathCodeLOONGARCH64* AddReadBarrierSlowPath(HInstruction* instruction,
+                                              Location out,
+                                              Location ref,
+                                              Location obj,
+                                              uint32_t offset,
+                                              Location index);
+
+  // Generate a read barrier for a heap reference within `instruction`
+  // using a slow path.
+  //
+  // A read barrier for an object reference read from the heap is
+  // implemented as a call to the artReadBarrierSlow runtime entry
+  // point, which is passed the values in locations `ref`, `obj`, and
+  // `offset`:
+  //
+  //   mirror::Object* artReadBarrierSlow(mirror::Object* ref,
+  //                                      mirror::Object* obj,
+  //                                      uint32_t offset);
+  //
+  // The `out` location contains the value returned by
+  // artReadBarrierSlow.
+  //
+  // When `index` is provided (i.e. for array accesses), the offset
+  // value passed to artReadBarrierSlow is adjusted to take `index`
+  // into account.
+  void GenerateReadBarrierSlow(HInstruction* instruction,
+                               Location out,
+                               Location ref,
+                               Location obj,
+                               uint32_t offset,
+                               Location index = Location::NoLocation());
+
+  // If read barriers are enabled, generate a read barrier for a heap
+  // reference using a slow path. If heap poisoning is enabled, also
+  // unpoison the reference in `out`.
+  void MaybeGenerateReadBarrierSlow(HInstruction* instruction,
+                                    Location out,
+                                    Location ref,
+                                    Location obj,
+                                    uint32_t offset,
+                                    Location index = Location::NoLocation());
+
+  // Generate a read barrier for a GC root within `instruction` using
+  // a slow path.
+  //
+  // A read barrier for an object reference GC root is implemented as
+  // a call to the artReadBarrierForRootSlow runtime entry point,
+  // which is passed the value in location `root`:
+  //
+  //   mirror::Object* artReadBarrierForRootSlow(GcRoot<mirror::Object>* root);
+  //
+  // The `out` location contains the value returned by
+  // artReadBarrierForRootSlow.
+  void GenerateReadBarrierForRootSlow(HInstruction* instruction, Location out, Location root);
+
+  // Emit a write barrier if:
+  // A) emit_null_check is false
+  // B) emit_null_check is true, and value is not null.
+  void MaybeMarkGCCard(XRegister object, XRegister value, bool emit_null_check);
+
+  // Emit a write barrier unconditionally.
+  void MarkGCCard(XRegister object);
+
+  // Crash if the card table is not valid. This check is only emitted for the CC GC. We assert
+  // `(!clean || !self->is_gc_marking)`, since the card table should not be set to clean when the CC
+  // GC is marking for eliminated write barriers.
+  void CheckGCCardIsValid(XRegister object);
 
   //
   // Heap poisoning.
@@ -759,6 +885,8 @@ private:
   ArenaDeque<PcRelativePatchInfo> method_bss_entry_patches_;
   // PC-relative type patch info for kBootImageLinkTimePcRelative.
   ArenaDeque<PcRelativePatchInfo> boot_image_type_patches_;
+  // PC-relative type patch info for kAppImageRelRo.
+  ArenaDeque<PcRelativePatchInfo> app_image_type_patches_;
   // PC-relative type patch info for kBssEntry.
   ArenaDeque<PcRelativePatchInfo> type_bss_entry_patches_;
   // PC-relative public type patch info for kBssEntryPublic.
@@ -774,6 +902,12 @@ private:
   // PC-relative patch info for IntrinsicObjects for the boot image,
   // and for method/type/string patches for kBootImageRelRo otherwise.
   ArenaDeque<PcRelativePatchInfo> boot_image_other_patches_;
+
+  // Patches for string root accesses in JIT compiled code.
+  StringToLiteralMap jit_string_patches_;
+  // Patches for class root accesses in JIT compiled code.
+  TypeToLiteralMap jit_class_patches_;
+
 };
 
 }  // namespace loongarch64
