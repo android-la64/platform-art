@@ -378,10 +378,8 @@ class LocationsBuilderLOONGARCH64 : public HGraphVisitor {
   void HandleBinaryOp(HBinaryOperation* operation);
   void HandleCondition(HCondition* instruction);
   void HandleShift(HBinaryOperation* operation);
-  void HandleFieldSet(HInstruction* instruction, const FieldInfo& field_info);
-  void HandleFieldGet(HInstruction* instruction, const FieldInfo& field_info);
-  Location RegisterOrZeroConstant(HInstruction* instruction);
-  Location FpuRegisterOrConstantForStore(HInstruction* instruction);
+  void HandleFieldSet(HInstruction* instruction);
+  void HandleFieldGet(HInstruction* instruction);
 
   InvokeDexCallingConventionVisitorLOONGARCH64 parameter_visitor_;
 
@@ -409,6 +407,23 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
   Loongarch64Assembler* GetAssembler() const { return assembler_; }
 
   void GenerateMemoryBarrier(MemBarrierKind kind);
+
+  void FAdd(FRegister rd, FRegister rs1, FRegister rs2, DataType::Type type);
+  void FClass(XRegister rd, FRegister rs1, DataType::Type type);
+
+  void Load(Location out, XRegister rs1, int32_t offset, DataType::Type type);
+  void Store(Location value, XRegister rs1, int32_t offset, DataType::Type type);
+
+  // Sequentially consistent store. Used for volatile fields and intrinsics.
+  // The `instruction` argument is for recording an implicit null check stack map with the
+  // store instruction which may not be the last instruction emitted by `StoreSeqCst()`.
+  void StoreSeqCst(Location value,
+                   XRegister rs1,
+                   int32_t offset,
+                   DataType::Type type,
+                   HInstruction* instruction = nullptr);
+
+  void ShNAdd(XRegister rd, XRegister rs1, XRegister rs2, DataType::Type type);
 
  protected:
   void GenerateClassInitializationCheck(SlowPathCodeLOONGARCH64* slow_path, XRegister class_reg);
@@ -515,14 +530,17 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
     return false;
   }
 
+  // Get FP register width in bytes for spilling/restoring in the slow paths.
+  //
+  // Note: In SIMD graphs this should return SIMD register width as all FP and SIMD registers
+  // alias and live SIMD registers are forced to be spilled in full size in the slow paths.
   size_t GetSlowPathFPWidth() const override {
-    LOG(FATAL) << "CodeGeneratorLOONGARCH64::GetSlowPathFPWidth is unimplemented";
-    UNREACHABLE();
+    // Default implementation.
+    return GetCalleePreservedFPWidth();
   }
 
   size_t GetCalleePreservedFPWidth() const override {
-    LOG(FATAL) << "CodeGeneratorLOONGARCH64::GetCalleePreservedFPWidth is unimplemented";
-    UNREACHABLE();
+    return kLoongarch64FloatRegSizeInBytes;
   };
 
   size_t GetSIMDRegisterWidth() const override {

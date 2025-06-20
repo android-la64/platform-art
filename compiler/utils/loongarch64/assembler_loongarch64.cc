@@ -47,6 +47,7 @@ ALWAYS_INLINE static inline std::pair<uint32_t, int32_t> SplitOffset(bool bits12
 
 
 void Loongarch64Assembler::FinalizeCode() {
+  CHECK(!finalized_);
   Assembler::FinalizeCode();
   ReserveJumpTableSpace();
   EmitLiterals();
@@ -54,6 +55,7 @@ void Loongarch64Assembler::FinalizeCode() {
   EmitBranches();
   EmitJumpTables();
   PatchCFI();
+  finalized_ = true;
 }
 
 void Loongarch64Assembler::Emit(uint32_t value) {
@@ -250,6 +252,29 @@ void Loongarch64Assembler::Load_D(XRegister rd, Literal* literal) {
 
 
 /////////////////////////////// LOONGARCH64 "3R-Type" Instructions ///////////////////////////////
+  // low-level ALU instructions : opcode from 000 0000 0000 0010
+  //                                        ~ 000 0000 0000 0100
+void Loongarch64Assembler::Alsl_w(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2) {
+  Emit3RI2(0x2, sa2, rk, rj, rd);
+}
+
+void Loongarch64Assembler::Alsl_wu(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2) {
+  Emit3RI2(0x3, sa2, rk, rj, rd);
+}
+
+void Loongarch64Assembler::Bytepick_w(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2) {
+  Emit3RI2(0x4, sa2, rk, rj, rd);
+}
+
+// low-level ALU instructions : opcode 000 0000 0001 0110
+void Loongarch64Assembler::Alsl_d(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2) {
+  Emit3RI2(0x16, sa2, rk, rj, rd);
+}
+
+// low-level ALU instructions : opcode from 00 0000 0000 0011
+void Loongarch64Assembler::Bytepick_d(XRegister rd, XRegister rj, XRegister rk, uint32_t sa3) {
+  Emit3RI3(0x3, sa3, rk, rj, rd);
+}
 
 // low-level ALU instructions : opcode from 0 0000 0000 0010 0000 
 //                                        ~ 0 0000 0000 0011 0011
@@ -825,13 +850,16 @@ bool Loongarch64Assembler::Branch::IsUncond(BranchCondition condition, XRegister
   }
 }
 
-Loongarch64Assembler::Branch::Branch(uint32_t location, uint32_t target, XRegister rd, bool is_bare)
+Loongarch64Assembler::Branch::Branch(
+    uint32_t location, uint32_t target, XRegister rd, bool is_bare)
     : old_location_(location),
       location_(location),
       target_(target),
       lhs_reg_(rd),
       rhs_reg_(Zero),
-      condition_(kUncond) {
+      freg_(kNoFRegister),
+      condition_(kUncond),
+      next_branch_id_(0u) {
   InitializeType(
       (rd != Zero ? (is_bare ? kBareCall : kCall) : (is_bare ? kBareUncondBranch : kUncondBranch)));
 }
@@ -841,10 +869,12 @@ Loongarch64Assembler::Branch::Branch(uint32_t location,
                                  Loongarch64Assembler::BranchCondition condition,
                                  XRegister lhs_reg,
                                  XRegister rhs_reg,
-                                 bool is_bare)
+                                 bool is_bare,
+                                 bool fcc_reg_flag)
     : old_location_(location),
       location_(location),
       target_(target),
+      fcc_reg_flag_(fcc_reg_flag),
       lhs_reg_(lhs_reg),
       rhs_reg_(rhs_reg),
       condition_(condition) {
@@ -861,6 +891,7 @@ Loongarch64Assembler::Branch::Branch(uint32_t location,
     : old_location_(location),
       location_(location),
       target_(target),
+      fcc_reg_flag_(false),
       lhs_reg_(rd),
       rhs_reg_(Zero),
       condition_(kUncond) {
@@ -918,6 +949,8 @@ uint32_t Loongarch64Assembler::Branch::GetEndLocation() const { return GetLocati
 uint32_t Loongarch64Assembler::Branch::GetOldEndLocation() const {
   return GetOldLocation() + GetOldLength();
 }
+
+uint32_t Loongarch64Assembler::Branch::NextBranchId() const { return next_branch_id_; }
 
 bool Loongarch64Assembler::Branch::IsBare() const {
   switch (type_) {
@@ -1240,14 +1273,8 @@ void Loongarch64Assembler::Bind(Loongarch64Label* label) {
     uint32_t branch_id = label->Position();
     Branch* branch = GetBranch(branch_id);
     branch->Resolve(bound_pc);
-
-    uint32_t branch_location = branch->GetLocation();
-    // Extract the location of the previous branch in the list (walking the list backwards;
-    // the previous branch ID was stored in the space reserved for this branch).
-    uint32_t prev = buffer_.Load<uint32_t>(branch_location);
-
-    // On to the previous branch in the list...
-    label->position_ = prev;
+    // On to the next branch in the list...
+    label->position_ = branch->NextBranchId();
   }
 
   // Now make the label object contain its own location (relative to the end of the preceding

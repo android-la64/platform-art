@@ -129,6 +129,7 @@ class Loongarch64Assembler final : public Assembler {
                             const Loongarch64InstructionSetFeatures* instruction_set_features = nullptr)
       : Assembler(allocator),
         branches_(allocator->Adapter(kArenaAllocAssembler)),
+        finalized_(false),
         overwriting_(false),
         overwrite_location_(0),
         literals_(allocator->Adapter(kArenaAllocAssembler)),
@@ -356,6 +357,18 @@ class Loongarch64Assembler final : public Assembler {
   // void Dbcl();
   // void Syscall();
 
+  // low-level ALU instructions : opcode 000 0000 0001 0110
+  void Alsl_d(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2);
+  // 3R-Type
+  // low-level ALU instructions : opcode from 000 0000 0000 0010
+  //                                        ~ 000 0000 0000 0100
+  void Alsl_w(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2);
+  void Alsl_wu(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2);
+  void Bytepick_w(XRegister rd, XRegister rj, XRegister rk, uint32_t sa2);
+  // 3R-Type
+  // low-level ALU instructions : opcode from 00 0000 0000 0011
+  void Bytepick_d(XRegister rd, XRegister rj, XRegister rk, uint32_t sa3);
+
 
 
 
@@ -473,7 +486,7 @@ class Loongarch64Assembler final : public Assembler {
       // Branch length in bytes.
       uint32_t length;
       // The offset in bytes of the PC used in the (only) PC-relative instruction from
-      // the start of the branch sequence. LOONGARCH always uses the address of the PC-relative
+      // the start of the branch sequence. RISC-V always uses the address of the PC-relative
       // instruction as the PC, so this is essentially the offset of that instruction.
       uint32_t pc_offset;
       // How large (in bits) a PC-relative offset can be for a given type of branch.
@@ -489,21 +502,28 @@ class Loongarch64Assembler final : public Assembler {
            BranchCondition condition,
            XRegister lhs_reg,
            XRegister rhs_reg,
-           bool is_bare);
+           bool is_bare,
+	   bool fcc_reg_flag_ = false);
     // Label address (in literal area) or literal.
     Branch(uint32_t location, uint32_t target, XRegister rd, Type label_or_literal_type);
+
+    Branch(uint32_t location, uint32_t target, FRegister rd, Type literal_type);
 
     // Some conditional branches with lhs = rhs are effectively NOPs, while some
     // others are effectively unconditional.
     static bool IsNop(BranchCondition condition, XRegister lhs, XRegister rhs);
     static bool IsUncond(BranchCondition condition, XRegister lhs, XRegister rhs);
+    static bool IsCompressed(Type type);
 
     static BranchCondition OppositeCondition(BranchCondition cond);
 
     Type GetType() const;
+    Type GetOldType() const;
     BranchCondition GetCondition() const;
     XRegister GetLeftRegister() const;
     XRegister GetRightRegister() const;
+    XRegister GetNonZeroRegister() const;
+    FRegister GetFRegister() const;
     uint32_t GetTarget() const;
     uint32_t GetLocation() const;
     uint32_t GetOldLocation() const;
@@ -513,6 +533,11 @@ class Loongarch64Assembler final : public Assembler {
     uint32_t GetOldEndLocation() const;
     bool IsBare() const;
     bool IsResolved() const;
+
+    uint32_t NextBranchId() const;
+
+    // Checks if condition meets compression requirements
+    bool IsCompressableCondition() const;
 
     // Returns the bit size of the signed offset that the branch instruction can handle.
     OffsetBits GetOffsetSize() const;
@@ -534,30 +559,45 @@ class Loongarch64Assembler final : public Assembler {
     uint32_t PromoteIfNeeded();
 
     // Returns the offset into assembler buffer that shall be used as the base PC for
-    // offset calculation. LOONGARCH always uses the address of the PC-relative instruction
+    // offset calculation. RISC-V always uses the address of the PC-relative instruction
     // as the PC, so this is essentially the location of that instruction.
     uint32_t GetOffsetLocation() const;
 
     // Calculates and returns the offset ready for encoding in the branch instruction(s).
     int32_t GetOffset() const;
 
+    // Link with the next branch
+    void LinkToList(uint32_t next_branch_id);
+
    private:
     // Completes branch construction by determining and recording its type.
     void InitializeType(Type initial_type);
     // Helper for the above.
     void InitShortOrLong(OffsetBits ofs_size, Type short_type, Type long_type, Type longest_type);
+    void InitShortOrLong(OffsetBits ofs_size,
+                         Type compressed_type,
+                         Type short_type,
+                         Type long_type,
+                         Type longest_type);
 
     uint32_t old_location_;  // Offset into assembler buffer in bytes.
     uint32_t location_;      // Offset into assembler buffer in bytes.
     uint32_t target_;        // Offset into assembler buffer in bytes.
 
+    bool fcc_reg_flag_;  // Mark this branch is bceqz/bcnez.
     XRegister lhs_reg_;          // Left-hand side register in conditional branches or
                                  // destination register in calls or literals.
     XRegister rhs_reg_;          // Right-hand side register in conditional branches.
+    FRegister freg_;             // Destination register in FP literals.
     BranchCondition condition_;  // Condition for conditional branches.
 
     Type type_;      // Current type of the branch.
     Type old_type_;  // Initial type of the branch.
+
+    // Id of the next branch bound to the same label in singly-linked zero-terminated list
+    // NOTE: encoded the same way as a position in a linked Label (id + sizeof(void*))
+    // Label itself is used to hold the 'head' of this list
+    uint32_t next_branch_id_;
   };
 
   // Branch and literal fixup.
@@ -646,6 +686,44 @@ class Loongarch64Assembler final : public Assembler {
     DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
     uint32_t encoding = opcode << 15 | static_cast<uint32_t>(rk) << 10 |
+                        static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
+    Emit(encoding);
+  }
+
+  // 3RI2-Type instruction:
+  //
+  //   31                                   16 15 14    10  9     5 4        0
+  //   ----------------------------------------------------------------------
+  //   [ . . . . . . . . . . . . . . . . . . | .| . . . .| . . . .| . . . . ]
+  //   [                  opcode            |sa2| rk/rs2 | rj/rs1 |   rd    ]
+  //   ----------------------------------------------------------------------
+  template <typename Reg3, typename Reg2, typename Reg1>
+  void Emit3RI2(uint32_t opcode, uint32_t sa2, Reg3 rk, Reg2 rj, Reg1 rd) {
+    DCHECK(IsUint<15>(opcode));
+    DCHECK(IsUint<2>(sa2)) << sa2;
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rk)));
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
+    uint32_t encoding = opcode << 17 | (sa2 & 0x3) << 15 | static_cast<uint32_t>(rk) << 10 |
+                        static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
+    Emit(encoding);
+  }
+
+  // 3RI3-Type instruction:
+  //
+  //   31                                  17  15 14    10  9     5 4        0
+  //   ----------------------------------------------------------------------
+  //   [ . . . . . . . . . . . . . . . . . | . .| . . . .| . . . .| . . . . ]
+  //   [                  opcode           | sa3| rk/rs2 | rj/rs1 |   rd    ]
+  //   ----------------------------------------------------------------------
+  template <typename Reg3, typename Reg2, typename Reg1>
+  void Emit3RI3(uint32_t opcode, uint32_t sa3, Reg3 rk, Reg2 rj, Reg1 rd) {
+    DCHECK(IsUint<14>(opcode));
+    DCHECK(IsUint<3>(sa3)) << sa3;
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rk)));
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
+    DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
+    uint32_t encoding = opcode << 18 | (sa3 & 0x7) << 15 | static_cast<uint32_t>(rk) << 10 |
                         static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
     Emit(encoding);
   }
@@ -841,6 +919,9 @@ class Loongarch64Assembler final : public Assembler {
   }
 
   ArenaVector<Branch> branches_;
+
+  // For checking that we finalize the code only once.
+  bool finalized_;
 
   // Whether appending instructions at the end of the buffer or overwriting the existing ones.
   bool overwriting_;
