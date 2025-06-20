@@ -127,6 +127,18 @@ static constexpr int64_t ShiftedSignExtendedClassStatusValue() {
   return static_cast<int64_t>(kShiftedStatusValue) - (INT64_C(1) << 32);
 }
 
+// Split a 64-bit address used by JIT to the nearest 4KiB-aligned base address and a 12-bit
+// signed offset. It is usually cheaper to materialize the aligned address than the full address.
+std::pair<uint64_t, int32_t> SplitJitAddress(uint64_t address) {
+  uint64_t bits0_11 = address & UINT64_C(0xfff);
+  uint64_t bit11 = address & UINT64_C(0x800);
+  // Round the address to nearest 4KiB address because the `imm12` has range [-0x800, 0x800).
+  uint64_t base_address = (address & ~UINT64_C(0xfff)) + (bit11 << 1);
+  int32_t imm12 = dchecked_integral_cast<int32_t>(bits0_11) -
+                  dchecked_integral_cast<int32_t>(bit11 << 1);
+  return {base_address, imm12};
+}
+
 int32_t ReadBarrierMarkEntrypointOffset(Location ref) {
   DCHECK(ref.IsRegister());
   int reg = ref.reg();
@@ -217,7 +229,7 @@ Location CriticalNativeCallingConventionVisitorLoongarch64::GetNextLocation(Data
 Location CriticalNativeCallingConventionVisitorLoongarch64::GetReturnLocation(
     DataType::Type type) const {
   // The result is returned the same way in native ABI and managed ABI. No result conversion is
-  // needed, see comments in `Riscv64JniCallingConvention::RequiresSmallResultTypeExtension()`.
+  // needed, see comments in `Loongarch64JniCallingConvention::RequiresSmallResultTypeExtension()`.
   InvokeDexCallingConventionVisitorLOONGARCH64 dex_calling_convention;
   return dex_calling_convention.GetReturnLocation(type);
 }
@@ -237,25 +249,44 @@ void LocationsBuilderLOONGARCH64::HandleInvoke(HInvoke* instruction) {
 
 class CompileOptimizedSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
  public:
-  CompileOptimizedSlowPathLOONGARCH64() : SlowPathCodeLOONGARCH64(/*instruction=*/ nullptr) {}
+  CompileOptimizedSlowPathLOONGARCH64(HSuspendCheck* suspend_check, XRegister base, int32_t imm12)
+      : SlowPathCodeLOONGARCH64(suspend_check),
+        base_(base),
+        imm12_(imm12) {}
 
   void EmitNativeCode(CodeGenerator* codegen) override {
     uint32_t entrypoint_offset =
         GetThreadOffset<kLoongarch64PointerSize>(kQuickCompileOptimized).Int32Value();
     __ Bind(GetEntryLabel());
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    loongarch64::ScratchRegisterScope srs(loongarch64_codegen->GetAssembler());
+    XRegister counter = srs.AllocateXRegister();
+    __ LoadConst32(counter, ProfilingInfo::GetOptimizeThreshold());
+    __ St_H(counter, base_, imm12_);
+    if (instruction_ != nullptr) {
+      // Only saves live vector regs for SIMD.
+      SaveLiveRegisters(codegen, instruction_->GetLocations());
+    }
     __ Load_D(RA, TR, entrypoint_offset);
     // Note: we don't record the call here (and therefore don't generate a stack
     // map), as the entrypoint should never be suspended.
-    __ Move(TMP, RA);
-    __ Jirl(RA, TMP, 0);
+    __ Jirl(RA, RA, 0);
+    if (instruction_ != nullptr) {
+      // Only restores live vector regs for SIMD.
+      RestoreLiveRegisters(codegen, instruction_->GetLocations());
+    }
     __ B(GetExitLabel());
   }
 
   const char* GetDescription() const override { return "CompileOptimizedSlowPath"; }
 
  private:
+  XRegister base_;
+  const int32_t imm12_;
+
   DISALLOW_COPY_AND_ASSIGN(CompileOptimizedSlowPathLOONGARCH64);
 };
+
 
 class SuspendCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
  public:
@@ -314,7 +345,7 @@ class NullCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
 
   bool IsFatal() const override { return true; }
 
-  const char* GetDescription() const override { return "NullCheckSlowPathRISCV64"; }
+  const char* GetDescription() const override { return "NullCheckSlowPathLOONGARCH64"; }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(NullCheckSlowPathLOONGARCH64);
@@ -413,7 +444,7 @@ class LoadClassSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
     __ B(GetExitLabel());
   }
 
-  const char* GetDescription() const override { return "LoadClassSlowPathRISCV64"; }
+  const char* GetDescription() const override { return "LoadClassSlowPathLOONGARCH64"; }
 
  private:
   // The class this slow path will load.
@@ -439,7 +470,7 @@ class DeoptimizationSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
     CheckEntrypointTypes<kQuickDeoptimize, void, DeoptimizationKind>();
   }
 
-  const char* GetDescription() const override { return "DeoptimizationSlowPathRISCV64"; }
+  const char* GetDescription() const override { return "DeoptimizationSlowPathLOONGARCH64"; }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DeoptimizationSlowPathLOONGARCH64);
@@ -1209,7 +1240,7 @@ void InstructionCodeGeneratorLOONGARCH64::HandleGoto(HInstruction* instruction,
   HLoopInformation* info = block->GetLoopInformation();
 
   if (info != nullptr && info->IsBackEdge(*block) && info->HasSuspendCheck()) {
-    codegen_->MaybeIncrementHotness(/*is_frame_entry=*/ false);
+    codegen_->MaybeIncrementHotness(info->GetSuspendCheck(), /*is_frame_entry=*/ false);
     GenerateSuspendCheck(info->GetSuspendCheck(), successor);
     return;  // `GenerateSuspendCheck()` emitted the jump.
   }
@@ -1219,7 +1250,6 @@ void InstructionCodeGeneratorLOONGARCH64::HandleGoto(HInstruction* instruction,
   if (!codegen_->GoesToNextBlock(block, successor)) {
     __ B(codegen_->GetLabelOf(successor));
   }
-  LOG(FATAL) << "Unimplemented";
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenPackedSwitchWithCompares(XRegister adjusted,
@@ -3673,7 +3703,8 @@ CodeGeneratorLOONGARCH64::CodeGeneratorLOONGARCH64(HGraph* graph,
   AddAllocatedRegister(Location::RegisterLocation(RA));
 }
 
-void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
+void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(HSuspendCheck* suspend_check,
+                                                 bool is_frame_entry) {
   if (GetCompilerOptions().CountHotnessInCompiledCode()) {
     ScratchRegisterScope srs(GetAssembler());
     XRegister method = is_frame_entry ? kArtMethodRegister : srs.AllocateXRegister();
@@ -3683,6 +3714,7 @@ void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
     XRegister counter = srs.AllocateXRegister();
     __ Load_HU(counter, method, ArtMethod::HotnessCountOffset().Int32Value());
     Loongarch64Label done;
+    DCHECK_EQ(0u, interpreter::kNterpHotnessValue);
     __ Beqz(counter, &done);  // Can clobber `TMP` if taken.
     __ Addi_D(counter, counter, -1);
     // We may not have another scratch register available for `Storeh`()`,
@@ -3692,26 +3724,26 @@ void CodeGeneratorLOONGARCH64::MaybeIncrementHotness(bool is_frame_entry) {
     __ Bind(&done);
   }
 
-  if (GetGraph()->IsCompilingBaseline() && !Runtime::Current()->IsAotCompiler()) {
-    SlowPathCodeLOONGARCH64* slow_path = new (GetScopedAllocator()) CompileOptimizedSlowPathLOONGARCH64();
-    AddSlowPath(slow_path);
-    ScopedProfilingInfoUse spiu(Runtime::Current()->GetJit(), GetGraph()->GetArtMethod(), Thread::Current());
-    ProfilingInfo* info = spiu.GetProfilingInfo();
+  if (GetGraph()->IsCompilingBaseline() &&
+      GetGraph()->IsUsefulOptimizing() &&
+      !Runtime::Current()->IsAotCompiler()) {
+    ProfilingInfo* info = GetGraph()->GetProfilingInfo();
     DCHECK(info != nullptr);
     DCHECK(!HasEmptyFrame());
-    uint64_t address = reinterpret_cast64<uint64_t>(info);
-    Loongarch64Label done;
+    uint64_t address = reinterpret_cast64<uint64_t>(info) +
+                       ProfilingInfo::BaselineHotnessCountOffset().SizeValue();
+    auto [base_address, imm12] = SplitJitAddress(address);
     ScratchRegisterScope srs(GetAssembler());
-    XRegister tmp = srs.AllocateXRegister();
-    __ LoadConst64(tmp, address);
     XRegister counter = srs.AllocateXRegister();
-    __ Load_HU(counter, tmp, ProfilingInfo::BaselineHotnessCountOffset().Int32Value());
+    XRegister tmp = RA;
+    __ LoadConst64(tmp, base_address);
+    SlowPathCodeLOONGARCH64* slow_path =
+        new (GetScopedAllocator()) CompileOptimizedSlowPathLOONGARCH64(suspend_check, tmp, imm12);
+    AddSlowPath(slow_path);
+    __ Ld_HU(counter, tmp, imm12);
     __ Beqz(counter, slow_path->GetEntryLabel());  // Can clobber `TMP` if taken.
     __ Addi_D(counter, counter, -1);
-    // We do not have another scratch register available for `Storeh`()`,
-    // so we must use the `Sh()` function directly.
-    static_assert(IsInt<12>(ProfilingInfo::BaselineHotnessCountOffset().Int32Value()));
-    __ St_H(counter, tmp, ProfilingInfo::BaselineHotnessCountOffset().Int32Value());
+    __ St_H(counter, tmp, imm12);
     __ Bind(slow_path->GetExitLabel());
   }
 }
@@ -3773,7 +3805,16 @@ void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
         __ cfi().RelOffset(dwarf::Reg::Loongarch64Core(reg), offset);
       }
     }
-    // TODO: support FP
+
+    for (size_t i = arraysize(kFpuCalleeSaves); i != 0; ) {
+      --i;
+      FRegister reg = kFpuCalleeSaves[i];
+      if (allocated_registers_.ContainsFloatingPointRegister(reg)) {
+        offset -= kLoongarch64DoublewordSize;
+        __ FSt_d(reg, SP, offset);
+        __ cfi().RelOffset(dwarf::Reg::Loongarch64Fp(reg), offset);
+      }
+    }
 
     // Save the current method if we need it. Note that we do not
     // do this in HCurrentMethod, as the instruction might have been removed
@@ -3787,7 +3828,7 @@ void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
       __ Store_W(Zero, SP, GetStackOffsetOfShouldDeoptimizeFlag());
     }
   }
-  MaybeIncrementHotness(/*is_frame_entry=*/ true);
+  MaybeIncrementHotness(/* suspend_check= */ nullptr, /*is_frame_entry=*/ true);
 }
 
 void CodeGeneratorLOONGARCH64::GenerateFrameExit() {
@@ -4064,8 +4105,8 @@ void CodeGeneratorLOONGARCH64::InvokeRuntime(QuickEntrypointEnum entrypoint,
 
   // TODO(loongarch64): Reduce code size for AOT by using shared trampolines for slow path
   // runtime calls across the entire oat file.
-  __ Load_D(TMP, TR, entrypoint_offset.Int32Value());
-  __ Jirl(RA, TMP, 0);
+  __ Load_D(RA, TR, entrypoint_offset.Int32Value());
+  __ Jirl(RA, RA, 0);
   if (EntrypointRequiresStackMap(entrypoint)) {
     RecordPcInfo(instruction, dex_pc, slow_path);
   }
@@ -4277,6 +4318,31 @@ Literal* CodeGeneratorLOONGARCH64::DeduplicateJitClassLiteral(const DexFile& dex
   return jit_class_patches_.GetOrCreate(
       TypeReference(&dex_file, type_index),
       [this]() { return __ NewLiteral<uint32_t>(/* value= */ 0u); });
+}
+
+void CodeGeneratorLOONGARCH64::PatchJitRootUse(uint8_t* code,
+                                          const uint8_t* roots_data,
+                                          const Literal* literal,
+                                          uint64_t index_in_table) const {
+  uint32_t literal_offset = GetAssembler().GetLabelLocation(literal->GetLabel());
+  uintptr_t address =
+      reinterpret_cast<uintptr_t>(roots_data) + index_in_table * sizeof(GcRoot<mirror::Object>);
+  reinterpret_cast<uint32_t*>(code + literal_offset)[0] = dchecked_integral_cast<uint32_t>(address);
+}
+
+void CodeGeneratorLOONGARCH64::EmitJitRootPatches(uint8_t* code, const uint8_t* roots_data) {
+  for (const auto& entry : jit_string_patches_) {
+    const StringReference& string_reference = entry.first;
+    Literal* table_entry_literal = entry.second;
+    uint64_t index_in_table = GetJitStringRootIndex(string_reference);
+    PatchJitRootUse(code, roots_data, table_entry_literal, index_in_table);
+  }
+  for (const auto& entry : jit_class_patches_) {
+    const TypeReference& type_reference = entry.first;
+    Literal* table_entry_literal = entry.second;
+    uint64_t index_in_table = GetJitClassRootIndex(type_reference);
+    PatchJitRootUse(code, roots_data, table_entry_literal, index_in_table);
+  }
 }
 
 void CodeGeneratorLOONGARCH64::EmitPcRelativePcaddu12iPlaceholder(PcRelativePatchInfo* info_high,

@@ -696,13 +696,18 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   void EmitLinkerPatches(ArenaVector<linker::LinkerPatch>* linker_patches) override;
 
   Literal* DeduplicateBootImageAddressLiteral(uint64_t address);
-
+  void PatchJitRootUse(uint8_t* code,
+                       const uint8_t* roots_data,
+                       const Literal* literal,
+                       uint64_t index_in_table) const;
   Literal* DeduplicateJitStringLiteral(const DexFile& dex_file,
                                        dex::StringIndex string_index,
                                        Handle<mirror::String> handle);
   Literal* DeduplicateJitClassLiteral(const DexFile& dex_file,
                                       dex::TypeIndex type_index,
                                       Handle<mirror::Class> handle);
+  void EmitJitRootPatches(uint8_t* code, const uint8_t* roots_data) override;
+
   void LoadTypeForBootImageIntrinsic(XRegister dest, TypeReference target_type);
   void LoadBootImageRelRoEntry(XRegister dest, uint32_t boot_image_offset);
   void LoadBootImageAddress(XRegister dest, uint32_t boot_image_reference);
@@ -720,7 +725,7 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
 
   void GenerateMemoryBarrier(MemBarrierKind kind);
 
-  void MaybeIncrementHotness(bool is_frame_entry);
+  void MaybeIncrementHotness(HSuspendCheck* suspend_check, bool is_frame_entry);
 
   bool CanUseImplicitSuspendCheck() const;
 
