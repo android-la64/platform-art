@@ -65,8 +65,8 @@ void Loongarch64Assembler::Emit(uint32_t value) {
     overwrite_location_ += sizeof(uint32_t);
   } else {
     // Other instructions are simply appended at the end here.
-  AssemblerBuffer::EnsureCapacity ensured(&buffer_);
-  buffer_.Emit<uint32_t>(value);
+    AssemblerBuffer::EnsureCapacity ensured(&buffer_);
+    buffer_.Emit<uint32_t>(value);
   }
 }
 
@@ -1067,6 +1067,10 @@ int32_t Loongarch64Assembler::Branch::GetOffset() const {
   return offset;
 }
 
+void Loongarch64Assembler::Branch::LinkToList(uint32_t next_branch_id) {
+  next_branch_id_ = next_branch_id;
+}
+
 void Loongarch64Assembler::EmitBcond(BranchCondition cond,
                                  XRegister rs,
                                  XRegister rt,
@@ -1115,8 +1119,9 @@ void Loongarch64Assembler::EmitBranch(Loongarch64Assembler::Branch* branch) {
 
   auto emit_pc_handle_and_next = [&](auto Pchandle, auto next, bool bits) {
     CHECK_EQ(overwrite_location_, branch->GetOffsetLocation());
-    auto [imm20, short_offset] = SplitOffset(bits, target);
-    if(bits) imm20 = imm20 - ((overwrite_location_ & 0xff800) >> 12);
+    auto [imm20, short_offset] = SplitOffset(bits, offset);
+    // TODO: support long jump
+    //if(bits) imm20 = imm20 - ((overwrite_location_ & 0xff800) >> 12);
     Pchandle(imm20);
     next(short_offset);
   };
@@ -1205,13 +1210,15 @@ void Loongarch64Assembler::EmitBranches() {
 
 void Loongarch64Assembler::FinalizeLabeledBranch(Loongarch64Label* label) {
   DCHECK_ALIGNED(branches_.back().GetLength(), sizeof(uint32_t));
-  uint32_t length = branches_.back().GetLength() / sizeof(uint32_t);
+  Branch& this_branch = branches_.back();
+  uint32_t branch_length = this_branch.GetLength();
+  uint32_t length = branch_length / sizeof(uint32_t);
+  //uint32_t length = branches_.back().GetLength() / sizeof(uint32_t);
   if (!label->IsBound()) {
     // Branch forward (to a following label), distance is unknown.
     // The first branch forward will contain 0, serving as the terminator of
     // the list of forward-reaching branches.
-    Emit(label->position_);
-    length--;
+    this_branch.LinkToList(label->position_);
     // Now make the label object point to this branch
     // (this forms a linked list of branches preceding this label).
     uint32_t branch_id = branches_.size() - 1;
@@ -1219,7 +1226,7 @@ void Loongarch64Assembler::FinalizeLabeledBranch(Loongarch64Label* label) {
   }
   // Reserve space for the branch.
   for (; length != 0u; --length) {
-    Nop();
+    Emit(0);
   }
 }
 

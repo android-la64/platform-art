@@ -3771,12 +3771,63 @@ void CodeGeneratorLOONGARCH64::GenerateMemoryBarrier(MemBarrierKind kind) {
 }
 
 void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
+  // Check if we need to generate the clinit check. We will jump to the
+  // resolution stub if the class is not initialized and the executing thread is
+  // not the thread initializing it.
+  // We do this before constructing the frame to get the correct stack trace if
+  // an exception is thrown.
+  if (GetCompilerOptions().ShouldCompileWithClinitCheck(GetGraph()->GetArtMethod())) {
+    Loongarch64Label resolution;
+    Loongarch64Label memory_barrier;
+
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister tmp = srs.AllocateXRegister();
+    XRegister tmp2 = srs.AllocateXRegister();
+
+    // We don't emit a read barrier here to save on code size. We rely on the
+    // resolution trampoline to do a clinit check before re-entering this code.
+    __ Load_WU(tmp2, kArtMethodRegister, ArtMethod::DeclaringClassOffset().Int32Value());
+
+    // We shall load the full 32-bit status word with sign-extension and compare as unsigned
+    // to sign-extended shifted status values. This yields the same comparison as loading and
+    // materializing unsigned but the constant is materialized with a single LUI instruction.
+    __ Load_W(tmp, tmp2, mirror::Class::StatusOffset().SizeValue());  // Sign-extended.
+
+    // Check if we're visibly initialized.
+    __ Li(tmp2, ShiftedSignExtendedClassStatusValue<ClassStatus::kVisiblyInitialized>());
+    __ Bgeu(tmp, tmp2, &frame_entry_label_);  // Can clobber `TMP` if taken.
+
+    // Check if we're initialized and jump to code that does a memory barrier if so.
+    __ Li(tmp2, ShiftedSignExtendedClassStatusValue<ClassStatus::kInitialized>());
+    __ Bgeu(tmp, tmp2, &memory_barrier);  // Can clobber `TMP` if taken.
+
+    // Check if we're initializing and the thread initializing is the one
+    // executing the code.
+    __ Li(tmp2, ShiftedSignExtendedClassStatusValue<ClassStatus::kInitializing>());
+    __ Bltu(tmp, tmp2, &resolution);  // Can clobber `TMP` if taken.
+
+    __ Load_WU(tmp2, kArtMethodRegister, ArtMethod::DeclaringClassOffset().Int32Value());
+    __ Load_W(tmp, tmp2, mirror::Class::ClinitThreadIdOffset().Int32Value());
+    __ Load_W(tmp2, TR, Thread::TidOffset<kLoongarch64PointerSize>().Int32Value());
+    __ Beq(tmp, tmp2, &frame_entry_label_);
+    __ Bind(&resolution);
+
+    // Jump to the resolution stub.
+    ThreadOffset64 entrypoint_offset =
+        GetThreadOffset<kLoongarch64PointerSize>(kQuickQuickResolutionTrampoline);
+    __ Load_D(tmp, TR, entrypoint_offset.Int32Value());
+    __ Jr(tmp);
+
+    __ Bind(&memory_barrier);
+    GenerateMemoryBarrier(MemBarrierKind::kAnyAny);
+  }
   __ Bind(&frame_entry_label_);
 
   bool do_overflow_check =
       FrameNeedsStackCheck(GetFrameSize(), InstructionSet::kLoongarch64) || !IsLeafMethod();
 
   if (do_overflow_check) {
+    DCHECK(GetCompilerOptions().GetImplicitStackOverflowChecks());
     __ Load_W(
         Zero, SP, -static_cast<int32_t>(GetStackOverflowReservedBytes(InstructionSet::kLoongarch64)));
     RecordPcInfo(nullptr, 0);
@@ -3784,10 +3835,7 @@ void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
 
   if (!HasEmptyFrame()) {
     // Make sure the frame size isn't unreasonably large.
-    if (GetFrameSize() > GetStackOverflowReservedBytes(InstructionSet::kLoongarch64)) {
-      LOG(FATAL) << "Stack frame larger than "
-                 << GetStackOverflowReservedBytes(InstructionSet::kLoongarch64) << " bytes";
-    }
+    DCHECK_LE(GetFrameSize(), GetMaximumFrameSize());
 
     // Spill callee-saved registers.
 
@@ -3811,7 +3859,7 @@ void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
       FRegister reg = kFpuCalleeSaves[i];
       if (allocated_registers_.ContainsFloatingPointRegister(reg)) {
         offset -= kLoongarch64DoublewordSize;
-        __ FSt_d(reg, SP, offset);
+        __ FStore_D(reg, SP, offset);
         __ cfi().RelOffset(dwarf::Reg::Loongarch64Fp(reg), offset);
       }
     }
@@ -3848,7 +3896,17 @@ void CodeGeneratorLOONGARCH64::GenerateFrameExit() {
         __ cfi().Restore(dwarf::Reg::Loongarch64Core(reg));
       }
     }
-    // TODO: support FP
+
+    for (size_t i = arraysize(kFpuCalleeSaves); i != 0; ) {
+      --i;
+      FRegister reg = kFpuCalleeSaves[i];
+      if (allocated_registers_.ContainsFloatingPointRegister(reg)) {
+        offset -= kLoongarch64DoublewordSize;
+        __ FLoad_D(reg, SP, offset);
+        __ cfi().Restore(dwarf::Reg::Riscv64Fp(reg));
+      }
+    }
+
     DecreaseFrame(GetFrameSize());
   }
 
