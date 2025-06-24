@@ -560,6 +560,505 @@ void Loongarch64Assembler::Pcaddu18i(XRegister rd, uint32_t imm20) {
   EmitPC_rel(0xf, imm20, rd);
 }
 
+// 3R-Type
+// Atomic memory access instructions : opcode from 0 0111 0000 1011 0000
+//                                               ~ 0 0111 0000 1011 1111
+void Loongarch64Assembler::Amcas_b(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b0, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_h(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b1, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b2, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b3, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_db_b(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b4, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_db_h(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b5, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b6, rk, rj, rd);
+}
+void Loongarch64Assembler::Amcas_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b7, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_b(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b8, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_h(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70b9, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_b(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70ba, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_h(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70bb, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_db_b(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70bc, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_db_h(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70bd, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_db_b(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70be, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_db_h(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70bf, rk, rj, rd);
+}
+
+// 3R-Type
+// Atomic memory access instructions : opcode from 0 0111 0000 1100 0000
+//                                               ~ 0 0111 0000 1100 1111
+void Loongarch64Assembler::Amswap_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c0, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c1, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c2, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c3, rk, rj, rd);
+}
+void Loongarch64Assembler::Amand_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c4, rk, rj, rd);
+}
+void Loongarch64Assembler::Amand_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c5, rk, rj, rd);
+}
+void Loongarch64Assembler::Amor_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c6, rk, rj, rd);
+}
+void Loongarch64Assembler::Amor_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c7, rk, rj, rd);
+}
+void Loongarch64Assembler::Amxor_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c8, rk, rj, rd);
+}
+void Loongarch64Assembler::Amxor_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70c9, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70ca, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70cb, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70cc, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70cd, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_wu(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70ce, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_du(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70cf, rk, rj, rd);
+}
+
+// 3R-Type
+// Atomic memory access instructions : opcode from 0 0111 0000 1101 0000
+//                                               ~ 0 0111 0000 1101 1111
+void Loongarch64Assembler::Ammin_wu(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d0, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_du(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d1, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d2, rk, rj, rd);
+}
+void Loongarch64Assembler::Amswap_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d3, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d4, rk, rj, rd);
+}
+void Loongarch64Assembler::Amadd_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d5, rk, rj, rd);
+}
+void Loongarch64Assembler::Amand_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d6, rk, rj, rd);
+}
+void Loongarch64Assembler::Amand_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d7, rk, rj, rd);
+}
+void Loongarch64Assembler::Amor_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d8, rk, rj, rd);
+}
+void Loongarch64Assembler::Amor_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70d9, rk, rj, rd);
+}
+void Loongarch64Assembler::Amxor_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70da, rk, rj, rd);
+}
+void Loongarch64Assembler::Amxor_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70db, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70dc, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70dd, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_db_w(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70de, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_db_d(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70df, rk, rj, rd);
+}
+
+// 3R-Type
+// Atomic memory access instructions : opcode from 0 0111 0000 1110 0000
+//                                               ~ 0 0111 0000 1110 0011
+void Loongarch64Assembler::Ammax_db_wu(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70e0, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammax_db_du(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70e1, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_db_wu(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70e2, rk, rj, rd);
+}
+void Loongarch64Assembler::Ammin_db_du(XRegister rd, XRegister rk, XRegister rj) {
+  Emit3R(0x70e3, rk, rj, rd);
+}
+
+// 3R-Type
+// Float alu instructions : opcode from 0 0000 0010 0000 0001
+//                                    ~ not discontinuous
+//                                    ~ 0 0000 0010 0010 0110
+void Loongarch64Assembler::FAdd_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x201, fk, fj, fd);
+}
+void Loongarch64Assembler::FAdd_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x202, fk, fj, fd);
+}
+void Loongarch64Assembler::FSub_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x205, fk, fj, fd);
+}
+void Loongarch64Assembler::FSub_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x206, fk, fj, fd);
+}
+void Loongarch64Assembler::FMul_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x209, fk, fj, fd);
+}
+void Loongarch64Assembler::FMul_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x20a, fk, fj, fd);
+}
+void Loongarch64Assembler::FDiv_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x20d, fk, fj, fd);
+}
+void Loongarch64Assembler::FDiv_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x20e, fk, fj, fd);
+}
+void Loongarch64Assembler::FMax_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x211, fk, fj, fd);
+}
+void Loongarch64Assembler::FMax_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x212, fk, fj, fd);
+}
+void Loongarch64Assembler::FMin_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x215, fk, fj, fd);
+}
+void Loongarch64Assembler::FMin_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x216, fk, fj, fd);
+}
+void Loongarch64Assembler::FMaxa_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x219, fk, fj, fd);
+}
+void Loongarch64Assembler::FMaxa_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x21a, fk, fj, fd);
+}
+void Loongarch64Assembler::FMina_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x21d, fk, fj, fd);
+}
+void Loongarch64Assembler::FMina_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x21e, fk, fj, fd);
+}
+void Loongarch64Assembler::FScaleb_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x221, fk, fj, fd);
+}
+void Loongarch64Assembler::FScaleb_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x222, fk, fj, fd);
+}
+void Loongarch64Assembler::FCopysign_s(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x225, fk, fj, fd);
+}
+void Loongarch64Assembler::FCopysign_d(FRegister fd, FRegister fj, FRegister fk) {
+  Emit3R(0x226, fk, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0101 0000 0001
+//                                    ~ not discontinuous
+//                                    ~ 00 0000 0100 0101 0000 1110
+void Loongarch64Assembler::FAbs_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4501, fj, fd);
+}
+void Loongarch64Assembler::FAbs_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4502, fj, fd);
+}
+void Loongarch64Assembler::FNeg_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4505, fj, fd);
+}
+void Loongarch64Assembler::FNeg_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4506, fj, fd);
+}
+void Loongarch64Assembler::FLogb_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4509, fj, fd);
+}
+void Loongarch64Assembler::FLogb_d(FRegister fd, FRegister fj) {
+  Emit2R(0x450a, fj, fd);
+}
+void Loongarch64Assembler::FClass_s(FRegister fd, FRegister fj) {
+  Emit2R(0x450d, fj, fd);
+}
+void Loongarch64Assembler::FClass_d(FRegister fd, FRegister fj) {
+  Emit2R(0x450e, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0101 0001 0001
+//                                    ~ not discontinuous
+//                                    ~ 00 0000 0100 0101 0001 1110
+void Loongarch64Assembler::FSqrt_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4511, fj, fd);
+}
+void Loongarch64Assembler::FSqrt_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4512, fj, fd);
+}
+void Loongarch64Assembler::FRecip_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4515, fj, fd);
+}
+void Loongarch64Assembler::FRecip_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4516, fj, fd);
+}
+void Loongarch64Assembler::FRsqrt_s(FRegister fd, FRegister fj) {
+  Emit2R(0x459, fj, fd);
+}
+void Loongarch64Assembler::FRsqrt_d(FRegister fd, FRegister fj) {
+  Emit2R(0x451a, fj, fd);
+}
+void Loongarch64Assembler::FRecipe_s(FRegister fd, FRegister fj) {
+  Emit2R(0x451d, fj, fd);
+}
+void Loongarch64Assembler::FRecipe_d(FRegister fd, FRegister fj) {
+  Emit2R(0x451e, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0101 0010 0001
+//                                    ~ not discontinuous
+//                                    ~ 00 0000 0100 0101 0010 1110
+void Loongarch64Assembler::FRsqrte_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4521, fj, fd);
+}
+void Loongarch64Assembler::FRsqrte_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4522, fj, fd);
+}
+void Loongarch64Assembler::FMov_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4525, fj, fd);
+}
+void Loongarch64Assembler::FMov_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4526, fj, fd);
+}
+void Loongarch64Assembler::Movgr2fr_w(FRegister fd, XRegister rj) {
+  Emit2R(0x4529, rj, fd);
+}
+void Loongarch64Assembler::Movgr2fr_d(FRegister fd, XRegister rj) {
+  Emit2R(0x452a, rj, fd);
+}
+void Loongarch64Assembler::Movgr2frh_w(FRegister fd, XRegister rj) {
+  Emit2R(0x452b, rj, fd);
+}
+void Loongarch64Assembler::Movfr2gr_s(XRegister rd, FRegister fj) {
+  Emit2R(0x452d, fj, rd);
+}
+void Loongarch64Assembler::Movfr2gr_d(XRegister rd, FRegister fj) {
+  Emit2R(0x452e, fj, rd);
+}
+void Loongarch64Assembler::Movfrh2gr_s(XRegister rd, FRegister fj) {
+  Emit2R(0x452f, fj, rd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0101 0011 0000
+//                                    ~ 00 0000 0100 0101 0011 0010
+void Loongarch64Assembler::Movgr2fcsr(FRegister fcsr, XRegister rj) {
+  Emit2R(0x4530, rj, fcsr);
+}
+void Loongarch64Assembler::Movfcsr2gr(XRegister rd, FRegister fcsr) {
+  Emit2R(0x4532, fcsr, rd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0101 0011 0100
+//                                    ~ not discontinuous
+//                                    ~ 00 0000 0100 0101 0011 0111
+void Loongarch64Assembler::Movfr2cf(FCCRegister cd, FRegister fj) {
+  Emit2R(0x4534, fj, cd);
+}
+
+void Loongarch64Assembler::Movcf2fr(FRegister fd, FCCRegister cj) {
+  Emit2R(0x4535, cj, fd);
+}
+
+void Loongarch64Assembler::Movgr2cf(FCCRegister cd, XRegister rj) {
+  Emit2R(0x4536, rj, cd);
+}
+
+void Loongarch64Assembler::Movcf2gr(XRegister rd, FCCRegister cj) {
+  Emit2R(0x4537, cj, rd);
+}
+
+// Float alu instructions : opcode 00 0000 0100 0110 0100 0110
+void Loongarch64Assembler::FCvt_s_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4646, fj, fd);
+}
+// Float alu instructions : opcode 00 0000 0100 0110 0100 1001
+void Loongarch64Assembler::FCvt_d_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4649, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1000 0001
+//                                    ~ 00 0000 0100 0110 1000 0010
+void Loongarch64Assembler::FTintrm_w_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4681, fj, fd);
+}
+void Loongarch64Assembler::FTintrm_w_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4682, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1000 1001
+//                                    ~ 00 0000 0100 0110 1000 1010
+void Loongarch64Assembler::FTintrm_l_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4689, fj, fd);
+}
+void Loongarch64Assembler::FTintrm_l_d(FRegister fd, FRegister fj) {
+  Emit2R(0x468a, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1001 0001
+//                                    ~ 00 0000 0100 0110 1001 0010
+void Loongarch64Assembler::FTintrp_w_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4691, fj, fd);
+}
+void Loongarch64Assembler::FTintrp_w_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4692, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1001 1001
+//                                    ~ 00 0000 0100 0110 1001 1010
+void Loongarch64Assembler::FTintrp_l_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4699, fj, fd);
+}
+void Loongarch64Assembler::FTintrp_l_d(FRegister fd, FRegister fj) {
+  Emit2R(0x469a, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1010 0001
+//                                    ~ 00 0000 0100 0110 1010 0010
+void Loongarch64Assembler::FTintrz_w_s(FRegister fd, FRegister fj) {
+  Emit2R(0x46a1, fj, fd);
+}
+void Loongarch64Assembler::FTintrz_w_d(FRegister fd, FRegister fj) {
+  Emit2R(0x46a2, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1010 1001
+//                                    ~ 00 0000 0100 0110 1010 1010
+void Loongarch64Assembler::FTintrz_l_s(FRegister fd, FRegister fj) {
+  Emit2R(0x46a9, fj, fd);
+}
+void Loongarch64Assembler::FTintrz_l_d(FRegister fd, FRegister fj) {
+  Emit2R(0x46aa, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1011 0001
+//                                    ~ 00 0000 0100 0110 1011 0010
+void Loongarch64Assembler::FTintrne_w_s(FRegister fd, FRegister fj) {
+  Emit2R(0x46b1, fj, fd);
+}
+void Loongarch64Assembler::FTintrne_w_d(FRegister fd, FRegister fj) {
+  Emit2R(0x46b2, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1011 1001
+//                                    ~ 00 0000 0100 0110 1011 1010
+void Loongarch64Assembler::FTintrne_l_s(FRegister fd, FRegister fj) {
+  Emit2R(0x46a9, fj, fd);
+}
+void Loongarch64Assembler::FTintrne_l_d(FRegister fd, FRegister fj) {
+  Emit2R(0x46aa, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1100 0001
+//                                    ~ 00 0000 0100 0110 1100 0010
+void Loongarch64Assembler::FTint_w_s(FRegister fd, FRegister fj) {
+  Emit2R(0x46c1, fj, fd);
+}
+void Loongarch64Assembler::FTint_w_d(FRegister fd, FRegister fj) {
+  Emit2R(0x46c2, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0110 1100 1001
+//                                    ~ 00 0000 0100 0110 1100 1010
+void Loongarch64Assembler::FTint_l_s(FRegister fd, FRegister fj) {
+  Emit2R(0x46c9, fj, fd);
+}
+void Loongarch64Assembler::FTint_l_d(FRegister fd, FRegister fj) {
+  Emit2R(0x46ca, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0111 0100 0100
+//                                    ~ 00 0000 0100 0111 0100 0110
+void Loongarch64Assembler::FFint_s_w(FRegister fd, FRegister fj) {
+  Emit2R(0x4744, fj, fd);
+}
+void Loongarch64Assembler::FFint_s_l(FRegister fd, FRegister fj) {
+  Emit2R(0x4746, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0111 0100 1000
+//                                    ~ 00 0000 0100 0111 0100 1010
+void Loongarch64Assembler::FFint_d_w(FRegister fd, FRegister fj) {
+  Emit2R(0x4748, fj, fd);
+}
+void Loongarch64Assembler::FFint_d_l(FRegister fd, FRegister fj) {
+  Emit2R(0x474a, fj, fd);
+}
+
+// 2R-Type
+// Float alu instructions : opcode from 00 0000 0100 0111 1001 0001
+//                                    ~ 00 0000 0100 0111 1001 0010
+void Loongarch64Assembler::FRint_s(FRegister fd, FRegister fj) {
+  Emit2R(0x4791, fj, fd);
+}
+void Loongarch64Assembler::FRint_d(FRegister fd, FRegister fj) {
+  Emit2R(0x4792, fj, fd);
+}
+
 /////////////////////////////// LOONGARCH64 "4R-Type" Instructions ///////////////////////////////
 
 /////////////////////////////// LOONGARCH64 "2RI8-Type" Instructions ///////////////////////////////

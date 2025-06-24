@@ -251,6 +251,237 @@ class Loongarch64Assembler final : public Assembler {
   void Pcaddu12i(XRegister rd, uint32_t imm20);
   void Pcaddu18i(XRegister rd, uint32_t imm20);
 
+  // 3R-Type
+  // Atomic memory access instructions : opcode from 0 0111 0000 1011 0000
+  //                                               ~ 0 0111 0000 1011 1111
+  void Amcas_b(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_h(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_db_b(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_db_h(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amcas_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_b(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_h(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_b(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_h(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_db_b(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_db_h(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_db_b(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_db_h(XRegister rd, XRegister rk, XRegister rj);
+
+  // 3R-Type
+  // Atomic memory access instructions : opcode from 0 0111 0000 1100 0000
+  //                                               ~ 0 0111 0000 1100 1111
+  void Amswap_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amand_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amand_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amor_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amor_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amxor_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amxor_d(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_w(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_d(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_w(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_d(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_wu(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_du(XRegister rd, XRegister rk, XRegister rj);
+
+  // 3R-Type
+  // Atomic memory access instructions : opcode from 0 0111 0000 1101 0000
+  //                                               ~ 0 0111 0000 1101 1111
+  void Ammin_wu(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_du(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amswap_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amadd_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amand_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amand_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amor_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amor_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Amxor_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Amxor_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_db_d(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_db_w(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_db_d(XRegister rd, XRegister rk, XRegister rj);
+
+  // 3R-Type
+  // Atomic memory access instructions : opcode from 0 0111 0000 1110 0000
+  //                                               ~ 0 0111 0000 1110 0011
+  void Ammax_db_wu(XRegister rd, XRegister rk, XRegister rj);
+  void Ammax_db_du(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_db_wu(XRegister rd, XRegister rk, XRegister rj);
+  void Ammin_db_du(XRegister rd, XRegister rk, XRegister rj);
+
+  // 3R-Type
+  // Float alu instructions : opcode from 0 0000 0010 0000 0001
+  //                                    ~ not discontinuous
+  //                                    ~ 0 0000 0010 0010 0110
+  void FAdd_s(FRegister fd, FRegister fj, FRegister fk);
+  void FAdd_d(FRegister fd, FRegister fj, FRegister fk);
+  void FSub_s(FRegister fd, FRegister fj, FRegister fk);
+  void FSub_d(FRegister fd, FRegister fj, FRegister fk);
+  void FMul_s(FRegister fd, FRegister fj, FRegister fk);
+  void FMul_d(FRegister fd, FRegister fj, FRegister fk);
+  void FDiv_s(FRegister fd, FRegister fj, FRegister fk);
+  void FDiv_d(FRegister fd, FRegister fj, FRegister fk);
+  void FMax_s(FRegister fd, FRegister fj, FRegister fk);
+  void FMax_d(FRegister fd, FRegister fj, FRegister fk);
+  void FMin_s(FRegister fd, FRegister fj, FRegister fk);
+  void FMin_d(FRegister fd, FRegister fj, FRegister fk);
+  void FMaxa_s(FRegister fd, FRegister fj, FRegister fk);
+  void FMaxa_d(FRegister fd, FRegister fj, FRegister fk);
+  void FMina_s(FRegister fd, FRegister fj, FRegister fk);
+  void FMina_d(FRegister fd, FRegister fj, FRegister fk);
+  void FScaleb_s(FRegister fd, FRegister fj, FRegister fk);
+  void FScaleb_d(FRegister fd, FRegister fj, FRegister fk);
+  void FCopysign_s(FRegister fd, FRegister fj, FRegister fk);
+  void FCopysign_d(FRegister fd, FRegister fj, FRegister fk);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0101 0000 0001
+  //                                    ~ not discontinuous
+  //                                    ~ 00 0000 0100 0101 0000 1110
+  void FAbs_s(FRegister fd, FRegister fj);
+  void FAbs_d(FRegister fd, FRegister fj);
+  void FNeg_s(FRegister fd, FRegister fj);
+  void FNeg_d(FRegister fd, FRegister fj);
+  void FLogb_s(FRegister fd, FRegister fj);
+  void FLogb_d(FRegister fd, FRegister fj);
+  void FClass_s(FRegister fd, FRegister fj);
+  void FClass_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0101 0001 0001
+  //                                    ~ not discontinuous
+  //                                    ~ 00 0000 0100 0101 0001 1110
+  void FSqrt_s(FRegister fd, FRegister fj);
+  void FSqrt_d(FRegister fd, FRegister fj);
+  void FRecip_s(FRegister fd, FRegister fj);
+  void FRecip_d(FRegister fd, FRegister fj);
+  void FRsqrt_s(FRegister fd, FRegister fj);
+  void FRsqrt_d(FRegister fd, FRegister fj);
+  void FRecipe_s(FRegister fd, FRegister fj);
+  void FRecipe_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0101 0010 0001
+  //                                    ~ not discontinuous
+  //                                    ~ 00 0000 0100 0101 0010 1110
+  void FRsqrte_s(FRegister fd, FRegister fj);
+  void FRsqrte_d(FRegister fd, FRegister fj);
+  void FMov_s(FRegister fd, FRegister fj);
+  void FMov_d(FRegister fd, FRegister fj);
+  void Movgr2fr_w(FRegister fd, XRegister rj);
+  void Movgr2fr_d(FRegister fd, XRegister rj);
+  void Movgr2frh_w(FRegister fd, XRegister rj);
+  void Movfr2gr_s(XRegister rd, FRegister fj);
+  void Movfr2gr_d(XRegister rd, FRegister fj);
+  void Movfrh2gr_s(XRegister rd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0101 0011 0000
+  //                                    ~ 00 0000 0100 0101 0011 0010
+  void Movgr2fcsr(FRegister fcsr, XRegister rj);
+  void Movfcsr2gr(XRegister rd, FRegister fcsr);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0101 0011 0100
+  //                                    ~ not discontinuous
+  //                                    ~ 00 0000 0100 0101 0011 0111
+  void Movfr2cf(FCCRegister cd, FRegister fj);
+  void Movcf2fr(FRegister fd, FCCRegister cj);
+  void Movgr2cf(FCCRegister cd, XRegister rj);
+  void Movcf2gr(XRegister rd, FCCRegister cj);
+
+  // Float alu instructions : opcode 00 0000 0100 0110 0100 0110
+  void FCvt_s_d(FRegister fd, FRegister fj);
+  // Float alu instructions : opcode 00 0000 0100 0110 0100 1001
+  void FCvt_d_s(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1000 0001
+  //                                    ~ 00 0000 0100 0110 1000 0010
+  void FTintrm_w_s(FRegister fd, FRegister fj);
+  void FTintrm_w_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1000 1001
+  //                                    ~ 00 0000 0100 0110 1000 1010
+  void FTintrm_l_s(FRegister fd, FRegister fj);
+  void FTintrm_l_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1001 0001
+  //                                    ~ 00 0000 0100 0110 1001 0010
+  void FTintrp_w_s(FRegister fd, FRegister fj);
+  void FTintrp_w_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1001 1001
+  //                                    ~ 00 0000 0100 0110 1001 1010
+  void FTintrp_l_s(FRegister fd, FRegister fj);
+  void FTintrp_l_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1010 0001
+  //                                    ~ 00 0000 0100 0110 1010 0010
+  void FTintrz_w_s(FRegister fd, FRegister fj);
+  void FTintrz_w_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1010 1001
+  //                                    ~ 00 0000 0100 0110 1010 1010
+  void FTintrz_l_s(FRegister fd, FRegister fj);
+  void FTintrz_l_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1011 0001
+  //                                    ~ 00 0000 0100 0110 1011 0010
+  void FTintrne_w_s(FRegister fd, FRegister fj);
+  void FTintrne_w_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1011 1001
+  //                                    ~ 00 0000 0100 0110 1011 1010
+  void FTintrne_l_s(FRegister fd, FRegister fj);
+  void FTintrne_l_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1100 0001
+  //                                    ~ 00 0000 0100 0110 1100 0010
+  void FTint_w_s(FRegister fd, FRegister fj);
+  void FTint_w_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0110 1100 1001
+  //                                    ~ 00 0000 0100 0110 1100 1010
+  void FTint_l_s(FRegister fd, FRegister fj);
+  void FTint_l_d(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0111 0100 0100
+  //                                    ~ 00 0000 0100 0111 0100 0110
+  void FFint_s_w(FRegister fd, FRegister fj);
+  void FFint_s_l(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0111 0100 1000
+  //                                    ~ 00 0000 0100 0111 0100 1010
+  void FFint_d_w(FRegister fd, FRegister fj);
+  void FFint_d_l(FRegister fd, FRegister fj);
+
+  // 2R-Type
+  // Float alu instructions : opcode from 00 0000 0100 0111 1001 0001
+  //                                    ~ 00 0000 0100 0111 1001 0010
+  void FRint_s(FRegister fd, FRegister fj);
+  void FRint_d(FRegister fd, FRegister fj);
 
   // 3R-Type
   // mid-level ALU instructions : opcode from 0 0000 0000 0011 1000 

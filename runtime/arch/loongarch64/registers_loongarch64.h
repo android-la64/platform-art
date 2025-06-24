@@ -115,6 +115,17 @@ enum FRegister {
   FTMP = FT15,  // Reserved for special uses, such as assembler macro instructions.
 };
 
+enum FCCRegister {
+  FCC0 = 0,
+  FCC1 = 1,
+  FCC2 = 2,
+  FCC3 = 3,
+  FCC4 = 4,
+  FCC5 = 5,
+  FCC6 = 6,
+  FCC7 = 7,
+};
+
 std::ostream& operator<<(std::ostream& os, const FRegister& rhs);
 
 }  // namespace loongarch64
