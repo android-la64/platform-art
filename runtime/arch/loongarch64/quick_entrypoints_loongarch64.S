@@ -1653,14 +1653,63 @@ GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved64_tlab, \
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
 
 
+.macro DEOPT_OR_RESTORE_SAVE_EVERYTHING_FRAME_AND_RETURN_A0 temp, is_ref
+  ld.d      \temp, $xSELF, THREAD_DEOPT_CHECK_REQUIRED_OFFSET
+  CFI_REMEMBER_STATE
+  bnez    \temp, 2f
+  RESTORE_SAVE_EVERYTHING_FRAME /* load_a0= */ 0
+  jirl $zero, $ra, 0
+2:
+  CFI_RESTORE_STATE_AND_DEF_CFA $sp, FRAME_SIZE_SAVE_EVERYTHING
+  st.d      $a0, $sp, SAVE_EVERYTHING_FRAME_OFFSET_A0    // update result in the frame
+  li.d      $a2, \is_ref                                 // pass if result is a reference
+  move      $a1, $a0                                     // pass the result
+  move      $a0, $xSELF                                  // Thread::Current
+  bl    artDeoptimizeIfNeeded
+  CFI_REMEMBER_STATE
+  RESTORE_SAVE_EVERYTHING_FRAME
+  jirl $zero, $ra, 0
+  CFI_RESTORE_STATE_AND_DEF_CFA $sp, FRAME_SIZE_SAVE_EVERYTHING
+.endm
+
+
+    /*
+     * Macro for resolution and initialization of indexed DEX file
+     * constants such as classes and strings.
+     */
+.macro ONE_ARG_SAVE_EVERYTHING_DOWNCALL name, entrypoint, runtime_method_offset = RUNTIME_SAVE_EVERYTHING_METHOD_OFFSET
+    .extern \entrypoint
+ENTRY \name
+    SETUP_SAVE_EVERYTHING_FRAME \runtime_method_offset       // save everything for stack crawl
+    move   $a1, $xSELF                // pass Thread::Current
+    bl    \entrypoint                 // (int32_t index, Thread* self)
+    beqz   $a0, 1f                    // If result is null, deliver the OOME.
+    DEOPT_OR_RESTORE_SAVE_EVERYTHING_FRAME_AND_RETURN_A0 /* temp= */ $a1, /* is_ref= */ 1
+1:
+    DELIVER_PENDING_EXCEPTION_FRAME_READY
+END \name
+.endm
+
+.macro ONE_ARG_SAVE_EVERYTHING_DOWNCALL_FOR_CLINIT name, entrypoint
+    ONE_ARG_SAVE_EVERYTHING_DOWNCALL \name, \entrypoint, RUNTIME_SAVE_EVERYTHING_FOR_CLINIT_METHOD_OFFSET
+.endm
+
+
 UNDEFINED art_quick_osr_stub
 
-UNDEFINED art_quick_initialize_static_storage
-UNDEFINED art_quick_resolve_type_and_verify_access
-UNDEFINED art_quick_resolve_type
-UNDEFINED art_quick_resolve_method_handle
-UNDEFINED art_quick_resolve_method_type
-UNDEFINED art_quick_resolve_string
+    /*
+     * Entry from managed code when uninitialized static storage, this stub will run the class
+     * initializer and deliver the exception on error. On success the static storage base is
+     * returned.
+     */
+ONE_ARG_SAVE_EVERYTHING_DOWNCALL_FOR_CLINIT art_quick_initialize_static_storage, artInitializeStaticStorageFromCode
+ONE_ARG_SAVE_EVERYTHING_DOWNCALL_FOR_CLINIT art_quick_resolve_type, artResolveTypeFromCode
+ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_type_and_verify_access, artResolveTypeAndVerifyAccessFromCode
+ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_method_handle, artResolveMethodHandleFromCode
+ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_method_type, artResolveMethodTypeFromCode
+ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_string, artResolveStringFromCode
+
+
 UNDEFINED art_quick_set8_instance
 UNDEFINED art_quick_set8_static
 UNDEFINED art_quick_set16_instance
