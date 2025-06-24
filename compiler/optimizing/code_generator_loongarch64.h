@@ -356,6 +356,33 @@ class ParallelMoveResolverLOONGARCH64 : public ParallelMoveResolverWithSwap {
   DISALLOW_COPY_AND_ASSIGN(ParallelMoveResolverLOONGARCH64);
 };
 
+class FieldAccessCallingConventionLOONGARCH64 : public FieldAccessCallingConvention {
+ public:
+  FieldAccessCallingConventionLOONGARCH64() {}
+
+  Location GetObjectLocation() const override {
+    return Location::RegisterLocation(A1);
+  }
+  Location GetFieldIndexLocation() const override {
+    return Location::RegisterLocation(A0);
+  }
+  Location GetReturnLocation(DataType::Type type ATTRIBUTE_UNUSED) const override {
+    return Location::RegisterLocation(A0);
+  }
+  Location GetSetValueLocation(DataType::Type type ATTRIBUTE_UNUSED,
+                               bool is_instance) const override {
+    return is_instance
+        ? Location::RegisterLocation(A2)
+        : Location::RegisterLocation(A1);
+  }
+  Location GetFpuLocation(DataType::Type type ATTRIBUTE_UNUSED) const override {
+    return Location::FpuRegisterLocation(FA0);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(FieldAccessCallingConventionLOONGARCH64);
+};
+
 class LocationsBuilderLOONGARCH64 : public HGraphVisitor {
  public:
   LocationsBuilderLOONGARCH64(HGraph* graph, CodeGeneratorLOONGARCH64* codegen)
@@ -434,7 +461,8 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
   void HandleShift(HBinaryOperation* operation);
   void HandleFieldSet(HInstruction* instruction,
                       const FieldInfo& field_info,
-                      bool value_can_be_null);
+                      bool value_can_be_null,
+                      WriteBarrierKind write_barrier_kind);
   void HandleFieldGet(HInstruction* instruction, const FieldInfo& field_info);
 
   void GenerateMinMaxInt(LocationSummary* locations, bool is_min);
@@ -483,6 +511,10 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
   void GenerateDivRemWithAnyConstant(HBinaryOperation* instruction);
   void GenerateDivRemIntegral(HBinaryOperation* instruction);
   void GenerateIntLongCondition(IfCondition cond, LocationSummary* locations);
+  void GenerateIntLongCondition(IfCondition cond,
+                                LocationSummary* locations,
+                                XRegister rd,
+                                bool to_all_bits);
   void GenerateIntLongCompareAndBranch(IfCondition cond,
                                        LocationSummary* locations,
                                        Loongarch64Label* label);
@@ -491,6 +523,13 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
                          DataType::Type type,
                          LocationSummary* locations,
                          Loongarch64Label* label = nullptr);
+  void GenerateFpCondition(IfCondition cond,
+                           bool gt_bias,
+                           DataType::Type type,
+                           LocationSummary* locations,
+                           Loongarch64Label* label,
+                           XRegister rd,
+                           bool to_all_bits);
   void HandleGoto(HInstruction* got, HBasicBlock* successor);
   void GenPackedSwitchWithCompares(XRegister adjusted,
                                    XRegister temp,
@@ -504,6 +543,18 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
                      size_t size,
                      /*out*/ XRegister* adjusted_base);
   void GenConditionalMove(HSelect* select);
+
+  template <void (Loongarch64Assembler::*opS)(FCCRegister, FRegister, FRegister),
+            void (Loongarch64Assembler::*opD)(FCCRegister, FRegister, FRegister)>
+  void FpBinOp(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_ceq(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_cueq(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_cne(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_cune(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_cle(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_clt(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_cule(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
+  void Fcmp_cult(FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type);
 
   Loongarch64Assembler* const assembler_;
   CodeGeneratorLOONGARCH64* const codegen_;

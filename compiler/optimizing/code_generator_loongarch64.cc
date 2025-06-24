@@ -33,15 +33,16 @@
 #include "jit/profiling_info.h"
 #include "linker/linker_patch.h"
 #include "mirror/class-inl.h"
+#include "optimizing/data_type.h"
 #include "optimizing/nodes.h"
 #include "optimizing/profiling_info_builder.h"
+#include "runtime.h"
+#include "scoped_thread_state_change-inl.h"
 #include "stack_map_stream.h"
 #include "trace.h"
 #include "utils/label.h"
 #include "utils/loongarch64/assembler_loongarch64.h"
 #include "utils/stack_checks.h"
-#include "runtime.h"
-#include "scoped_thread_state_change-inl.h"
 
 namespace art {
 namespace loongarch64 {
@@ -74,12 +75,29 @@ Location RegisterOrZeroBitPatternLocation(HInstruction* instruction) {
       : Location::RequiresRegister();
 }
 
+Location FpuRegisterOrZeroBitPatternLocation(HInstruction* instruction) {
+  DCHECK(DataType::IsFloatingPointType(instruction->GetType()));
+  return IsZeroBitPattern(instruction)
+      ? Location::ConstantLocation(instruction)
+      : Location::RequiresFpuRegister();
+}
+
 XRegister InputXRegisterOrZero(Location location) {
   if (location.IsConstant()) {
     DCHECK(location.GetConstant()->IsZeroBitPattern());
     return Zero;
   } else {
     return location.AsRegister<XRegister>();
+  }
+}
+
+Location ValueLocationForStore(HInstruction* value) {
+  if (IsZeroBitPattern(value)) {
+    return Location::ConstantLocation(value);
+  } else if (DataType::IsFloatingPointType(value->GetType())) {
+    return Location::RequiresFpuRegister();
+  } else {
+    return Location::RequiresRegister();
   }
 }
 
@@ -586,8 +604,193 @@ class ReadBarrierMarkSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
   DISALLOW_COPY_AND_ASSIGN(ReadBarrierMarkSlowPathLOONGARCH64);
 };
 
+class LoadStringSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  explicit LoadStringSlowPathLOONGARCH64(HLoadString* instruction)
+      : SlowPathCodeLOONGARCH64(instruction) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    DCHECK(instruction_->IsLoadString());
+    DCHECK_EQ(instruction_->AsLoadString()->GetLoadKind(), HLoadString::LoadKind::kBssEntry);
+    LocationSummary* locations = instruction_->GetLocations();
+    DCHECK(!locations->GetLiveRegisters()->ContainsCoreRegister(locations->Out().reg()));
+    const dex::StringIndex string_index = instruction_->AsLoadString()->GetStringIndex();
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    InvokeRuntimeCallingConvention calling_convention;
+    __ Bind(GetEntryLabel());
+    SaveLiveRegisters(codegen, locations);
+
+    __ LoadConst32(calling_convention.GetRegisterAt(0), string_index.index_);
+    loongarch64_codegen->InvokeRuntime(
+        kQuickResolveString, instruction_, instruction_->GetDexPc(), this);
+    CheckEntrypointTypes<kQuickResolveString, void*, uint32_t>();
+
+    DataType::Type type = DataType::Type::kReference;
+    DCHECK_EQ(type, instruction_->GetType());
+    loongarch64_codegen->MoveLocation(
+        locations->Out(), calling_convention.GetReturnLocation(type), type);
+    RestoreLiveRegisters(codegen, locations);
+
+    __ B(GetExitLabel());
+  }
+
+  const char* GetDescription() const override { return "LoadStringSlowPathLOONGARCH64"; }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(LoadStringSlowPathLOONGARCH64);
+};
+
+class TypeCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  explicit TypeCheckSlowPathLOONGARCH64(HInstruction* instruction, bool is_fatal)
+      : SlowPathCodeLOONGARCH64(instruction), is_fatal_(is_fatal) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    LocationSummary* locations = instruction_->GetLocations();
+
+    uint32_t dex_pc = instruction_->GetDexPc();
+    DCHECK(instruction_->IsCheckCast()
+           || !locations->GetLiveRegisters()->ContainsCoreRegister(locations->Out().reg()));
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+
+    __ Bind(GetEntryLabel());
+    if (!is_fatal_ || instruction_->CanThrowIntoCatchBlock()) {
+      SaveLiveRegisters(codegen, locations);
+    }
+
+    // We're moving two locations to locations that could overlap, so we need a parallel
+    // move resolver.
+    InvokeRuntimeCallingConvention calling_convention;
+    codegen->EmitParallelMoves(locations->InAt(0),
+                               Location::RegisterLocation(calling_convention.GetRegisterAt(0)),
+                               DataType::Type::kReference,
+                               locations->InAt(1),
+                               Location::RegisterLocation(calling_convention.GetRegisterAt(1)),
+                               DataType::Type::kReference);
+    if (instruction_->IsInstanceOf()) {
+      loongarch64_codegen->InvokeRuntime(kQuickInstanceofNonTrivial, instruction_, dex_pc, this);
+      CheckEntrypointTypes<kQuickInstanceofNonTrivial, size_t, mirror::Object*, mirror::Class*>();
+      DataType::Type ret_type = instruction_->GetType();
+      Location ret_loc = calling_convention.GetReturnLocation(ret_type);
+      loongarch64_codegen->MoveLocation(locations->Out(), ret_loc, ret_type);
+    } else {
+      DCHECK(instruction_->IsCheckCast());
+      loongarch64_codegen->InvokeRuntime(kQuickCheckInstanceOf, instruction_, dex_pc, this);
+      CheckEntrypointTypes<kQuickCheckInstanceOf, void, mirror::Object*, mirror::Class*>();
+    }
+
+    if (!is_fatal_) {
+      RestoreLiveRegisters(codegen, locations);
+      __ B(GetExitLabel());
+    }
+  }
+
+  const char* GetDescription() const override { return "TypeCheckSlowPathLOONGARCH64"; }
+
+  bool IsFatal() const override { return is_fatal_; }
+
+ private:
+  const bool is_fatal_;
+
+  DISALLOW_COPY_AND_ASSIGN(TypeCheckSlowPathLOONGARCH64);
+};
+
+class ArraySetSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  explicit ArraySetSlowPathLOONGARCH64(HInstruction* instruction) : SlowPathCodeLOONGARCH64(instruction) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    LocationSummary* locations = instruction_->GetLocations();
+    __ Bind(GetEntryLabel());
+    SaveLiveRegisters(codegen, locations);
+
+    InvokeRuntimeCallingConvention calling_convention;
+    HParallelMove parallel_move(codegen->GetGraph()->GetAllocator());
+    parallel_move.AddMove(
+        locations->InAt(0),
+        Location::RegisterLocation(calling_convention.GetRegisterAt(0)),
+        DataType::Type::kReference,
+        nullptr);
+    parallel_move.AddMove(
+        locations->InAt(1),
+        Location::RegisterLocation(calling_convention.GetRegisterAt(1)),
+        DataType::Type::kInt32,
+        nullptr);
+    parallel_move.AddMove(
+        locations->InAt(2),
+        Location::RegisterLocation(calling_convention.GetRegisterAt(2)),
+        DataType::Type::kReference,
+        nullptr);
+    codegen->GetMoveResolver()->EmitNativeCode(&parallel_move);
+
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    loongarch64_codegen->InvokeRuntime(kQuickAputObject, instruction_, instruction_->GetDexPc(), this);
+    CheckEntrypointTypes<kQuickAputObject, void, mirror::Array*, int32_t, mirror::Object*>();
+    RestoreLiveRegisters(codegen, locations);
+    __ B(GetExitLabel());
+  }
+
+  const char* GetDescription() const override { return "ArraySetSlowPathLOONGARCH64"; }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ArraySetSlowPathLOONGARCH64);
+};
+
 #undef __
 #define __ down_cast<Loongarch64Assembler*>(GetAssembler())->  // NOLINT
+
+template <void (Loongarch64Assembler::*opS)(FCCRegister, FRegister, FRegister),
+          void (Loongarch64Assembler::*opD)(FCCRegister, FRegister, FRegister)>
+inline void InstructionCodeGeneratorLOONGARCH64::FpBinOp(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  Loongarch64Assembler* assembler = down_cast<CodeGeneratorLOONGARCH64*>(codegen_)->GetAssembler();
+  if (type == DataType::Type::kFloat32) {
+    (assembler->*opS)(cd, fj, fk);
+  } else {
+    DCHECK_EQ(type, DataType::Type::kFloat64);
+    (assembler->*opD)(cd, fj, fk);
+  }
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_ceq(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_ceq_s, &Loongarch64Assembler::Fcmp_ceq_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_cueq(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_cueq_s, &Loongarch64Assembler::Fcmp_cueq_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_cne(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_cne_s, &Loongarch64Assembler::Fcmp_cne_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_cune(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_cune_s, &Loongarch64Assembler::Fcmp_cune_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_cle(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_cle_s, &Loongarch64Assembler::Fcmp_cle_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_clt(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_clt_s, &Loongarch64Assembler::Fcmp_clt_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_cule(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_cule_s, &Loongarch64Assembler::Fcmp_cule_d>(cd, fj, fk, type);
+}
+
+inline void InstructionCodeGeneratorLOONGARCH64::Fcmp_cult(
+    FCCRegister cd, FRegister fj, FRegister fk, DataType::Type type) {
+  FpBinOp<&Loongarch64Assembler::Fcmp_cult_s, &Loongarch64Assembler::Fcmp_cult_d>(cd, fj, fk, type);
+}
 
 void InstructionCodeGeneratorLOONGARCH64::Load(
     Location out, XRegister rs1, int32_t offset, DataType::Type type) {
@@ -673,6 +876,53 @@ void InstructionCodeGeneratorLOONGARCH64::Store(
     case DataType::Type::kVoid:
       LOG(FATAL) << "Unreachable type " << type;
       UNREACHABLE();
+  }
+}
+
+void InstructionCodeGeneratorLOONGARCH64::StoreSeqCst(Location value,
+                                                  XRegister rs1,
+                                                  int32_t offset,
+                                                  DataType::Type type,
+                                                  HInstruction* instruction) {
+  if (DataType::Size(type) >= 4u) {
+    // Use AMOSWAP for 32-bit and 64-bit data types.
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister swap_src = kNoXRegister;
+    if (kPoisonHeapReferences && type == DataType::Type::kReference && !value.IsConstant()) {
+      swap_src = srs.AllocateXRegister();
+      __ Move(swap_src, value.AsRegister<XRegister>());
+      codegen_->PoisonHeapReference(swap_src);
+    } else if (DataType::IsFloatingPointType(type) && !value.IsConstant()) {
+      swap_src = srs.AllocateXRegister();
+      if(type == DataType::Type::kFloat32) {
+        __ Movfr2gr_s(swap_src, value.AsFpuRegister<FRegister>());
+      } else if(type == DataType::Type::kFloat64) {
+        __ Movfr2gr_d(swap_src, value.AsFpuRegister<FRegister>());
+      }
+    } else {
+      swap_src = InputXRegisterOrZero(value);
+    }
+    XRegister addr = rs1;
+    if (offset != 0) {
+      addr = srs.AllocateXRegister();
+      __ AddConst64(addr, rs1, offset);
+    }
+    if (DataType::Is64BitType(type)) {
+      __ Amswap_d(Zero, swap_src, addr);
+    } else {
+      __ Amswap_w(Zero, swap_src, addr);
+    }
+    if (instruction != nullptr) {
+      codegen_->MaybeRecordImplicitNullCheck(instruction);
+    }
+  } else {
+    // Use fences for smaller data types.
+    codegen_->GenerateMemoryBarrier(MemBarrierKind::kAnyStore);
+    Store(value, rs1, offset, type);
+    if (instruction != nullptr) {
+      codegen_->MaybeRecordImplicitNullCheck(instruction);
+    }
+    codegen_->GenerateMemoryBarrier(MemBarrierKind::kAnyAny);
   }
 }
 
@@ -847,12 +1097,34 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateReferenceLoadOneRegister(
     uint32_t offset,
     Location maybe_temp,
     ReadBarrierOption read_barrier_option) {
-  UNUSED(instruction);
-  UNUSED(out);
-  UNUSED(offset);
-  UNUSED(maybe_temp);
-  UNUSED(read_barrier_option);
-  LOG(FATAL) << "Unimplemented";
+  XRegister out_reg = out.AsRegister<XRegister>();
+  if (read_barrier_option == kWithReadBarrier) {
+    DCHECK(codegen_->EmitReadBarrier());
+    if (kUseBakerReadBarrier) {
+      // Load with fast path based Baker's read barrier.
+      // /* HeapReference<Object> */ out = *(out + offset)
+      codegen_->GenerateFieldLoadWithBakerReadBarrier(instruction,
+                                                      out,
+                                                      out_reg,
+                                                      offset,
+                                                      maybe_temp,
+                                                      /* needs_null_check= */ false);
+    } else {
+      // Load with slow path based read barrier.
+      // Save the value of `out` into `maybe_temp` before overwriting it
+      // in the following move operation, as we will need it for the
+      // read barrier below.
+      __ Move(maybe_temp.AsRegister<XRegister>(), out_reg);
+      // /* HeapReference<Object> */ out = *(out + offset)
+      __ Load_WU(out_reg, out_reg, offset);
+      codegen_->GenerateReadBarrierSlow(instruction, out, out, maybe_temp, offset);
+    }
+  } else {
+    // Plain load with no read barrier.
+    // /* HeapReference<Object> */ out = *(out + offset)
+    __ Load_WU(out_reg, out_reg, offset);
+    codegen_->MaybeUnpoisonHeapReference(out_reg);
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateReferenceLoadTwoRegisters(
@@ -862,13 +1134,31 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateReferenceLoadTwoRegisters(
     uint32_t offset,
     Location maybe_temp,
     ReadBarrierOption read_barrier_option) {
-  UNUSED(instruction);
-  UNUSED(out);
-  UNUSED(offset);
-  UNUSED(maybe_temp);
-  UNUSED(read_barrier_option);
-  UNUSED(obj);
-  LOG(FATAL) << "Unimplemented";
+  XRegister out_reg = out.AsRegister<XRegister>();
+  XRegister obj_reg = obj.AsRegister<XRegister>();
+  if (read_barrier_option == kWithReadBarrier) {
+    DCHECK(codegen_->EmitReadBarrier());
+    if (kUseBakerReadBarrier) {
+      // Load with fast path based Baker's read barrier.
+      // /* HeapReference<Object> */ out = *(obj + offset)
+      codegen_->GenerateFieldLoadWithBakerReadBarrier(instruction,
+                                                      out,
+                                                      obj_reg,
+                                                      offset,
+                                                      maybe_temp,
+                                                      /* needs_null_check= */ false);
+    } else {
+      // Load with slow path based read barrier.
+      // /* HeapReference<Object> */ out = *(obj + offset)
+      __ Load_WU(out_reg, obj_reg, offset);
+      codegen_->GenerateReadBarrierSlow(instruction, out, out, obj, offset);
+    }
+  } else {
+    // Plain load with no read barrier.
+    // /* HeapReference<Object> */ out = *(obj + offset)
+    __ Load_WU(out_reg, obj_reg, offset);
+    codegen_->MaybeUnpoisonHeapReference(out_reg);
+  }
 }
 
 SlowPathCodeLOONGARCH64* CodeGeneratorLOONGARCH64::AddGcRootBakerBarrierBarrierSlowPath(
@@ -1053,13 +1343,21 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateDivRemIntegral(HBinaryOperatio
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition cond,
-                                                             LocationSummary* locations) {
+                                                               LocationSummary* locations) {
   XRegister rd = locations->Out().AsRegister<XRegister>();
+  GenerateIntLongCondition(cond, locations, rd, /*to_all_bits=*/ false);
+}
+
+void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition cond,
+                                                                   LocationSummary* locations,
+                                                                   XRegister rd,
+                                                                   bool to_all_bits) {
   XRegister rs1 = locations->InAt(0).AsRegister<XRegister>();
   Location rs2_location = locations->InAt(1);
   bool use_imm = rs2_location.IsConstant();
   int64_t imm = use_imm ? CodeGenerator::GetInt64ValueOf(rs2_location.GetConstant()) : 0;
   XRegister rs2 = use_imm ? kNoXRegister : rs2_location.AsRegister<XRegister>();
+  bool reverse_condition = false;
   switch (cond) {
     case kCondEQ:
     case kCondNE:
@@ -1084,10 +1382,8 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition c
       } else {
         __ Slt(rd, rs1, rs2);
       }
-      if (cond == kCondGE) {
         // Calculate `rs1 >= rhs` as `!(rs1 < rhs)` since there's only the SLT but no SGE.
-        __ Xori(rd, rd, 1);
-      }
+      reverse_condition = (cond == kCondGE);
       break;
 
     case kCondLE:
@@ -1099,11 +1395,9 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition c
       } else {
         __ Slt(rd, rs2, rs1);
       }
-      if ((cond == kCondGT) == use_imm) {
         // Calculate `rs1 > imm` as `!(rs1 < imm + 1)` and calculate
         // `rs1 <= rs2` as `!(rs2 < rs1)` since there's only the SLT but no SGE.
-        __ Xori(rd, rd, 1);
-      }
+      reverse_condition = ((cond == kCondGT) == use_imm);
       break;
 
     case kCondB:
@@ -1117,10 +1411,8 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition c
       } else {
         __ Sltu(rd, rs1, rs2);
       }
-      if (cond == kCondAE) {
-        // Calculate `rs1 AE rhs` as `!(rs1 B rhs)` since there's only the SLTU but no SGEU.
-        __ Xori(rd, rd, 1);
-      }
+      // Calculate `rs1 AE rhs` as `!(rs1 B rhs)` since there's only the SLTU but no SGEU.
+      reverse_condition = (cond == kCondAE);
       break;
 
     case kCondBE:
@@ -1135,12 +1427,23 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition c
       } else {
         __ Sltu(rd, rs2, rs1);
       }
-      if ((cond == kCondA) == use_imm) {
-        // Calculate `rs1 A imm` as `!(rs1 B imm + 1)` and calculate
-        // `rs1 BE rs2` as `!(rs2 B rs1)` since there's only the SLTU but no SGEU.
-        __ Xori(rd, rd, 1);
-      }
+
+      // Calculate `rs1 A imm` as `!(rs1 B imm + 1)` and calculate
+      // `rs1 BE rs2` as `!(rs2 B rs1)` since there's only the SLTU but no SGEU.
+      reverse_condition = ((cond == kCondA) == use_imm);
       break;
+  }
+  if (to_all_bits) {
+    // Store the result to all bits; in other words, "true" is represented by -1.
+    if (reverse_condition) {
+      __ Addi_D(rd, rd, -1);  // 0 -> -1, 1 -> 0
+    } else {
+      __ Sub_d(rd, Zero, rd);  // 0 -> 0, 1 -> -1
+    }
+  } else {
+    if (reverse_condition) {
+      __ Xori(rd, rd, 1);
+    }
   }
 }
 
@@ -1220,12 +1523,85 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
                                                         DataType::Type type,
                                                         LocationSummary* locations,
                                                         Loongarch64Label* label) {
-  UNUSED(cond);
-  UNUSED(gt_bias);
-  UNUSED(type);
-  UNUSED(locations);
-  UNUSED(label);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK_EQ(label != nullptr, locations->Out().IsInvalid());
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister rd =
+      (label != nullptr) ? srs.AllocateXRegister() : locations->Out().AsRegister<XRegister>();
+  GenerateFpCondition(cond, gt_bias, type, locations, label, rd, /*to_all_bits=*/ false);
+}
+
+void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
+                                                        bool gt_bias,
+                                                        DataType::Type type,
+                                                        LocationSummary* locations,
+                                                        Loongarch64Label* label,
+                                                        XRegister rd,
+                                                        bool to_all_bits) {
+  FRegister rs1 = locations->InAt(0).AsFpuRegister<FRegister>();
+  FRegister rs2 = locations->InAt(1).AsFpuRegister<FRegister>();
+
+  UNUSED(to_all_bits);
+
+  switch (cond) {
+    case kCondEQ: {
+      if (gt_bias) {
+        Fcmp_cueq(FCC0, rs1, rs2, type);
+      } else {
+        Fcmp_ceq(FCC0, rs1, rs2, type);
+      }
+      break;
+    }
+    case kCondNE: {
+      if (gt_bias) {
+        Fcmp_cune(FCC0, rs1, rs2, type);
+      } else {
+        Fcmp_cne(FCC0, rs1, rs2, type);
+      }
+      break;
+    }
+    case kCondGE: {
+      if (gt_bias) {
+        Fcmp_cule(FCC0, rs2, rs1, type);
+      } else {
+        Fcmp_cle(FCC0, rs2, rs1, type);
+      }
+      break;
+    }
+    case kCondLT: {
+      if (gt_bias) {
+        Fcmp_cult(FCC0, rs1, rs2, type);
+      } else {
+        Fcmp_clt(FCC0, rs1, rs2, type);
+      }
+      break;
+    }
+    case kCondLE: {
+      if (gt_bias) {
+        Fcmp_cule(FCC0, rs1, rs2, type);
+      } else {
+        Fcmp_cle(FCC0, rs1, rs2, type);
+      }
+      break;
+    }
+    case kCondGT: {
+      if (gt_bias) {
+        Fcmp_cult(FCC0, rs2, rs1, type);
+      } else {
+        Fcmp_clt(FCC0, rs2, rs1, type);
+      }
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected floating-point condition " << cond;
+      UNREACHABLE();
+  }
+
+  if (label != nullptr) {
+    __ Bcnez(FCC0, label);
+  } else {
+    __ Movcf2gr(rd, FCC0);
+    __ Sub_d(rd, Zero, rd);
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::HandleGoto(HInstruction* instruction,
@@ -1631,18 +2007,105 @@ void InstructionCodeGeneratorLOONGARCH64::HandleShift(HBinaryOperation* instruct
   }
 }
 
+void CodeGeneratorLOONGARCH64::MaybeMarkGCCard(XRegister object,
+                                           XRegister value,
+                                           bool value_can_be_null) {
+  Loongarch64Label done;
+  if (value_can_be_null) {
+    __ Beqz(value, &done);
+  }
+  MarkGCCard(object);
+  __ Bind(&done);
+}
+
+void CodeGeneratorLOONGARCH64::MarkGCCard(XRegister object) {
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister card = srs.AllocateXRegister();
+  XRegister temp = srs.AllocateXRegister();
+  // Load the address of the card table into `card`.
+  __ Load_D(card, TR, Thread::CardTableOffset<kLoongarch64PointerSize>().Int32Value());
+
+  // Calculate the address of the card corresponding to `object`.
+  __ Srli_d(temp, object, gc::accounting::CardTable::kCardShift);
+  __ Add_d(temp, card, temp);
+  // Write the `art::gc::accounting::CardTable::kCardDirty` value into the
+  // `object`'s card.
+  //
+  // Register `card` contains the address of the card table. Note that the card
+  // table's base is biased during its creation so that it always starts at an
+  // address whose least-significant byte is equal to `kCardDirty` (see
+  // art::gc::accounting::CardTable::Create). Therefore the SB instruction
+  // below writes the `kCardDirty` (byte) value into the `object`'s card
+  // (located at `card + object >> kCardShift`).
+  //
+  // This dual use of the value in register `card` (1. to calculate the location
+  // of the card to mark; and 2. to load the `kCardDirty` value) saves a load
+  // (no need to explicitly load `kCardDirty` as an immediate value).
+  __ St_B(card, temp, 0);  // No scratch register left for `Storeb()`.
+}
+
+void CodeGeneratorLOONGARCH64::CheckGCCardIsValid(XRegister object) {
+  Loongarch64Label done;
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister card = srs.AllocateXRegister();
+  XRegister temp = srs.AllocateXRegister();
+  // Load the address of the card table into `card`.
+  __ Load_D(card, TR, Thread::CardTableOffset<kLoongarch64PointerSize>().Int32Value());
+
+  // Calculate the address of the card corresponding to `object`.
+  __ Srli_d(temp, object, gc::accounting::CardTable::kCardShift);
+  __ Add_d(temp, card, temp);
+  // assert (!clean || !self->is_gc_marking)
+  __ Ld_B(temp, temp, 0);
+  static_assert(gc::accounting::CardTable::kCardClean == 0);
+  __ Bnez(temp, &done);
+  __ Load_W(temp, TR, Thread::IsGcMarkingOffset<kLoongarch64PointerSize>().Int32Value());
+  __ Beqz(temp, &done);
+  __ brk(0x5);
+  __ Bind(&done);
+}
+
 void LocationsBuilderLOONGARCH64::HandleFieldSet(HInstruction* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetInAt(1, ValueLocationForStore(instruction->InputAt(1)));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::HandleFieldSet(HInstruction* instruction,
                                                      const FieldInfo& field_info,
-                                                     bool value_can_be_null) {
-  UNUSED(instruction);
-  UNUSED(field_info);
-  UNUSED(value_can_be_null);
-  LOG(FATAL) << "Unimplemented";
+                                                     bool value_can_be_null,
+                                                     WriteBarrierKind write_barrier_kind) {
+  DataType::Type type = field_info.GetFieldType();
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister obj = locations->InAt(0).AsRegister<XRegister>();
+  Location value = locations->InAt(1);
+  DCHECK_IMPLIES(value.IsConstant(), IsZeroBitPattern(value.GetConstant()));
+  bool is_volatile = field_info.IsVolatile();
+  uint32_t offset = field_info.GetFieldOffset().Uint32Value();
+
+  if (is_volatile) {
+    StoreSeqCst(value, obj, offset, type, instruction);
+  } else {
+    Store(value, obj, offset, type);
+    codegen_->MaybeRecordImplicitNullCheck(instruction);
+  }
+
+  bool needs_write_barrier =
+      codegen_->StoreNeedsWriteBarrier(type, instruction->InputAt(1), write_barrier_kind);
+  if (needs_write_barrier) {
+    if (value.IsConstant()) {
+      DCHECK_EQ(write_barrier_kind, WriteBarrierKind::kEmitBeingReliedOn);
+      codegen_->MarkGCCard(obj);
+    } else {
+      codegen_->MaybeMarkGCCard(
+          obj,
+          value.AsRegister<XRegister>(),
+          value_can_be_null && write_barrier_kind == WriteBarrierKind::kEmitNotBeingReliedOn);
+    }
+  } else if (codegen_->ShouldCheckGCCard(type, instruction->InputAt(1), write_barrier_kind)) {
+    codegen_->CheckGCCardIsValid(obj);
+  }
 }
 
 void LocationsBuilderLOONGARCH64::HandleFieldGet(HInstruction* instruction) {
@@ -1912,33 +2375,150 @@ void InstructionCodeGeneratorLOONGARCH64::VisitAbs(HAbs* abs) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitAdd(HAdd* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitAdd(HAdd* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitAnd(HAnd* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitAnd(HAnd* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitArrayGet(HArrayGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type type = instruction->GetType();
+  bool object_array_get_with_read_barrier =
+      (type == DataType::Type::kReference) && codegen_->EmitReadBarrier();
+  LocationSummary* locations = new (GetGraph()->GetAllocator())
+      LocationSummary(instruction,
+                      object_array_get_with_read_barrier ? LocationSummary::kCallOnSlowPath :
+                                                           LocationSummary::kNoCall);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+  if (DataType::IsFloatingPointType(type)) {
+    locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+  } else {
+    // The output overlaps in the case of an object array get with
+    // read barriers enabled: we do not want the move to overwrite the
+    // array's location, as we need it to emit the read barrier.
+    locations->SetOut(
+        Location::RequiresRegister(),
+        object_array_get_with_read_barrier ? Location::kOutputOverlap : Location::kNoOutputOverlap);
+  }
+  if (object_array_get_with_read_barrier && kUseBakerReadBarrier) {
+    locations->SetCustomSlowPathCallerSaves(RegisterSet::Empty());  // No caller-save registers.
+    // We need a temporary register for the read barrier marking slow
+    // path in CodeGeneratorLOONGARCH64::GenerateArrayLoadWithBakerReadBarrier.
+    locations->AddTemp(Location::RequiresRegister());
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitArrayGet(HArrayGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  Location obj_loc = locations->InAt(0);
+  XRegister obj = obj_loc.AsRegister<XRegister>();
+  Location out_loc = locations->Out();
+  Location index = locations->InAt(1);
+  uint32_t data_offset = CodeGenerator::GetArrayDataOffset(instruction);
+  DataType::Type type = instruction->GetType();
+  const bool maybe_compressed_char_at =
+      mirror::kUseStringCompression && instruction->IsStringCharAt();
+
+  Loongarch64Label string_char_at_done;
+  if (maybe_compressed_char_at) {
+    DCHECK_EQ(type, DataType::Type::kUint16);
+    uint32_t count_offset = mirror::String::CountOffset().Uint32Value();
+    Loongarch64Label uncompressed_load;
+    {
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      __ Load_W(tmp, obj, count_offset);
+      codegen_->MaybeRecordImplicitNullCheck(instruction);
+      __ Andi(tmp, tmp, 0x1);
+      static_assert(static_cast<uint32_t>(mirror::StringCompressionFlag::kCompressed) == 0u,
+                    "Expecting 0=compressed, 1=uncompressed");
+      __ Bnez(tmp, &uncompressed_load);
+    }
+    XRegister out = out_loc.AsRegister<XRegister>();
+    if (index.IsConstant()) {
+        int32_t const_index = index.GetConstant()->AsIntConstant()->GetValue();
+      __ Load_BU(out, obj, data_offset + const_index);
+    } else {
+      __ Add_d(out, obj, index.AsRegister<XRegister>());
+      __ Load_BU(out, out, data_offset);
+    }
+    __ B(&string_char_at_done);
+    __ Bind(&uncompressed_load);
+  }
+
+  if (type == DataType::Type::kReference && codegen_->EmitBakerReadBarrier()) {
+    static_assert(
+        sizeof(mirror::HeapReference<mirror::Object>) == sizeof(int32_t),
+        "art::mirror::HeapReference<art::mirror::Object> and int32_t have different sizes.");
+    // /* HeapReference<Object> */ out =
+    //     *(obj + data_offset + index * sizeof(HeapReference<Object>))
+    // Note that a potential implicit null check could be handled in these
+    // `CodeGeneratorRISCV64::Generate{Array,Field}LoadWithBakerReadBarrier()` calls
+    // but we currently do not support implicit null checks on `HArrayGet`.
+    DCHECK(!instruction->CanDoImplicitNullCheckOn(instruction->InputAt(0)));
+    Location temp = locations->GetTemp(0);
+    if (index.IsConstant()) {
+      // Array load with a constant index can be treated as a field load.
+      static constexpr size_t shift = DataType::SizeShift(DataType::Type::kReference);
+      size_t offset = (index.GetConstant()->AsIntConstant()->GetValue() << shift) + data_offset;
+      codegen_->GenerateFieldLoadWithBakerReadBarrier(instruction,
+                                                      out_loc,
+                                                      obj,
+                                                      offset,
+                                                      temp,
+                                                      /* needs_null_check= */ false);
+    } else {
+      codegen_->GenerateArrayLoadWithBakerReadBarrier(instruction,
+                                                      out_loc,
+                                                      obj,
+                                                      data_offset,
+                                                      index,
+                                                      temp,
+                                                      /* needs_null_check= */ false);
+    }
+  } else if (index.IsConstant()) {
+    int32_t const_index = index.GetConstant()->AsIntConstant()->GetValue();
+    int32_t offset = data_offset + (const_index << DataType::SizeShift(type));
+    Load(out_loc, obj, offset, type);
+    if (!maybe_compressed_char_at) {
+      codegen_->MaybeRecordImplicitNullCheck(instruction);
+    }
+    if (type == DataType::Type::kReference) {
+      DCHECK(!codegen_->EmitBakerReadBarrier());
+      // If read barriers are enabled, emit read barriers other than Baker's using
+      // a slow path (and also unpoison the loaded reference, if heap poisoning is enabled).
+      codegen_->MaybeGenerateReadBarrierSlow(instruction, out_loc, out_loc, obj_loc, offset);
+    }
+  } else {
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister tmp = srs.AllocateXRegister();
+    ShNAdd(tmp, index.AsRegister<XRegister>(), obj, type);
+    Load(out_loc, tmp, data_offset, type);
+    if (!maybe_compressed_char_at) {
+      codegen_->MaybeRecordImplicitNullCheck(instruction);
+    }
+    if (type == DataType::Type::kReference) {
+      DCHECK(!codegen_->EmitBakerReadBarrier());
+      // If read barriers are enabled, emit read barriers other than Baker's using
+      // a slow path (and also unpoison the loaded reference, if heap poisoning is enabled).
+      codegen_->MaybeGenerateReadBarrierSlow(
+          instruction, out_loc, out_loc, obj_loc, data_offset, index);
+    }
+  }
+
+  if (maybe_compressed_char_at) {
+    __ Bind(&string_char_at_done);
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitArrayLength(HArrayLength* instruction) {
@@ -1961,13 +2541,148 @@ void InstructionCodeGeneratorLOONGARCH64::VisitArrayLength(HArrayLength* instruc
 }
 
 void LocationsBuilderLOONGARCH64::VisitArraySet(HArraySet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  bool needs_type_check = instruction->NeedsTypeCheck();
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(
+      instruction,
+      needs_type_check ? LocationSummary::kCallOnSlowPath : LocationSummary::kNoCall);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+  locations->SetInAt(2, ValueLocationForStore(instruction->GetValue()));
+  if (kPoisonHeapReferences &&
+      instruction->GetComponentType() == DataType::Type::kReference &&
+      !locations->InAt(1).IsConstant() &&
+      !locations->InAt(2).IsConstant()) {
+    locations->AddTemp(Location::RequiresRegister());
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitArraySet(HArraySet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister array = locations->InAt(0).AsRegister<XRegister>();
+  Location index = locations->InAt(1);
+  Location value = locations->InAt(2);
+  DataType::Type value_type = instruction->GetComponentType();
+  bool needs_type_check = instruction->NeedsTypeCheck();
+  const WriteBarrierKind write_barrier_kind = instruction->GetWriteBarrierKind();
+  bool needs_write_barrier =
+      codegen_->StoreNeedsWriteBarrier(value_type, instruction->GetValue(), write_barrier_kind);
+  size_t data_offset = mirror::Array::DataOffset(DataType::Size(value_type)).Uint32Value();
+  SlowPathCodeLOONGARCH64* slow_path = nullptr;
+
+  if (needs_write_barrier) {
+    DCHECK_EQ(value_type, DataType::Type::kReference);
+    DCHECK_IMPLIES(value.IsConstant(), value.GetConstant()->IsArithmeticZero());
+    const bool storing_constant_zero = value.IsConstant();
+    // The WriteBarrierKind::kEmitNotBeingReliedOn case is able to skip the write barrier when its
+    // value is null (without an extra CompareAndBranchIfZero since we already checked if the
+    // value is null for the type check).
+    bool skip_marking_gc_card = false;
+    Loongarch64Label skip_writing_card;
+    if (!storing_constant_zero) {
+      Loongarch64Label do_store;
+
+      bool can_value_be_null = instruction->GetValueCanBeNull();
+      skip_marking_gc_card =
+          can_value_be_null && write_barrier_kind == WriteBarrierKind::kEmitNotBeingReliedOn;
+      if (can_value_be_null) {
+        if (skip_marking_gc_card) {
+          __ Beqz(value.AsRegister<XRegister>(), &skip_writing_card);
+        } else {
+          __ Beqz(value.AsRegister<XRegister>(), &do_store);
+        }
+      }
+
+      if (needs_type_check) {
+        slow_path = new (codegen_->GetScopedAllocator()) ArraySetSlowPathLOONGARCH64(instruction);
+        codegen_->AddSlowPath(slow_path);
+
+        uint32_t class_offset = mirror::Object::ClassOffset().Int32Value();
+        uint32_t super_offset = mirror::Class::SuperClassOffset().Int32Value();
+        uint32_t component_offset = mirror::Class::ComponentTypeOffset().Int32Value();
+
+        ScratchRegisterScope srs(GetAssembler());
+        XRegister temp1 = srs.AllocateXRegister();
+        XRegister temp2 = srs.AllocateXRegister();
+
+        // Note that when read barriers are enabled, the type checks are performed
+        // without read barriers.  This is fine, even in the case where a class object
+        // is in the from-space after the flip, as a comparison involving such a type
+        // would not produce a false positive; it may of course produce a false
+        // negative, in which case we would take the ArraySet slow path.
+
+        // /* HeapReference<Class> */ temp1 = array->klass_
+        __ Load_WU(temp1, array, class_offset);
+        codegen_->MaybeRecordImplicitNullCheck(instruction);
+        codegen_->MaybeUnpoisonHeapReference(temp1);
+
+        // /* HeapReference<Class> */ temp2 = temp1->component_type_
+        __ Load_WU(temp2, temp1, component_offset);
+        // /* HeapReference<Class> */ temp1 = value->klass_
+        __ Load_WU(temp1, value.AsRegister<XRegister>(), class_offset);
+        // If heap poisoning is enabled, no need to unpoison `temp1`
+        // nor `temp2`, as we are comparing two poisoned references.
+        if (instruction->StaticTypeOfArrayIsObjectArray()) {
+          Loongarch64Label do_put;
+          __ Beq(temp1, temp2, &do_put);
+          // If heap poisoning is enabled, the `temp2` reference has
+          // not been unpoisoned yet; unpoison it now.
+          codegen_->MaybeUnpoisonHeapReference(temp2);
+
+          // /* HeapReference<Class> */ temp1 = temp2->super_class_
+          __ Load_WU(temp1, temp2, super_offset);
+          // If heap poisoning is enabled, no need to unpoison
+          // `temp1`, as we are comparing against null below.
+          __ Bnez(temp1, slow_path->GetEntryLabel());
+          __ Bind(&do_put);
+        } else {
+          __ Bne(temp1, temp2, slow_path->GetEntryLabel());
+        }
+      }
+
+      if (can_value_be_null && !skip_marking_gc_card) {
+        DCHECK(do_store.IsLinked());
+        __ Bind(&do_store);
+      }
+    }
+
+    DCHECK_NE(write_barrier_kind, WriteBarrierKind::kDontEmit);
+    DCHECK_IMPLIES(storing_constant_zero,
+                   write_barrier_kind == WriteBarrierKind::kEmitBeingReliedOn);
+    codegen_->MarkGCCard(array);
+
+    if (skip_marking_gc_card) {
+      // Note that we don't check that the GC card is valid as it can be correctly clean.
+      DCHECK(skip_writing_card.IsLinked());
+      __ Bind(&skip_writing_card);
+    }
+  } else if (codegen_->ShouldCheckGCCard(value_type, instruction->GetValue(), write_barrier_kind)) {
+    codegen_->CheckGCCardIsValid(array);
+  }
+
+  if (index.IsConstant()) {
+    int32_t const_index = index.GetConstant()->AsIntConstant()->GetValue();
+    int32_t offset = data_offset + (const_index << DataType::SizeShift(value_type));
+    Store(value, array, offset, value_type);
+  } else {
+    ScratchRegisterScope srs(GetAssembler());
+    // Heap poisoning needs two scratch registers in `Store()`, except for null constants.
+    XRegister tmp =
+        (kPoisonHeapReferences && value_type == DataType::Type::kReference && !value.IsConstant())
+            ? locations->GetTemp(0).AsRegister<XRegister>()
+            : srs.AllocateXRegister();
+    ShNAdd(tmp, index.AsRegister<XRegister>(), array, value_type);
+    Store(value, tmp, data_offset, value_type);
+  }
+  // There must be no instructions between the `Store()` and the `MaybeRecordImplicitNullCheck()`.
+  // We can avoid this if the type check makes the null check unconditionally.
+  DCHECK_IMPLIES(needs_type_check, needs_write_barrier);
+  if (!(needs_type_check && !instruction->GetValueCanBeNull())) {
+    codegen_->MaybeRecordImplicitNullCheck(instruction);
+  }
+
+  if (slow_path != nullptr) {
+    __ Bind(slow_path->GetExitLabel());
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitBelow(HBelow* instruction) {
@@ -2085,6 +2800,27 @@ void InstructionCodeGeneratorLOONGARCH64::VisitBoundsCheck(HBoundsCheck* instruc
   }
 }
 
+static size_t NumberOfInstanceOfTemps(bool emit_read_barrier, TypeCheckKind type_check_kind) {
+  if (emit_read_barrier &&
+      (kUseBakerReadBarrier ||
+       type_check_kind == TypeCheckKind::kAbstractClassCheck ||
+       type_check_kind == TypeCheckKind::kClassHierarchyCheck ||
+       type_check_kind == TypeCheckKind::kArrayObjectCheck)) {
+    return 1;
+  }
+  return 0;
+}
+
+// Interface case has 3 temps, one for holding the number of interfaces, one for the current
+// interface pointer, one for loading the current interface.
+// The other checks have one temp for loading the object's class and maybe a temp for read barrier.
+static size_t NumberOfCheckCastTemps(bool emit_read_barrier, TypeCheckKind type_check_kind) {
+  if (type_check_kind == TypeCheckKind::kInterfaceCheck) {
+    return 3;
+  }
+  return 1 + NumberOfInstanceOfTemps(emit_read_barrier, type_check_kind);
+}
+
 void LocationsBuilderLOONGARCH64::VisitBoundType([[maybe_unused]] HBoundType* instruction) {
   // Nothing to do, this should be removed during prepare for register allocator.
   LOG(FATAL) << "Unreachable";
@@ -2096,13 +2832,215 @@ void InstructionCodeGeneratorLOONGARCH64::VisitBoundType([[maybe_unused]] HBound
 }
 
 void LocationsBuilderLOONGARCH64::VisitCheckCast(HCheckCast* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  TypeCheckKind type_check_kind = instruction->GetTypeCheckKind();
+  LocationSummary::CallKind call_kind = codegen_->GetCheckCastCallKind(instruction);
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, call_kind);
+  locations->SetInAt(0, Location::RequiresRegister());
+  if (type_check_kind == TypeCheckKind::kBitstringCheck) {
+    locations->SetInAt(1, Location::ConstantLocation(instruction->InputAt(1)));
+    locations->SetInAt(2, Location::ConstantLocation(instruction->InputAt(2)));
+    locations->SetInAt(3, Location::ConstantLocation(instruction->InputAt(3)));
+  } else {
+    locations->SetInAt(1, Location::RequiresRegister());
+  }
+  locations->AddRegisterTemps(NumberOfCheckCastTemps(codegen_->EmitReadBarrier(), type_check_kind));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitCheckCast(HCheckCast* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  TypeCheckKind type_check_kind = instruction->GetTypeCheckKind();
+  LocationSummary* locations = instruction->GetLocations();
+  Location obj_loc = locations->InAt(0);
+  XRegister obj = obj_loc.AsRegister<XRegister>();
+  Location cls = (type_check_kind == TypeCheckKind::kBitstringCheck)
+      ? Location::NoLocation()
+      : locations->InAt(1);
+  Location temp_loc = locations->GetTemp(0);
+  XRegister temp = temp_loc.AsRegister<XRegister>();
+  const size_t num_temps = NumberOfCheckCastTemps(codegen_->EmitReadBarrier(), type_check_kind);
+  DCHECK_GE(num_temps, 1u);
+  DCHECK_LE(num_temps, 3u);
+  Location maybe_temp2_loc = (num_temps >= 2) ? locations->GetTemp(1) : Location::NoLocation();
+  Location maybe_temp3_loc = (num_temps >= 3) ? locations->GetTemp(2) : Location::NoLocation();
+  uint32_t class_offset = mirror::Object::ClassOffset().Int32Value();
+  uint32_t super_offset = mirror::Class::SuperClassOffset().Int32Value();
+  uint32_t component_offset = mirror::Class::ComponentTypeOffset().Int32Value();
+  uint32_t primitive_offset = mirror::Class::PrimitiveTypeOffset().Int32Value();
+  uint32_t iftable_offset = mirror::Class::IfTableOffset().Uint32Value();
+  uint32_t array_length_offset = mirror::Array::LengthOffset().Uint32Value();
+  uint32_t object_array_data_offset =
+      mirror::Array::DataOffset(kHeapReferenceSize).Uint32Value();
+  Loongarch64Label done;
+
+  bool is_type_check_slow_path_fatal = codegen_->IsTypeCheckSlowPathFatal(instruction);
+  SlowPathCodeLOONGARCH64* slow_path =
+      new (codegen_->GetScopedAllocator()) TypeCheckSlowPathLOONGARCH64(
+          instruction, is_type_check_slow_path_fatal);
+  codegen_->AddSlowPath(slow_path);
+
+  // Avoid this check if we know `obj` is not null.
+  if (instruction->MustDoNullCheck()) {
+    __ Beqz(obj, &done);
+  }
+
+  switch (type_check_kind) {
+    case TypeCheckKind::kExactCheck:
+    case TypeCheckKind::kArrayCheck: {
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                        temp_loc,
+                                        obj_loc,
+                                        class_offset,
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+      // Jump to slow path for throwing the exception or doing a
+      // more involved array check.
+      __ Bne(temp, cls.AsRegister<XRegister>(), slow_path->GetEntryLabel());
+      break;
+    }
+
+    case TypeCheckKind::kAbstractClassCheck: {
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                        temp_loc,
+                                        obj_loc,
+                                        class_offset,
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+      // If the class is abstract, we eagerly fetch the super class of the
+      // object to avoid doing a comparison we know will fail.
+      Loongarch64Label loop;
+      __ Bind(&loop);
+      // /* HeapReference<Class> */ temp = temp->super_class_
+      GenerateReferenceLoadOneRegister(instruction,
+                                       temp_loc,
+                                       super_offset,
+                                       maybe_temp2_loc,
+                                       kWithoutReadBarrier);
+      // If the class reference currently in `temp` is null, jump to the slow path to throw the
+      // exception.
+      __ Beqz(temp, slow_path->GetEntryLabel());
+      // Otherwise, compare the classes.
+      __ Bne(temp, cls.AsRegister<XRegister>(), &loop);
+      break;
+    }
+
+    case TypeCheckKind::kClassHierarchyCheck: {
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                        temp_loc,
+                                        obj_loc,
+                                        class_offset,
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+      // Walk over the class hierarchy to find a match.
+      Loongarch64Label loop;
+      __ Bind(&loop);
+      __ Beq(temp, cls.AsRegister<XRegister>(), &done);
+      // /* HeapReference<Class> */ temp = temp->super_class_
+      GenerateReferenceLoadOneRegister(instruction,
+                                       temp_loc,
+                                       super_offset,
+                                       maybe_temp2_loc,
+                                       kWithoutReadBarrier);
+      // If the class reference currently in `temp` is null, jump to the slow path to throw the
+      // exception. Otherwise, jump to the beginning of the loop.
+      __ Bnez(temp, &loop);
+      __ B(slow_path->GetEntryLabel());
+      break;
+    }
+
+    case TypeCheckKind::kArrayObjectCheck: {
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                        temp_loc,
+                                        obj_loc,
+                                        class_offset,
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+      // Do an exact check.
+      __ Beq(temp, cls.AsRegister<XRegister>(), &done);
+      // Otherwise, we need to check that the object's class is a non-primitive array.
+      // /* HeapReference<Class> */ temp = temp->component_type_
+      GenerateReferenceLoadOneRegister(instruction,
+                                       temp_loc,
+                                       component_offset,
+                                       maybe_temp2_loc,
+                                       kWithoutReadBarrier);
+      // If the component type is null, jump to the slow path to throw the exception.
+      __ Beqz(temp, slow_path->GetEntryLabel());
+      // Otherwise, the object is indeed an array, further check that this component
+      // type is not a primitive type.
+      __ Load_HU(temp, temp, primitive_offset);
+      static_assert(Primitive::kPrimNot == 0, "Expected 0 for kPrimNot");
+      __ Bnez(temp, slow_path->GetEntryLabel());
+      break;
+    }
+
+    case TypeCheckKind::kUnresolvedCheck:
+      // We always go into the type check slow path for the unresolved check case.
+      // We cannot directly call the CheckCast runtime entry point
+      // without resorting to a type checking slow path here (i.e. by
+      // calling InvokeRuntime directly), as it would require to
+      // assign fixed registers for the inputs of this HInstanceOf
+      // instruction (following the runtime calling convention), which
+      // might be cluttered by the potential first read barrier
+      // emission at the beginning of this method.
+      __ B(slow_path->GetEntryLabel());
+      break;
+
+    case TypeCheckKind::kInterfaceCheck: {
+      // Avoid read barriers to improve performance of the fast path. We can not get false
+      // positives by doing this. False negatives are handled by the slow path.
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                        temp_loc,
+                                        obj_loc,
+                                        class_offset,
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+      // /* HeapReference<Class> */ temp = temp->iftable_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                       temp_loc,
+                                       temp_loc,
+                                       iftable_offset,
+                                       maybe_temp2_loc,
+                                       kWithoutReadBarrier);
+      XRegister temp2 = maybe_temp2_loc.AsRegister<XRegister>();
+      XRegister temp3 = maybe_temp3_loc.AsRegister<XRegister>();
+      // Iftable is never null.
+      __ Load_W(temp2, temp, array_length_offset);
+      // Loop through the iftable and check if any class matches.
+      Loongarch64Label loop;
+      __ Bind(&loop);
+      __ Beqz(temp2, slow_path->GetEntryLabel());
+      __ Ld_WU(temp3, temp, object_array_data_offset);
+      codegen_->MaybeUnpoisonHeapReference(temp3);
+      // Go to next interface.
+      __ Addi_D(temp, temp, 2 * kHeapReferenceSize);
+      __ Addi_D(temp2, temp2, -2);
+      // Compare the classes and continue the loop if they do not match.
+      __ Bne(temp3, cls.AsRegister<XRegister>(), &loop);
+      break;
+    }
+
+    case TypeCheckKind::kBitstringCheck: {
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(instruction,
+                                        temp_loc,
+                                        obj_loc,
+                                        class_offset,
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+
+      GenerateBitstringTypeCheckCompare(instruction, temp);
+      __ Bnez(temp, slow_path->GetEntryLabel());
+      break;
+    }
+  }
+
+  __ Bind(&done);
+  __ Bind(slow_path->GetExitLabel());
 }
 
 void LocationsBuilderLOONGARCH64::VisitClassTableGet(HClassTableGet* instruction) {
@@ -2205,13 +3143,24 @@ void InstructionCodeGeneratorLOONGARCH64::VisitShouldDeoptimizeFlag(
 }
 
 void LocationsBuilderLOONGARCH64::VisitDeoptimize(HDeoptimize* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator())
+      LocationSummary(instruction, LocationSummary::kCallOnSlowPath);
+  InvokeRuntimeCallingConvention calling_convention;
+  RegisterSet caller_saves = RegisterSet::Empty();
+  caller_saves.Add(Location::RegisterLocation(calling_convention.GetRegisterAt(0)));
+  locations->SetCustomSlowPathCallerSaves(caller_saves);
+  if (IsBooleanValueOrMaterializedCondition(instruction->InputAt(0))) {
+    locations->SetInAt(0, Location::RequiresRegister());
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitDeoptimize(HDeoptimize* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  SlowPathCodeLOONGARCH64* slow_path =
+      deopt_slow_paths_.NewSlowPath<DeoptimizationSlowPathLOONGARCH64>(instruction);
+  GenerateTestAndBranch(instruction,
+                        /* condition_input_index= */ 0,
+                        slow_path->GetEntryLabel(),
+                        /* false_target= */ nullptr);
 }
 
 void LocationsBuilderLOONGARCH64::VisitDiv(HDiv* instruction) {
@@ -2310,33 +3259,279 @@ void InstructionCodeGeneratorLOONGARCH64::VisitIf(HIf* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitInstanceFieldGet(HInstanceFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleFieldGet(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInstanceFieldGet(HInstanceFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleFieldGet(instruction, instruction->GetFieldInfo());
 }
 
 void LocationsBuilderLOONGARCH64::VisitInstanceFieldSet(HInstanceFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleFieldSet(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInstanceFieldSet(HInstanceFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleFieldSet(instruction,
+                 instruction->GetFieldInfo(),
+                 instruction->GetValueCanBeNull(),
+                 instruction->GetWriteBarrierKind());
 }
 
 void LocationsBuilderLOONGARCH64::VisitInstanceOf(HInstanceOf* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary::CallKind call_kind = LocationSummary::kNoCall;
+  TypeCheckKind type_check_kind = instruction->GetTypeCheckKind();
+  bool baker_read_barrier_slow_path = false;
+  switch (type_check_kind) {
+    case TypeCheckKind::kExactCheck:
+    case TypeCheckKind::kAbstractClassCheck:
+    case TypeCheckKind::kClassHierarchyCheck:
+    case TypeCheckKind::kArrayObjectCheck:
+    case TypeCheckKind::kInterfaceCheck: {
+      bool needs_read_barrier = codegen_->InstanceOfNeedsReadBarrier(instruction);
+      call_kind = needs_read_barrier ? LocationSummary::kCallOnSlowPath : LocationSummary::kNoCall;
+      baker_read_barrier_slow_path = (kUseBakerReadBarrier && needs_read_barrier) &&
+                                     (type_check_kind != TypeCheckKind::kInterfaceCheck);
+      break;
+    }
+    case TypeCheckKind::kArrayCheck:
+    case TypeCheckKind::kUnresolvedCheck:
+      call_kind = LocationSummary::kCallOnSlowPath;
+      break;
+    case TypeCheckKind::kBitstringCheck:
+      break;
+  }
+
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, call_kind);
+  if (baker_read_barrier_slow_path) {
+    locations->SetCustomSlowPathCallerSaves(RegisterSet::Empty());  // No caller-save registers.
+  }
+  locations->SetInAt(0, Location::RequiresRegister());
+  if (type_check_kind == TypeCheckKind::kBitstringCheck) {
+    locations->SetInAt(1, Location::ConstantLocation(instruction->InputAt(1)));
+    locations->SetInAt(2, Location::ConstantLocation(instruction->InputAt(2)));
+    locations->SetInAt(3, Location::ConstantLocation(instruction->InputAt(3)));
+  } else {
+    locations->SetInAt(1, Location::RequiresRegister());
+  }
+  // The output does overlap inputs.
+  // Note that TypeCheckSlowPathLOONGARCH64 uses this register too.
+  locations->SetOut(Location::RequiresRegister(), Location::kOutputOverlap);
+  locations->AddRegisterTemps(
+      NumberOfInstanceOfTemps(codegen_->EmitReadBarrier(), type_check_kind));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitInstanceOf(HInstanceOf* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  TypeCheckKind type_check_kind = instruction->GetTypeCheckKind();
+  LocationSummary* locations = instruction->GetLocations();
+  Location obj_loc = locations->InAt(0);
+  XRegister obj = obj_loc.AsRegister<XRegister>();
+  Location cls = (type_check_kind == TypeCheckKind::kBitstringCheck)
+      ? Location::NoLocation()
+      : locations->InAt(1);
+  Location out_loc = locations->Out();
+  XRegister out = out_loc.AsRegister<XRegister>();
+  const size_t num_temps = NumberOfInstanceOfTemps(codegen_->EmitReadBarrier(), type_check_kind);
+  DCHECK_LE(num_temps, 1u);
+  Location maybe_temp_loc = (num_temps >= 1) ? locations->GetTemp(0) : Location::NoLocation();
+  const uint32_t class_offset = mirror::Object::ClassOffset().Int32Value();
+  const uint32_t super_offset = mirror::Class::SuperClassOffset().Int32Value();
+  const uint32_t component_offset = mirror::Class::ComponentTypeOffset().Int32Value();
+  const uint32_t primitive_offset = mirror::Class::PrimitiveTypeOffset().Int32Value();
+  const uint32_t iftable_offset = mirror::Class::IfTableOffset().Uint32Value();
+  const uint32_t array_length_offset = mirror::Array::LengthOffset().Uint32Value();
+  const uint32_t object_array_data_offset =
+      mirror::Array::DataOffset(kHeapReferenceSize).Uint32Value();
+  Loongarch64Label done;
+  SlowPathCodeLOONGARCH64* slow_path = nullptr;
+
+  // Return 0 if `obj` is null.
+  // Avoid this check if we know `obj` is not null.
+  if (instruction->MustDoNullCheck()) {
+    __ Move(out, Zero);
+    __ Beqz(obj, &done);
+  }
+
+  switch (type_check_kind) {
+    case TypeCheckKind::kExactCheck: {
+      ReadBarrierOption read_barrier_option =
+          codegen_->ReadBarrierOptionForInstanceOf(instruction);
+      // /* HeapReference<Class> */ out = obj->klass_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, out_loc, obj_loc, class_offset, maybe_temp_loc, read_barrier_option);
+      // Classes must be equal for the instanceof to succeed.
+      __ Xor(out, out, cls.AsRegister<XRegister>());
+      __ Sltui(out, out, 1);
+      break;
+    }
+
+    case TypeCheckKind::kAbstractClassCheck: {
+      ReadBarrierOption read_barrier_option =
+          codegen_->ReadBarrierOptionForInstanceOf(instruction);
+      // /* HeapReference<Class> */ out = obj->klass_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, out_loc, obj_loc, class_offset, maybe_temp_loc, read_barrier_option);
+      // If the class is abstract, we eagerly fetch the super class of the
+      // object to avoid doing a comparison we know will fail.
+      Loongarch64Label loop;
+      __ Bind(&loop);
+      // /* HeapReference<Class> */ out = out->super_class_
+      GenerateReferenceLoadOneRegister(
+          instruction, out_loc, super_offset, maybe_temp_loc, read_barrier_option);
+      // If `out` is null, we use it for the result, and jump to `done`.
+      __ Beqz(out, &done);
+      __ Bne(out, cls.AsRegister<XRegister>(), &loop);
+      __ LoadConst32(out, 1);
+      break;
+    }
+
+    case TypeCheckKind::kClassHierarchyCheck: {
+      ReadBarrierOption read_barrier_option =
+          codegen_->ReadBarrierOptionForInstanceOf(instruction);
+      // /* HeapReference<Class> */ out = obj->klass_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, out_loc, obj_loc, class_offset, maybe_temp_loc, read_barrier_option);
+      // Walk over the class hierarchy to find a match.
+      Loongarch64Label loop, success;
+      __ Bind(&loop);
+      __ Beq(out, cls.AsRegister<XRegister>(), &success);
+      // /* HeapReference<Class> */ out = out->super_class_
+      GenerateReferenceLoadOneRegister(
+          instruction, out_loc, super_offset, maybe_temp_loc, read_barrier_option);
+      __ Bnez(out, &loop);
+      // If `out` is null, we use it for the result, and jump to `done`.
+      __ B(&done);
+      __ Bind(&success);
+      __ LoadConst32(out, 1);
+      break;
+    }
+
+    case TypeCheckKind::kArrayObjectCheck: {
+      ReadBarrierOption read_barrier_option =
+          codegen_->ReadBarrierOptionForInstanceOf(instruction);
+      // FIXME(loongarch64): We currently have marking entrypoints for 29 registers.
+      // We need to either store entrypoint for register `N` in entry `N-A` where
+      // `A` can be up to 5 (Zero, RA, SP, GP, TP are not valid registers for
+      // marking), or define two more entrypoints, or request an additional temp
+      // from the register allocator instead of using a scratch register.
+      ScratchRegisterScope srs(GetAssembler());
+      Location tmp = Location::RegisterLocation(srs.AllocateXRegister());
+      // /* HeapReference<Class> */ tmp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, tmp, obj_loc, class_offset, maybe_temp_loc, read_barrier_option);
+      // Do an exact check.
+      __ LoadConst32(out, 1);
+      __ Beq(tmp.AsRegister<XRegister>(), cls.AsRegister<XRegister>(), &done);
+      // Otherwise, we need to check that the object's class is a non-primitive array.
+      // /* HeapReference<Class> */ out = out->component_type_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, out_loc, tmp, component_offset, maybe_temp_loc, read_barrier_option);
+      // If `out` is null, we use it for the result, and jump to `done`.
+      __ Beqz(out, &done);
+      __ Load_HU(out, out, primitive_offset);
+      static_assert(Primitive::kPrimNot == 0, "Expected 0 for kPrimNot");
+      __ Sltui(out, out, 1);
+      break;
+    }
+
+    case TypeCheckKind::kArrayCheck: {
+      // No read barrier since the slow path will retry upon failure.
+      // /* HeapReference<Class> */ out = obj->klass_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, out_loc, obj_loc, class_offset, maybe_temp_loc, kWithoutReadBarrier);
+      DCHECK(locations->OnlyCallsOnSlowPath());
+      slow_path = new (codegen_->GetScopedAllocator())
+          TypeCheckSlowPathLOONGARCH64(instruction, /* is_fatal= */ false);
+      codegen_->AddSlowPath(slow_path);
+      __ Bne(out, cls.AsRegister<XRegister>(), slow_path->GetEntryLabel());
+      __ LoadConst32(out, 1);
+      break;
+    }
+
+    case TypeCheckKind::kInterfaceCheck: {
+      if (codegen_->InstanceOfNeedsReadBarrier(instruction)) {
+        DCHECK(locations->OnlyCallsOnSlowPath());
+        slow_path = new (codegen_->GetScopedAllocator()) TypeCheckSlowPathLOONGARCH64(
+            instruction, /* is_fatal= */ false);
+        codegen_->AddSlowPath(slow_path);
+        if (codegen_->EmitNonBakerReadBarrier()) {
+          __ B(slow_path->GetEntryLabel());
+          break;
+        }
+        // For Baker read barrier, take the slow path while marking.
+        __ Load_W(out, TR, Thread::IsGcMarkingOffset<kLoongarch64PointerSize>().Int32Value());
+        __ Bnez(out, slow_path->GetEntryLabel());
+      }
+
+      // Fast-path without read barriers.
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister temp = srs.AllocateXRegister();
+      // /* HeapReference<Class> */ temp = obj->klass_
+      __ Load_WU(temp, obj, class_offset);
+      codegen_->MaybeUnpoisonHeapReference(temp);
+      // /* HeapReference<Class> */ temp = temp->iftable_
+      __ Load_WU(temp, temp, iftable_offset);
+      codegen_->MaybeUnpoisonHeapReference(temp);
+      // Load the size of the `IfTable`. The `Class::iftable_` is never null.
+      __ Load_W(out, temp, array_length_offset);
+      // Loop through the `IfTable` and check if any class matches.
+      Loongarch64Label loop;
+      XRegister temp2 = srs.AllocateXRegister();
+      __ Bind(&loop);
+      __ Beqz(out, &done);  // If taken, the result in `out` is already 0 (false).
+      __ Load_WU(temp2, temp, object_array_data_offset);
+      codegen_->MaybeUnpoisonHeapReference(temp2);
+      // Go to next interface.
+      __ Addi_D(temp, temp, 2 * kHeapReferenceSize);
+      __ Addi_D(out, out, -2);
+      // Compare the classes and continue the loop if they do not match.
+      __ Bne(cls.AsRegister<XRegister>(), temp2, &loop);
+      __ LoadConst32(out, 1);
+      break;
+    }
+
+    case TypeCheckKind::kUnresolvedCheck: {
+      // Note that we indeed only call on slow path, but we always go
+      // into the slow path for the unresolved check case.
+      //
+      // We cannot directly call the InstanceofNonTrivial runtime
+      // entry point without resorting to a type checking slow path
+      // here (i.e. by calling InvokeRuntime directly), as it would
+      // require to assign fixed registers for the inputs of this
+      // HInstanceOf instruction (following the runtime calling
+      // convention), which might be cluttered by the potential first
+      // read barrier emission at the beginning of this method.
+      //
+      // TODO: Introduce a new runtime entry point taking the object
+      // to test (instead of its class) as argument, and let it deal
+      // with the read barrier issues. This will let us refactor this
+      // case of the `switch` code as it was previously (with a direct
+      // call to the runtime not using a type checking slow path).
+      // This should also be beneficial for the other cases above.
+      DCHECK(locations->OnlyCallsOnSlowPath());
+      slow_path = new (codegen_->GetScopedAllocator()) TypeCheckSlowPathLOONGARCH64(
+          instruction, /* is_fatal= */ false);
+      codegen_->AddSlowPath(slow_path);
+      __ B(slow_path->GetEntryLabel());
+      break;
+    }
+
+    case TypeCheckKind::kBitstringCheck: {
+      // /* HeapReference<Class> */ temp = obj->klass_
+      GenerateReferenceLoadTwoRegisters(
+          instruction, out_loc, obj_loc, class_offset, maybe_temp_loc, kWithoutReadBarrier);
+
+      GenerateBitstringTypeCheckCompare(instruction, out);
+      __ Beqz(out, out);
+      break;
+    }
+  }
+
+  __ Bind(&done);
+
+  if (slow_path != nullptr) {
+    __ Bind(slow_path->GetExitLabel());
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitIntConstant(HIntConstant* instruction) {
@@ -2709,13 +3904,96 @@ void InstructionCodeGeneratorLOONGARCH64::VisitLoadMethodType(HLoadMethodType* i
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadString(HLoadString* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HLoadString::LoadKind load_kind = instruction->GetLoadKind();
+  LocationSummary::CallKind call_kind = codegen_->GetLoadStringCallKind(instruction);
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, call_kind);
+  if (load_kind == HLoadString::LoadKind::kRuntimeCall) {
+    InvokeRuntimeCallingConvention calling_convention;
+    DCHECK_EQ(DataType::Type::kReference, instruction->GetType());
+    locations->SetOut(calling_convention.GetReturnLocation(DataType::Type::kReference));
+  } else {
+    locations->SetOut(Location::RequiresRegister());
+    if (load_kind == HLoadString::LoadKind::kBssEntry) {
+      if (codegen_->EmitNonBakerReadBarrier()) {
+        // For non-Baker read barriers we have a temp-clobbering call.
+      } else {
+        // Rely on the pResolveString and marking to save everything we need.
+        locations->SetCustomSlowPathCallerSaves(OneRegInReferenceOutSaveEverythingCallerSaves());
+      }
+    }
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitLoadString(HLoadString* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HLoadString::LoadKind load_kind = instruction->GetLoadKind();
+  LocationSummary* locations = instruction->GetLocations();
+  Location out_loc = locations->Out();
+  XRegister out = out_loc.AsRegister<XRegister>();
+
+  switch (load_kind) {
+    case HLoadString::LoadKind::kBootImageLinkTimePcRelative: {
+      DCHECK(codegen_->GetCompilerOptions().IsBootImage() ||
+             codegen_->GetCompilerOptions().IsBootImageExtension());
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_high = codegen_->NewBootImageStringPatch(
+          instruction->GetDexFile(), instruction->GetStringIndex());
+      codegen_->EmitPcRelativePcaddu12iPlaceholder(info_high, out);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_low = codegen_->NewBootImageStringPatch(
+          instruction->GetDexFile(), instruction->GetStringIndex(), info_high);
+      codegen_->EmitPcRelativeAddi_dPlaceholder(info_low, out, out);
+      return;
+    }
+    case HLoadString::LoadKind::kBootImageRelRo: {
+      DCHECK(!codegen_->GetCompilerOptions().IsBootImage());
+      uint32_t boot_image_offset = codegen_->GetBootImageOffset(instruction);
+      codegen_->LoadBootImageRelRoEntry(out, boot_image_offset);
+      return;
+    }
+    case HLoadString::LoadKind::kBssEntry: {
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_high = codegen_->NewStringBssEntryPatch(
+          instruction->GetDexFile(), instruction->GetStringIndex());
+      codegen_->EmitPcRelativePcaddu12iPlaceholder(info_high, out);
+      CodeGeneratorLOONGARCH64::PcRelativePatchInfo* info_low = codegen_->NewStringBssEntryPatch(
+          instruction->GetDexFile(), instruction->GetStringIndex(), info_high);
+      codegen_->GenerateGcRootFieldLoad(instruction,
+                                        out_loc,
+                                        out,
+                                        /* offset= */ kLinkTimeOffsetPlaceholderLow,
+                                        codegen_->GetCompilerReadBarrierOption(),
+                                        &info_low->label);
+      SlowPathCodeLOONGARCH64* slow_path =
+          new (codegen_->GetScopedAllocator()) LoadStringSlowPathLOONGARCH64(instruction);
+      codegen_->AddSlowPath(slow_path);
+      __ Beqz(out, slow_path->GetEntryLabel());
+      __ Bind(slow_path->GetExitLabel());
+      return;
+    }
+    case HLoadString::LoadKind::kJitBootImageAddress: {
+      // mutator_lock_
+      ScopedObjectAccess soa(Thread::Current());
+      uint32_t address = reinterpret_cast32<uint32_t>(instruction->GetString().Get());
+      DCHECK_NE(address, 0u);
+      __ Load_WU(out, codegen_->DeduplicateBootImageAddressLiteral(address));
+      return;
+    }
+    case HLoadString::LoadKind::kJitTableAddress:
+      __ Load_WU(
+          out,
+          codegen_->DeduplicateJitStringLiteral(
+              instruction->GetDexFile(), instruction->GetStringIndex(), instruction->GetString()));
+      codegen_->GenerateGcRootFieldLoad(
+          instruction, out_loc, out, 0, codegen_->GetCompilerReadBarrierOption());
+      return;
+    default:
+      break;
+  }
+
+  DCHECK(load_kind == HLoadString::LoadKind::kRuntimeCall);
+  InvokeRuntimeCallingConvention calling_convention;
+  DCHECK(calling_convention.GetReturnLocation(DataType::Type::kReference).Equals(out_loc));
+  __ LoadConst32(calling_convention.GetRegisterAt(0), instruction->GetStringIndex().index_);
+  codegen_->InvokeRuntime(kQuickResolveString, instruction, instruction->GetDexPc());
+  CheckEntrypointTypes<kQuickResolveString, void*, uint32_t>();
 }
 
 void LocationsBuilderLOONGARCH64::VisitLongConstant(HLongConstant* instruction) {
@@ -2883,23 +4161,32 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNop([[maybe_unused]] HNop* instru
 }
 
 void LocationsBuilderLOONGARCH64::VisitNewArray(HNewArray* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator())
+      LocationSummary(instruction, LocationSummary::kCallOnMainOnly);
+  InvokeRuntimeCallingConvention calling_convention;
+  locations->SetOut(calling_convention.GetReturnLocation(DataType::Type::kReference));
+  locations->SetInAt(0, Location::RegisterLocation(calling_convention.GetRegisterAt(0)));
+  locations->SetInAt(1, Location::RegisterLocation(calling_convention.GetRegisterAt(1)));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNewArray(HNewArray* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  QuickEntrypointEnum entrypoint = CodeGenerator::GetArrayAllocationEntrypoint(instruction);
+  codegen_->InvokeRuntime(entrypoint, instruction, instruction->GetDexPc());
+  CheckEntrypointTypes<kQuickAllocArrayResolved, void*, mirror::Class*, int32_t>();
+  DCHECK(!codegen_->IsLeafMethod());
 }
 
 void LocationsBuilderLOONGARCH64::VisitNewInstance(HNewInstance* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(
+      instruction, LocationSummary::kCallOnMainOnly);
+  InvokeRuntimeCallingConvention calling_convention;
+  locations->SetInAt(0, Location::RegisterLocation(calling_convention.GetRegisterAt(0)));
+  locations->SetOut(calling_convention.GetReturnLocation(DataType::Type::kReference));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNewInstance(HNewInstance* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->InvokeRuntime(instruction->GetEntrypoint(), instruction, instruction->GetDexPc());
+  CheckEntrypointTypes<kQuickAllocObjectWithChecks, void*, mirror::Class*>();
 }
 
 void LocationsBuilderLOONGARCH64::VisitNot(HNot* instruction) {
@@ -2931,23 +4218,21 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNotEqual(HNotEqual* instruction) 
 }
 
 void LocationsBuilderLOONGARCH64::VisitNullConstant(HNullConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetOut(Location::ConstantLocation(instruction));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitNullConstant(HNullConstant* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+void InstructionCodeGeneratorLOONGARCH64::VisitNullConstant([[maybe_unused]] HNullConstant* instruction) {
+  // Will be generated at use site.
 }
 
 void LocationsBuilderLOONGARCH64::VisitNullCheck(HNullCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = codegen_->CreateThrowingSlowPathLocations(instruction);
+  locations->SetInAt(0, Location::RequiresRegister());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitNullCheck(HNullCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->GenerateNullCheck(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitOr(HOr* instruction) {
@@ -3045,13 +4330,61 @@ void InstructionCodeGeneratorLOONGARCH64::VisitPhi([[maybe_unused]] HPhi* instru
 }
 
 void LocationsBuilderLOONGARCH64::VisitRem(HRem* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type type = instruction->GetResultType();
+  LocationSummary::CallKind call_kind =
+      DataType::IsFloatingPointType(type) ? LocationSummary::kCallOnMainOnly
+                                          : LocationSummary::kNoCall;
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, call_kind);
+
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64: {
+      InvokeRuntimeCallingConvention calling_convention;
+      locations->SetInAt(0, Location::FpuRegisterLocation(calling_convention.GetFpuRegisterAt(0)));
+      locations->SetInAt(1, Location::FpuRegisterLocation(calling_convention.GetFpuRegisterAt(1)));
+      locations->SetOut(calling_convention.GetReturnLocation(type));
+      break;
+    }
+
+    default:
+      LOG(FATAL) << "Unexpected rem type " << type;
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitRem(HRem* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type type = instruction->GetType();
+
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      GenerateDivRemIntegral(instruction);
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64: {
+      QuickEntrypointEnum entrypoint =
+          (type == DataType::Type::kFloat32) ? kQuickFmodf : kQuickFmod;
+      codegen_->InvokeRuntime(entrypoint, instruction, instruction->GetDexPc());
+      if (type == DataType::Type::kFloat32) {
+        CheckEntrypointTypes<kQuickFmodf, float, float, float>();
+      } else {
+        CheckEntrypointTypes<kQuickFmod, double, double, double>();
+      }
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected rem type " << type;
+      UNREACHABLE();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitReturn(HReturn* instruction) {
@@ -3082,33 +4415,27 @@ void InstructionCodeGeneratorLOONGARCH64::VisitReturnVoid([[maybe_unused]] HRetu
 }
 
 void LocationsBuilderLOONGARCH64::VisitRor(HRor* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitRor(HRor* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitShl(HShl* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitShl(HShl* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitShr(HShr* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitShr(HShr* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitStaticFieldGet(HStaticFieldGet* instruction) {
@@ -3120,91 +4447,203 @@ void InstructionCodeGeneratorLOONGARCH64::VisitStaticFieldGet(HStaticFieldGet* i
 }
 
 void LocationsBuilderLOONGARCH64::VisitStaticFieldSet(HStaticFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleFieldSet(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitStaticFieldSet(HStaticFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleFieldSet(instruction,
+                 instruction->GetFieldInfo(),
+                 instruction->GetValueCanBeNull(),
+                 instruction->GetWriteBarrierKind());
 }
 
 void LocationsBuilderLOONGARCH64::VisitStringBuilderAppend(HStringBuilderAppend* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->CreateStringBuilderAppendLocations(instruction, Location::RegisterLocation(A0));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitStringBuilderAppend(HStringBuilderAppend* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  __ LoadConst32(A0, instruction->GetFormat()->GetValue());
+  codegen_->InvokeRuntime(kQuickStringBuilderAppend, instruction, instruction->GetDexPc());
 }
 
 void LocationsBuilderLOONGARCH64::VisitUnresolvedInstanceFieldGet(
     HUnresolvedInstanceFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->CreateUnresolvedFieldLocationSummary(
+      instruction, instruction->GetFieldType(), calling_convention);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitUnresolvedInstanceFieldGet(
     HUnresolvedInstanceFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->GenerateUnresolvedFieldAccess(instruction,
+                                          instruction->GetFieldType(),
+                                          instruction->GetFieldIndex(),
+                                          instruction->GetDexPc(),
+                                          calling_convention);
 }
 
 void LocationsBuilderLOONGARCH64::VisitUnresolvedInstanceFieldSet(
     HUnresolvedInstanceFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->CreateUnresolvedFieldLocationSummary(
+      instruction, instruction->GetFieldType(), calling_convention);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitUnresolvedInstanceFieldSet(
     HUnresolvedInstanceFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->GenerateUnresolvedFieldAccess(instruction,
+                                          instruction->GetFieldType(),
+                                          instruction->GetFieldIndex(),
+                                          instruction->GetDexPc(),
+                                          calling_convention);
 }
 
 void LocationsBuilderLOONGARCH64::VisitUnresolvedStaticFieldGet(
     HUnresolvedStaticFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->CreateUnresolvedFieldLocationSummary(
+      instruction, instruction->GetFieldType(), calling_convention);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitUnresolvedStaticFieldGet(
     HUnresolvedStaticFieldGet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->GenerateUnresolvedFieldAccess(instruction,
+                                          instruction->GetFieldType(),
+                                          instruction->GetFieldIndex(),
+                                          instruction->GetDexPc(),
+                                          calling_convention);
 }
 
 void LocationsBuilderLOONGARCH64::VisitUnresolvedStaticFieldSet(
     HUnresolvedStaticFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->CreateUnresolvedFieldLocationSummary(
+      instruction, instruction->GetFieldType(), calling_convention);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitUnresolvedStaticFieldSet(
     HUnresolvedStaticFieldSet* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  FieldAccessCallingConventionLOONGARCH64 calling_convention;
+  codegen_->GenerateUnresolvedFieldAccess(instruction,
+                                          instruction->GetFieldType(),
+                                          instruction->GetFieldIndex(),
+                                          instruction->GetDexPc(),
+                                          calling_convention);
 }
 
 void LocationsBuilderLOONGARCH64::VisitSelect(HSelect* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  if (DataType::IsFloatingPointType(instruction->GetType())) {
+    locations->SetInAt(0, FpuRegisterOrZeroBitPatternLocation(instruction->GetFalseValue()));
+    locations->SetInAt(1, FpuRegisterOrZeroBitPatternLocation(instruction->GetTrueValue()));
+    locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+    if (!locations->InAt(0).IsConstant() && !locations->InAt(1).IsConstant()) {
+      locations->AddTemp(Location::RequiresRegister());
+    }
+  }  else {
+    locations->SetInAt(0, RegisterOrZeroBitPatternLocation(instruction->GetFalseValue()));
+    locations->SetInAt(1, RegisterOrZeroBitPatternLocation(instruction->GetTrueValue()));
+    locations->SetOut(Location::RequiresRegister(), Location::kOutputOverlap);
+  }
+
+  if (IsBooleanValueOrMaterializedCondition(instruction->GetCondition())) {
+    locations->SetInAt(2, Location::RequiresRegister());
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitSelect(HSelect* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  HInstruction* cond = instruction->GetCondition();
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister tmp = srs.AllocateXRegister();
+  if (!IsBooleanValueOrMaterializedCondition(cond)) {
+    DataType::Type cond_type = cond->InputAt(0)->GetType();
+    IfCondition if_cond = cond->AsCondition()->GetCondition();
+    if (DataType::IsFloatingPointType(cond_type)) {
+      GenerateFpCondition(if_cond,
+                          cond->AsCondition()->IsGtBias(),
+                          cond_type,
+                          cond->GetLocations(),
+                          /*label=*/ nullptr,
+                          tmp,
+                          /*to_all_bits=*/ true);
+    } else {
+      GenerateIntLongCondition(if_cond, cond->GetLocations(), tmp, /*to_all_bits=*/ true);
+    }
+  } else {
+    __ Sltu(tmp, Zero, locations->InAt(2).AsRegister<XRegister>());
+    __ Sub_d(tmp, Zero, tmp);
+  }
+
+  XRegister true_reg, false_reg, xor_reg, out_reg;
+  DataType::Type type = instruction->GetType();
+  if (DataType::IsFloatingPointType(type)) {
+    if (locations->InAt(0).IsConstant()) {
+      DCHECK(locations->InAt(0).GetConstant()->IsZeroBitPattern());
+      false_reg = Zero;
+    } else {
+      false_reg = srs.AllocateXRegister();
+      if(type == DataType::Type::kFloat32) {
+        __ Movfr2gr_s(false_reg, locations->InAt(0).AsFpuRegister<FRegister>());
+      } else if(type == DataType::Type::kFloat64) {
+        __ Movfr2gr_d(false_reg, locations->InAt(0).AsFpuRegister<FRegister>());
+      }
+    }
+    if (locations->InAt(1).IsConstant()) {
+      DCHECK(locations->InAt(1).GetConstant()->IsZeroBitPattern());
+      true_reg = Zero;
+    } else {
+      true_reg = (false_reg == Zero) ? srs.AllocateXRegister()
+                                     : locations->GetTemp(0).AsRegister<XRegister>();
+      if(type == DataType::Type::kFloat32) {
+        __ Movfr2gr_s(false_reg, locations->InAt(0).AsFpuRegister<FRegister>());
+      } else if(type == DataType::Type::kFloat64) {
+        __ Movfr2gr_d(false_reg, locations->InAt(0).AsFpuRegister<FRegister>());
+      }
+    }
+    // We can clobber the "true value" with the XOR result.
+    // Note: The XOR is not emitted if `true_reg == Zero`, see below.
+    xor_reg = true_reg;
+    out_reg = tmp;
+  } else {
+    false_reg = InputXRegisterOrZero(locations->InAt(0));
+    true_reg = InputXRegisterOrZero(locations->InAt(1));
+    xor_reg = srs.AllocateXRegister();
+    out_reg = locations->Out().AsRegister<XRegister>();
+  }
+
+  // We use a branch-free implementation of `HSelect`.
+  // With `tmp` initialized to 0 for `false` and -1 for `true`:
+  //     xor xor_reg, false_reg, true_reg
+  //     and tmp, tmp, xor_reg
+  //     xor out_reg, tmp, false_reg
+  if (false_reg == Zero) {
+    xor_reg = true_reg;
+  } else if (true_reg == Zero) {
+    xor_reg = false_reg;
+  } else {
+    DCHECK_NE(xor_reg, Zero);
+    __ Xor(xor_reg, false_reg, true_reg);
+  }
+  __ And(tmp, tmp, xor_reg);
+  __ Xor(out_reg, tmp, false_reg);
+
+  if (type == DataType::Type::kFloat64) {
+    __ Movgr2fr_d(locations->Out().AsFpuRegister<FRegister>(), out_reg);
+  } else if (type == DataType::Type::kFloat32) {
+    __ Movgr2fr_w(locations->Out().AsFpuRegister<FRegister>(), out_reg);
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitSub(HSub* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitSub(HSub* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitSuspendCheck(HSuspendCheck* instruction) {
@@ -3232,53 +4671,181 @@ void InstructionCodeGeneratorLOONGARCH64::VisitSuspendCheck(HSuspendCheck* instr
 }
 
 void LocationsBuilderLOONGARCH64::VisitThrow(HThrow* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator())
+      LocationSummary(instruction, LocationSummary::kCallOnMainOnly);
+  InvokeRuntimeCallingConvention calling_convention;
+  locations->SetInAt(0, Location::RegisterLocation(calling_convention.GetRegisterAt(0)));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitThrow(HThrow* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->InvokeRuntime(kQuickDeliverException, instruction, instruction->GetDexPc());
+  CheckEntrypointTypes<kQuickDeliverException, void, mirror::Object*>();
 }
 
 void LocationsBuilderLOONGARCH64::VisitTryBoundary(HTryBoundary* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  instruction->SetLocations(nullptr);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitTryBoundary(HTryBoundary* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HBasicBlock* successor = instruction->GetNormalFlowSuccessor();
+  if (!successor->IsExitBlock()) {
+    HandleGoto(instruction, successor);
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitTypeConversion(HTypeConversion* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type input_type = instruction->GetInputType();
+  DataType::Type result_type = instruction->GetResultType();
+  DCHECK(!DataType::IsTypeConversionImplicit(input_type, result_type))
+      << input_type << " -> " << result_type;
+
+  if ((input_type == DataType::Type::kReference) || (input_type == DataType::Type::kVoid) ||
+      (result_type == DataType::Type::kReference) || (result_type == DataType::Type::kVoid)) {
+    LOG(FATAL) << "Unexpected type conversion from " << input_type << " to " << result_type;
+  }
+
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+
+  if (DataType::IsFloatingPointType(input_type)) {
+    locations->SetInAt(0, Location::RequiresFpuRegister());
+  } else {
+    locations->SetInAt(0, Location::RequiresRegister());
+  }
+
+  if (DataType::IsFloatingPointType(result_type)) {
+    locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+  } else {
+    locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitTypeConversion(HTypeConversion* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  DataType::Type result_type = instruction->GetResultType();
+  DataType::Type input_type = instruction->GetInputType();
+
+  DCHECK(!DataType::IsTypeConversionImplicit(input_type, result_type))
+      << input_type << " -> " << result_type;
+
+  if (DataType::IsIntegralType(result_type) && DataType::IsIntegralType(input_type)) {
+    XRegister dst = locations->Out().AsRegister<XRegister>();
+    XRegister src = locations->InAt(0).AsRegister<XRegister>();
+    switch (result_type) {
+      case DataType::Type::kUint8:
+        __ Bstrpick_d(dst, src, 7, 0);
+        break;
+      case DataType::Type::kInt8:
+        __ Ext_w_b(dst, src);
+        break;
+      case DataType::Type::kUint16:
+        __ Bstrpick_d(dst, src, 15, 0);
+        break;
+      case DataType::Type::kInt16:
+        __ Ext_w_h(dst, src);
+        break;
+      case DataType::Type::kInt32:
+      case DataType::Type::kInt64:
+        // Sign-extend 32-bit int into bits 32 through 63 for int-to-long and long-to-int
+        // conversions, except when the input and output registers are the same and we are not
+        // converting longs to shorter types. In these cases, do nothing.
+        if ((input_type == DataType::Type::kInt64) || (dst != src)) {
+          __ Addi_W(dst, src, 0);
+        }
+        break;
+
+      default:
+        LOG(FATAL) << "Unexpected type conversion from " << input_type
+                   << " to " << result_type;
+        UNREACHABLE();
+    }
+  } else if (DataType::IsFloatingPointType(result_type) && DataType::IsIntegralType(input_type)) {
+    FRegister dst = locations->Out().AsFpuRegister<FRegister>();
+    XRegister src = locations->InAt(0).AsRegister<XRegister>();
+    if (input_type == DataType::Type::kInt64) {
+      if (result_type == DataType::Type::kFloat32) {
+        // convert long -> float
+        __ Movgr2fr_d(dst, src);
+        __ FFint_s_l(dst, dst);
+      } else {
+        // convert long -> double
+        __ Movgr2fr_d(dst, src);
+        __ FFint_d_l(dst, dst);
+      }
+    } else {
+      if (result_type == DataType::Type::kFloat32) {
+        // convert int -> float
+        __ Movgr2fr_w(dst, src);
+        __ FFint_s_w(dst, dst);
+      } else {
+        // convert int -> double
+        __ Movgr2fr_w(dst ,src);
+        __ FFint_d_w(dst, dst);
+      }
+    }
+  } else if (DataType::IsIntegralType(result_type) && DataType::IsFloatingPointType(input_type)) {
+    CHECK(result_type == DataType::Type::kInt32 || result_type == DataType::Type::kInt64);
+    XRegister dst = locations->Out().AsRegister<XRegister>();
+    FRegister src = locations->InAt(0).AsFpuRegister<FRegister>();
+    if (result_type == DataType::Type::kInt64) {
+      if (input_type == DataType::Type::kFloat32) {
+        // convert float -> Long
+        __ FTintrz_l_s(FTMP, src);
+        __ Movfr2gr_d(dst, FTMP);
+      } else {
+        // convert double -> Long
+        __ FTintrz_l_d(FTMP, src);
+        __ Movfr2gr_d(dst, FTMP);
+      }
+    } else {
+      if (input_type == DataType::Type::kFloat32) {
+        // convert float -> int
+        __ FTintrz_w_s(FTMP, src);
+        __ Movfr2gr_s(dst, FTMP);
+      } else {
+        // convert double -> int
+        __ FTintrz_w_d(FTMP, src);
+        __ Movfr2gr_s(dst, FTMP);
+      }
+    }
+    // For NaN inputs we need to return 0.
+#if 0 //TODO
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister tmp = srs.AllocateXRegister();
+    FClass(tmp, src, input_type);
+    __ Sltiu(tmp, tmp, kFClassNaNMinValue);  // 0 for NaN, 1 otherwise.
+    __ Neg(tmp, tmp);  // 0 for NaN, -1 otherwise.
+    __ And(dst, dst, tmp);  // Cleared for NaN.
+#endif
+  } else if (DataType::IsFloatingPointType(result_type) &&
+             DataType::IsFloatingPointType(input_type)) {
+    FRegister dst = locations->Out().AsFpuRegister<FRegister>();
+    FRegister src = locations->InAt(0).AsFpuRegister<FRegister>();
+    if (result_type == DataType::Type::kFloat32) {
+      __ FCvt_s_d(dst, src);
+    } else {
+      __ FCvt_d_s(dst, src);
+    }
+  } else {
+    LOG(FATAL) << "Unexpected or unimplemented type conversion from " << input_type
+                << " to " << result_type;
+    UNREACHABLE();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitUShr(HUShr* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitUShr(HUShr* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleShift(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitXor(HXor* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitXor(HXor* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitBitwiseNegatedRight(HBitwiseNegatedRight* instruction) {
@@ -3903,7 +5470,7 @@ void CodeGeneratorLOONGARCH64::GenerateFrameExit() {
       if (allocated_registers_.ContainsFloatingPointRegister(reg)) {
         offset -= kLoongarch64DoublewordSize;
         __ FLoad_D(reg, SP, offset);
-        __ cfi().Restore(dwarf::Reg::Riscv64Fp(reg));
+        __ cfi().Restore(dwarf::Reg::Loongarch64Fp(reg));
       }
     }
 
@@ -3956,8 +5523,13 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
 
     if (source.IsStackSlot() || source.IsDoubleStackSlot()) {
       // Move to GPR/FPR from stack
-      // TODO: support FP
-     } else {
+      if (DataType::IsFloatingPointType(dst_type)) {
+        if (DataType::Is64BitType(dst_type)) {
+          __ FLoad_D(destination.AsFpuRegister<FRegister>(), SP, source.GetStackIndex());
+        } else {
+          __ FLoad_S(destination.AsFpuRegister<FRegister>(), SP, source.GetStackIndex());
+        }
+      } else {
         if (DataType::Is64BitType(dst_type)) {
           __ Load_D(destination.AsRegister<XRegister>(), SP, source.GetStackIndex());
         } else if (dst_type == DataType::Type::kReference) {
@@ -3966,42 +5538,64 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
           __ Load_W(destination.AsRegister<XRegister>(), SP, source.GetStackIndex());
         }
       }
-  } else if (source.IsConstant()) {
-    // Move to GPR/FPR from constant
-    // TODO(loongarch64): Consider using literals for difficult-to-materialize 64-bit constants.
-    int64_t value = GetInt64ValueOf(source.GetConstant()->AsConstant());
-    ScratchRegisterScope srs(GetAssembler());
-    XRegister gpr = DataType::IsFloatingPointType(dst_type)
-        ? srs.AllocateXRegister()
-        : destination.AsRegister<XRegister>();
-    if (DataType::IsFloatingPointType(dst_type) && value == 0) {
-      gpr = Zero;  // Note: The scratch register allocated above shall not be used.
-    } else {
-      // Note: For `float` we load the sign-extended value here as it can sometimes yield
-      // a shorter instruction sequence. The higher 32 bits shall be ignored during the
-      // transfer to FP reg and the result shall be correctly NaN-boxed.
-      __ LoadConst64(gpr, value);
-    }
-    // TODO: support FP
-  } else if (source.IsRegister()) {
-    if (destination.IsRegister()) {
-      // Move to GPR from GPR
-      __ Move(destination.AsRegister<XRegister>(), source.AsRegister<XRegister>());
-    } else {
-      // TODO: support FP
-    }
-  } else if (source.IsFpuRegister()) {
-    if (destination.IsFpuRegister()) {
-      if (GetGraph()->HasSIMD()) {
-        LOG(FATAL) << "Vector extension is unsupported";
-        UNREACHABLE();
+    } else if (source.IsConstant()) {
+      // Move to GPR/FPR from constant
+      // TODO(loongarch64): Consider using literals for difficult-to-materialize 64-bit constants.
+      int64_t value = GetInt64ValueOf(source.GetConstant()->AsConstant());
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister gpr = DataType::IsFloatingPointType(dst_type)
+          ? srs.AllocateXRegister()
+          : destination.AsRegister<XRegister>();
+      if (DataType::IsFloatingPointType(dst_type) && value == 0) {
+        gpr = Zero;  // Note: The scratch register allocated above shall not be used.
       } else {
-        // Move to FPR from FPR
-        // TODO: support FP
+        // Note: For `float` we load the sign-extended value here as it can sometimes yield
+        // a shorter instruction sequence. The higher 32 bits shall be ignored during the
+        // transfer to FP reg and the result shall be correctly NaN-boxed.
+        __ LoadConst64(gpr, value);
       }
-    } else {
-      DCHECK(destination.IsRegister());
-      // TODO: support FP
+      // Move to FP from constant
+      if (dst_type == DataType::Type::kFloat32) {
+        __ Movgr2fr_w(destination.AsFpuRegister<FRegister>(), gpr);
+      } else if (dst_type == DataType::Type::kFloat64) {
+        __ Movgr2fr_d(destination.AsFpuRegister<FRegister>(), gpr);
+      }
+    } else if (source.IsRegister()) {
+      if (destination.IsRegister()) {
+        // Move to GPR from GPR
+        __ Move(destination.AsRegister<XRegister>(), source.AsRegister<XRegister>());
+      } else {
+        // Move to FP from GPR
+        if (dst_type == DataType::Type::kFloat32) {
+          __ Movgr2fr_w(destination.AsFpuRegister<FRegister>(), source.AsRegister<XRegister>());
+        } else {
+          DCHECK(dst_type == DataType::Type::kFloat64);
+          __ Movgr2fr_d(destination.AsFpuRegister<FRegister>(), source.AsRegister<XRegister>());
+        }
+      }
+    } else if (source.IsFpuRegister()) {
+      if (destination.IsFpuRegister()) {
+        if (GetGraph()->HasSIMD()) {
+          LOG(FATAL) << "Vector extension is unsupported";
+          UNREACHABLE();
+        } else {
+          // Move to FPR from FPR
+          if (dst_type == DataType::Type::kFloat32) {
+            __ FMov_s(destination.AsFpuRegister<FRegister>(), source.AsFpuRegister<FRegister>());
+          } else {
+            __ FMov_d(destination.AsFpuRegister<FRegister>(), source.AsFpuRegister<FRegister>());
+          }
+        }
+      } else {
+        DCHECK(destination.IsRegister());
+        // Move to GPR from FPR
+        if (dst_type == DataType::Type::kInt32) {
+          __ Movfr2gr_s(destination.AsRegister<XRegister>(), source.AsFpuRegister<FRegister>());
+        } else {
+          DCHECK(dst_type == DataType::Type::kInt64);
+          __ Movfr2gr_d(destination.AsRegister<XRegister>(), source.AsFpuRegister<FRegister>());
+        }
+      }
     }
   } else if (destination.IsSIMDStackSlot()) {
     LOG(FATAL) << "SIMD is unsupported";
@@ -4023,10 +5617,14 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
       if (DataType::Is64BitType(dst_type)) {
         if (source.IsRegister()) {
           __ Store_D(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
-        }
+        } else {
+          __ FStore_D(source.AsFpuRegister<FRegister>(), SP, destination.GetStackIndex());
+	}
       } else {
         if (source.IsRegister()) {
           __ Store_W(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
+        } else {
+          __ FStore_S(source.AsFpuRegister<FRegister>(), SP, destination.GetStackIndex());
         }
       }
     } else if (source.IsConstant()) {
@@ -4060,6 +5658,7 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
   }
 }
 
+
 void CodeGeneratorLOONGARCH64::AddLocationAsTemp(Location location, LocationSummary* locations) {
   if (location.IsRegister()) {
     locations->AddTemp(location);
@@ -4068,17 +5667,20 @@ void CodeGeneratorLOONGARCH64::AddLocationAsTemp(Location location, LocationSumm
   }
 }
 
-void CodeGeneratorLOONGARCH64::SetupBlockedRegisters() const {
+  void CodeGeneratorLOONGARCH64::SetupBlockedRegisters() const {
   // ZERO, SP, RA, TP and TR(S1) are reserved and can't be allocated.
   blocked_core_registers_[Zero] = true;
   blocked_core_registers_[SP] = true;
+  blocked_core_registers_[FP] = true;
   blocked_core_registers_[RA] = true;
   blocked_core_registers_[TP] = true;
   blocked_core_registers_[TR] = true;  // ART Thread register.
+  blocked_core_registers_[R21] = true;
 
-  // TMP(R21), TMP2(T8) and FTMP(FT15) are used as temporary/scratch registers.
+  // TMP(T7), TMP2(T8), AT(T6) and FTMP(FT15) are used as temporary/scratch registers.
   blocked_core_registers_[TMP] = true;
   blocked_core_registers_[TMP2] = true;
+  blocked_core_registers_[AT] = true;
   blocked_fpu_registers_[FTMP] = true;
 
   if (GetGraph()->IsDebuggable()) {

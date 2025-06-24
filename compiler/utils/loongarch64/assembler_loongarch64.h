@@ -166,6 +166,11 @@ class Loongarch64Assembler final : public Assembler {
   void Rotri_w(XRegister rd, XRegister rj, int ui5);
   void Rotri_d(XRegister rd, XRegister rj, int ui6);
 
+  void Bstrins_w(XRegister rd, XRegister rj, int msbw, int lsbw);
+  void Bstrpick_w(XRegister rd, XRegister rj, int msbw, int lsbw);
+  void Bstrins_d(XRegister rd, XRegister rj, int msbd, int lsbd);
+  void Bstrpick_d(XRegister rd, XRegister rj, int msbd, int lsbd);
+
   // 2RI14-Type
   // LL/SC and LD/STPTR instructions : opcode from 0010 0000
   //                                             ~ 0010 0111
@@ -503,6 +508,84 @@ class Loongarch64Assembler final : public Assembler {
   void Div_du(XRegister rd, XRegister rs1, XRegister rs2);
   void Mod_du(XRegister rd, XRegister rs1, XRegister rs2);
 
+  enum fcmp_cond {
+    fcmp_caf           = 0x00,
+    fcmp_cun           = 0x08,
+    fcmp_ceq           = 0x04,
+    fcmp_cueq          = 0x0c,
+    fcmp_clt           = 0x02,
+    fcmp_cult          = 0x0a,
+    fcmp_cle           = 0x06,
+    fcmp_cule          = 0x0e,
+    fcmp_cne           = 0x10,
+    fcmp_cor           = 0x14,
+    fcmp_cune          = 0x18,
+    fcmp_saf           = 0x01,
+    fcmp_sun           = 0x09,
+    fcmp_seq           = 0x05,
+    fcmp_sueq          = 0x0d,
+    fcmp_slt           = 0x03,
+    fcmp_sult          = 0x0b,
+    fcmp_sle           = 0x07,
+    fcmp_sule          = 0x0f,
+    fcmp_sne           = 0x11,
+    fcmp_sor           = 0x15,
+    fcmp_sune          = 0x19
+  };
+
+  // 4R-Type
+  // Float instructions : opcode from 0000 1100 0001
+  //                                ~ 0000 1100 0010
+
+  void Fcmp_caf_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cun_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_ceq_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cueq_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_clt_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cult_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cle_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cule_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cne_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cor_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cune_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_saf_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sun_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_seq_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sueq_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_slt_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sult_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sle_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sule_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sne_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sor_s  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sune_s (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_caf_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cun_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_ceq_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cueq_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_clt_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cult_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cle_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cule_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cne_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cor_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_cune_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_saf_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sun_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_seq_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sueq_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_slt_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sult_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sle_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sule_d (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sne_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sor_d  (FCCRegister cd, FRegister fj, FRegister fk);
+  void Fcmp_sune_d (FCCRegister cd, FRegister fj, FRegister fk);
+
+  // 4R-Type
+  // Float instructions : opcode from 0000 1101 0000
+  void Fsel (FRegister fd, FRegister fj, FRegister fk, FCCRegister ca);
+
   // Load/store macros for arbitrary 32-bit offsets.
   void Load_B(XRegister rd, XRegister rs1, int32_t offset);
   void Load_H(XRegister rd, XRegister rs1, int32_t offset);
@@ -533,8 +616,8 @@ class Loongarch64Assembler final : public Assembler {
   void Beqz(XRegister rs, int32_t offset21);
   void Bnez(XRegister rs, int32_t offset21);
   // float branch
-  // void Bceqz(XRegister rs, int32_t offset);
-  // void Bcnez(XRegister rs, int32_t offset);
+  void Bceqz(FCCRegister rs, int32_t offset21);
+  void Bcnez(FCCRegister rs, int32_t offset21);
   void B(int32_t offset26);
   void Bl(int32_t offset26);
   void Beq(XRegister rd, XRegister rs1, int32_t offset16);
@@ -574,6 +657,8 @@ class Loongarch64Assembler final : public Assembler {
   void Bltu(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
   void Bgeu(XRegister rd, XRegister rs1, Loongarch64Label* label, bool is_bare = false);
 
+  void Bceqz(FCCRegister rs, Loongarch64Label* label);
+  void Bcnez(FCCRegister rs, Loongarch64Label* label);
   // Literal load.
   void Load_W(XRegister rd, Literal* literal);
   void Load_WU(XRegister rd, Literal* literal);
@@ -582,6 +667,11 @@ class Loongarch64Assembler final : public Assembler {
   // Barrier instructions
   void Dbar(uint32_t);
 
+  // 2R-Type
+  // Bit operation instructions : opcode from 00 0000 0000 0000 0001 0110
+  //                                        ~ 00 0000 0000 0000 0001 0111
+  void Ext_w_h(XRegister rd, XRegister rj);
+  void Ext_w_b(XRegister rd, XRegister rj);
   // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100
   //                                             ~ 0 0000 0000 0101 0110
   void brk(uint32_t imm15);
@@ -840,6 +930,9 @@ class Loongarch64Assembler final : public Assembler {
   void EmitLiterals();
 
   void FinalizeLabeledBranch(Loongarch64Label* label);
+  void FBcond(Loongarch64Label* label,
+             BranchCondition condition,
+             FCCRegister rs);
   void Bcond(Loongarch64Label* label,
              bool is_bare,
              BranchCondition condition,

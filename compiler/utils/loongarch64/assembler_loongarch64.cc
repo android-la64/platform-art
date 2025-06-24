@@ -83,6 +83,14 @@ void Loongarch64Assembler::Bnez(XRegister rs, int32_t offset21) {
   Emit1RI21(0x11, offset21, rs);
 }
 
+void Loongarch64Assembler::Bceqz(FCCRegister rs, int32_t offset21) {
+  Emit1RI21(0x12, offset21, (0x0 << 3)|rs);
+}
+
+void Loongarch64Assembler::Bcnez(FCCRegister rs, int32_t offset21) {
+  Emit1RI21(0x12, offset21, (0x1 << 3)|rs);
+}
+
 void Loongarch64Assembler::Jirl(XRegister rd, XRegister rs1, int32_t offset16) {
   Emit2RI16_B(0x13, offset16, rs1, rd);
 }
@@ -182,6 +190,14 @@ void Loongarch64Assembler::AddConst64(XRegister rd, XRegister rs1, int64_t value
 }
 
 // Jumps and branches to a label
+void Loongarch64Assembler::Bceqz(FCCRegister rs, Loongarch64Label* label) {
+  FBcond(label, kCondEQZ, rs);
+}
+
+void Loongarch64Assembler::Bcnez(FCCRegister rs, Loongarch64Label* label) {
+  FBcond(label, kCondNEZ, rs);
+}
+
 void Loongarch64Assembler::Beqz(XRegister rs, Loongarch64Label* label, bool is_bare) {
   Bcond(label, is_bare, kCondEQZ, rs, Zero);
 }
@@ -388,6 +404,30 @@ void  Loongarch64Assembler::Rotri_w(XRegister rd, XRegister rj, int ui5) {
 
 void  Loongarch64Assembler::Rotri_d(XRegister rd, XRegister rj, int ui6) {
   Emit2RI8(0x13, ((0x1 << 6) | ui6), rj, rd);
+}
+
+void Loongarch64Assembler::Bstrins_w(XRegister rd, XRegister rj, int msbw, int lsbw) {
+  DCHECK(IsUint<5>(msbw)) << msbw;
+  DCHECK(IsUint<5>(lsbw)) << lsbw;
+  Emit2RI12_U(0x01, ((1<<11) | (msbw<<6) | (0<<5) | lsbw), rj, rd);
+}
+
+void Loongarch64Assembler::Bstrpick_w(XRegister rd, XRegister rj, int msbw, int lsbw) {
+  DCHECK(IsUint<5>(msbw)) << msbw;
+  DCHECK(IsUint<5>(lsbw)) << lsbw;
+  Emit2RI12_U(0x01, ((1<<11) | (msbw<<6) | (1<<5) | lsbw), rj, rd);
+}
+
+void Loongarch64Assembler::Bstrins_d(XRegister rd, XRegister rj, int msbd, int lsbd) {
+  DCHECK(IsUint<6>(msbd)) << msbd;
+  DCHECK(IsUint<6>(lsbd)) << lsbd;
+  Emit2RI12_U(0x02, ((msbd<<6) | lsbd), rj, rd);
+}
+
+void Loongarch64Assembler::Bstrpick_d(XRegister rd, XRegister rj, int msbd, int lsbd) {
+  DCHECK(IsUint<6>(msbd)) << msbd;
+  DCHECK(IsUint<6>(lsbd)) << lsbd;
+  Emit2RI12_U(0x03, ((msbd<<6) | lsbd), rj, rd);
 }
 
 // 3R-Type
@@ -1059,6 +1099,16 @@ void Loongarch64Assembler::FRint_d(FRegister fd, FRegister fj) {
   Emit2R(0x4792, fj, fd);
 }
 
+// 2R-Type
+// Bit operation instructions : opcode from 00 0000 0000 0000 0001 0110
+//                                        ~ 00 0000 0000 0000 0001 0111
+void Loongarch64Assembler::Ext_w_h(XRegister rd, XRegister rj) {
+  Emit2R(0x16, rj, rd);
+}
+void Loongarch64Assembler::Ext_w_b(XRegister rd, XRegister rj) {
+  Emit2R(0x17, rj, rd);
+}
+
 /////////////////////////////// LOONGARCH64 "4R-Type" Instructions ///////////////////////////////
 
 /////////////////////////////// LOONGARCH64 "2RI8-Type" Instructions ///////////////////////////////
@@ -1200,6 +1250,187 @@ void Loongarch64Assembler::Xori(XRegister rd, XRegister rs1, uint32_t imm12) {
 
 void Loongarch64Assembler::brk(uint32_t imm15) {
   EmitI15(0x54, imm15);
+}
+
+void Loongarch64Assembler::Fcmp_caf_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_caf, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_caf_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_caf, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cun_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cun, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cun_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cun, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_ceq_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_ceq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_ceq_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_ceq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cueq_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cueq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cueq_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cueq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_clt_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_clt, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_clt_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_clt, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cult_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cult, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cult_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cult, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cle_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cle, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cle_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cle, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cule_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cule, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cule_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cule, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cne_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cne, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cne_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cne, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cor_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cor, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cor_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cor, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cune_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_cune, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_cune_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_cune, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_saf_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_saf, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_saf_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_saf, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sun_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sun, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sun_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sun, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_seq_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_seq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_seq_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_seq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sueq_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sueq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sueq_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sueq, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_slt_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_slt, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_slt_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_slt, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sult_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sult, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sult_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sult, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sle_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sle, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sle_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sle, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sule_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sule, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sule_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sule, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sne_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sne, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sne_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sne, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sor_s  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sor, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sor_d  (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sor, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sune_s (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc1, fcmp_sule, fk, fj, cd);
+}
+
+void Loongarch64Assembler::Fcmp_sune_d (FCCRegister cd, FRegister fj, FRegister fk) {
+  Emit4R(0xc2, fcmp_sule, fk, fj, cd);
+}
+
+
+void Loongarch64Assembler::Fsel (FRegister fd, FRegister fj, FRegister fk, FCCRegister ca) {
+  Emit4R(0xd0, ca, fk, fj, fd);
 }
 
 /////////////////////////////// LOONGARCH64 pseudo Instructions ///////////////////////////////
@@ -1729,6 +1960,14 @@ void Loongarch64Assembler::FinalizeLabeledBranch(Loongarch64Label* label) {
   }
 }
 
+void Loongarch64Assembler::FBcond(
+    Loongarch64Label* label, BranchCondition condition, FCCRegister rs) {
+
+  uint32_t target = label->IsBound() ? GetLabelLocation(label) : Branch::kUnresolved;
+  branches_.emplace_back(buffer_.Size(), target, condition, (XRegister)rs, Zero, false, true/*fcc_reg_flag_*/);
+  FinalizeLabeledBranch(label);
+}
+
 void Loongarch64Assembler::Bcond(
     Loongarch64Label* label, bool is_bare, BranchCondition condition, XRegister lhs, XRegister rhs) {
   // TODO(loongarch64): Should an assembler perform these optimizations, or should we remove them?
@@ -2042,7 +2281,7 @@ void Loongarch64Assembler::EmitLiterals() {
 // This method is used to adjust the base register and offset pair for
 // a load/store when the offset doesn't fit into 12-bit signed integer.
 void Loongarch64Assembler::AdjustBaseAndOffset(XRegister& base, int32_t& offset) {
-  CHECK_NE(base, TMP);  // The `TMP` is reserved for adjustment even if it's not needed.
+  CHECK_NE(base, AT);  // The `AT` is reserved for adjustment even if it's not needed.
   if (IsInt<12>(offset)) {
     return;
   }
@@ -2065,23 +2304,23 @@ void Loongarch64Assembler::AdjustBaseAndOffset(XRegister& base, int32_t& offset)
             ? kPositiveOffsetSimpleAdjustmentAligned4
             : offset / 2;
     DCHECK(IsInt<12>(adjustment));
-    Addi_D(TMP, base, adjustment);
+    Addi_D(AT, base, adjustment);
     offset -= adjustment;
   } else if (offset < 0 && offset >= kLowestOffsetForSimpleAdjustment) {
-    Addi_D(TMP, base, kNegativeOffsetSimpleAdjustment);
+    Addi_D(AT, base, kNegativeOffsetSimpleAdjustment);
     offset -= kNegativeOffsetSimpleAdjustment;
   } else if (offset >= 0x7ffff800) {
     // Support even large offsets outside the range supported by `SplitOffset()`.
-    LoadConst32(TMP, offset);
-    Add_d(TMP, TMP, base);
+    LoadConst32(AT, offset);
+    Add_d(AT, AT, base);
     offset = 0;
   } else {
     auto [imm20, short_offset] = SplitOffset(1, offset);
-    Lu12i_W(TMP, imm20);
-    Add_d(TMP, TMP, base);
+    Lu12i_W(AT, imm20);
+    Add_d(AT, AT, base);
     offset = short_offset;
   }
-  base = TMP;
+  base = AT;
 }
 
 void Loongarch64Assembler::LoadImmediate(XRegister rd, int64_t imm) {
