@@ -81,8 +81,8 @@ END ExecuteSwitchImplAsm
 
 .macro INVOKE_STUB_CALL_AND_RETURN
     // Call the method.
-    ld.d   $ra, $a0, ART_METHOD_QUICK_CODE_OFFSET_64
-    jirl $ra, $ra, 0
+    ld.d   $t0, $a0, ART_METHOD_QUICK_CODE_OFFSET_64
+    jirl $ra, $t0, 0
 
     addi.d $sp, $fp, -(8*4)  // restore SP (see `INVOKE_STUB_CREATE_FRAME`)
     .cfi_def_cfa $sp, 48
@@ -704,8 +704,26 @@ ENTRY art_quick_compile_optimized
 END art_quick_compile_optimized
 
 
-UNDEFINED art_quick_deoptimize_from_compiled_code
-UNDEFINED art_quick_string_builder_append
+    .extern artStringBuilderAppend
+ENTRY art_quick_string_builder_append
+    SETUP_SAVE_REFS_ONLY_FRAME                // Save callee saves in case of GC.
+    addi.d  $a1, $sp, (FRAME_SIZE_SAVE_REFS_ONLY + __SIZEOF_POINTER__)  // Pass args.
+    move    $a2, $xSELF                           // Pass Thread::Current().
+    bl  artStringBuilderAppend              // (uint32_t, const unit32_t*, Thread*)
+    RESTORE_SAVE_REFS_ONLY_FRAME
+    RETURN_OR_DEOPT_IF_RESULT_IS_NON_NULL_OR_DELIVER
+END art_quick_string_builder_append
+
+
+// Compiled code has requested that we deoptimize into the interpreter. The deoptimization
+// will long jump to the upcall with a special exception of -1.
+    .extern artDeoptimizeFromCompiledCode
+ENTRY art_quick_deoptimize_from_compiled_code
+    SETUP_SAVE_EVERYTHING_FRAME
+    move    $a1, $xSELF                     // Pass Thread::Current().
+    bl  artDeoptimizeFromCompiledCode       // (DeoptimizationKind, Thread*)
+    break 0x5
+END art_quick_deoptimize_from_compiled_code
 
 
 // Entry from managed code that calls artInstanceOfFromCode and on failure calls
