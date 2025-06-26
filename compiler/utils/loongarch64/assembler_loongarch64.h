@@ -638,8 +638,12 @@ class Loongarch64Assembler final : public Assembler {
   // pseudo instructions
   void Nop();
   void Li(XRegister rd, int64_t imm);
+  void Max(XRegister rd, XRegister rs);
+  void Min(XRegister rd, XRegister rs);
   void Max(XRegister rd, XRegister rs1, XRegister rs2);
   void Min(XRegister rd, XRegister rs1, XRegister rs2);
+  void FMax(FRegister fd, FRegister fs1, FRegister fs2, bool is_double);
+  void FMin(FRegister fd, FRegister fs1, FRegister fs2, bool is_double);
 
 
   // Jumps and branches to a label.

@@ -1763,7 +1763,12 @@ void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instr
 
       if (instruction->IsAnd()) {
         if (use_imm) {
-          __ Andi(rd, rs1, imm);
+          if (imm >=0 && imm <= 4095) {
+            __ Andi(rd, rs1, imm);
+	        } else {
+            __ Li(AT, imm);
+            __ And(rd, rs1, AT);
+	        }
         } else {
           __ And(rd, rs1, rs2);
         }
@@ -1800,10 +1805,52 @@ void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instr
           }
         }
       } else if (instruction->IsMin()) {
-        __ Min(rd, rs1, use_imm ? Zero : rs2);
+        if (rd == rs1) {
+          __ Min(rd, rs2);
+        } else if (rd == rs2) {
+          __ Min(rd, rs1);
+        } else {
+          __ Min(rd, rs1, use_imm ? Zero : rs2);
+        }
       } else {
         DCHECK(instruction->IsMax());
-        __ Max(rd, rs1, use_imm ? Zero : rs2);
+        if (rd == rs1) {
+          __ Max(rd, rs2);
+        } else if (rd == rs2) {
+          __ Max(rd, rs1);
+        } else {
+          __ Max(rd, rs1, use_imm ? Zero : rs2);
+        }
+      }
+      break;
+    }
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64: {
+      FRegister dst = locations->Out().AsFpuRegister<FRegister>();
+      FRegister fs1 = locations->InAt(0).AsFpuRegister<FRegister>();
+      FRegister fs2 = locations->InAt(1).AsFpuRegister<FRegister>();
+      if (instruction->IsAdd()) {
+        if (type == DataType::Type::kFloat32)
+          __ FAdd_s(dst, fs1, fs2);
+        else
+          __ FAdd_d(dst, fs1, fs2);
+      } else if (instruction->IsSub()) {
+        if (type == DataType::Type::kFloat32)
+          __ FSub_s(dst, fs1, fs2);
+        else
+          __ FSub_d(dst, fs1, fs2);
+      } else if (instruction->IsMax()) {
+        if (type == DataType::Type::kFloat32)
+          __ FMax(dst, fs1, fs2, false /*is_double*/);
+        else
+          __ FMax(dst, fs1, fs2, true /*is_double*/);
+      } else if (instruction->IsMin()) {
+        if (type == DataType::Type::kFloat32)
+          __ FMin(dst, fs1, fs2, false /*is_double*/);
+        else
+          __ FMin(dst, fs1, fs2, true /*is_double*/);
+      } else {
+        LOG(FATAL) << "Unexpected floating-point binary operation";
       }
       break;
     }

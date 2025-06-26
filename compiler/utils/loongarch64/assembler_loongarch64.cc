@@ -1442,22 +1442,82 @@ void Loongarch64Assembler::Li(XRegister rd, int64_t imm) {
   LoadImmediate(rd, imm);
 }
 
+void Loongarch64Assembler::Max(XRegister rd, XRegister rs) {
+  Slt(AT, rd, rs);
+  Masknez(rd, rd, AT);
+  Maskeqz(AT, rs, AT);
+  Or(rd, rd, AT);
+}
+
+void Loongarch64Assembler::Min(XRegister rd, XRegister rs) {
+  Slt(AT, rs, rd);
+  Masknez(rd, rd, AT);
+  Maskeqz(AT, rs, AT);
+  Or(rd, rd, AT);
+}
+
 void Loongarch64Assembler::Max(XRegister rd, XRegister rs1, XRegister rs2) {
-  // rd = Max(rs1, rs2)
-  Sub_d(rd, rs1, rs2);
-  Bge(rd, Zero ,3);
-  Add_d(rd, Zero, rs2);
-  B(2);
-  Add_d(rd, Zero, rs1);
+  // do not rewrite input(rs1 and rs2)
+  CHECK_NE(rd, rs1);
+  CHECK_NE(rd, rs2);
+
+  Slt(AT, rs1, rs2);
+  Masknez(rd, rs1, AT);
+  Maskeqz(AT, rs2, AT);
+  Or(rd, rd, AT);
 }
 
 void Loongarch64Assembler::Min(XRegister rd, XRegister rs1, XRegister rs2) {
-  // rd = Min(rs1, rs2)
-  Sub_d(rd, rs1, rs2);
-  Bge(rd, Zero ,3);
-  Add_d(rd, Zero, rs1);
-  B(2);
-  Add_d(rd, Zero, rs2);
+  // do not rewrite input(rs1 and rs2)
+  CHECK_NE(rd, rs1);
+  CHECK_NE(rd, rs2);
+
+  Slt(AT, rs1, rs2);
+  Masknez(rd, rs2, AT);
+  Maskeqz(AT, rs1, AT);
+  Or(rd, rd, AT);
+}
+
+void Loongarch64Assembler::FMax(FRegister fd, FRegister fs1, FRegister fs2, bool is_double) {
+  CHECK_NE(fd, fs1);
+  CHECK_NE(fd, fs2);
+
+/*
+ * Java: maxNum(-0.0, 0.0) not Equal but 0.0
+ * IEEE754-2008: maxNum(-0.0, 0.0) Equal
+*/
+  if (is_double) {
+    FMax_d(fd, fs1, fs2);
+    Fcmp_cun_d(FCC0, fs1, fs1);
+    Fsel(fd, fd, fs1, FCC0);
+    Fcmp_cun_d(FCC0, fs2, fs2);
+    Fsel(fd, fd, fs2, FCC0);
+  } else {
+    FMax_s(fd, fs1, fs2);
+    Fcmp_cun_s(FCC0, fs1, fs1);
+    Fsel(fd, fd, fs1, FCC0);
+    Fcmp_cun_s(FCC0, fs2, fs2);
+    Fsel(fd, fd, fs2, FCC0);
+  }
+}
+
+void Loongarch64Assembler::FMin(FRegister fd, FRegister fs1, FRegister fs2, bool is_double) {
+  CHECK_NE(fd, fs1);
+  CHECK_NE(fd, fs2);
+
+  if (is_double) {
+    FMin_d(fd, fs1, fs2);
+    Fcmp_cun_d(FCC0, fs1, fs1);
+    Fsel(fd, fd, fs1, FCC0);
+    Fcmp_cun_d(FCC0, fs2, fs2);
+    Fsel(fd, fd, fs2, FCC0);
+  } else {
+    FMin_s(fd, fs1, fs2);
+    Fcmp_cun_s(FCC0, fs1, fs1);
+    Fsel(fd, fd, fs1, FCC0);
+    Fcmp_cun_s(FCC0, fs2, fs2);
+    Fsel(fd, fd, fs2, FCC0);
+  }
 }
 /////////////////////////////// LOONGARCH64 barrier Instructions ///////////////////////////////
 void Loongarch64Assembler::Dbar(uint32_t imm15) {
