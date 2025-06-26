@@ -1834,7 +1834,6 @@ void Loongarch64Assembler::EmitBranch(Loongarch64Assembler::Branch* branch) {
   CHECK(overwriting_);
   overwrite_location_ = branch->GetLocation();
   const int32_t offset = branch->GetOffset();
-  const int32_t target = branch->GetTarget();
   BranchCondition condition = branch->GetCondition();
   XRegister lhs = branch->GetLeftRegister();
   XRegister rhs = branch->GetRightRegister();

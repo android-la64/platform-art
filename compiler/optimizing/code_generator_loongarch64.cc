@@ -2463,7 +2463,7 @@ void InstructionCodeGeneratorLOONGARCH64::VisitArrayGet(HArrayGet* instruction) 
     // /* HeapReference<Object> */ out =
     //     *(obj + data_offset + index * sizeof(HeapReference<Object>))
     // Note that a potential implicit null check could be handled in these
-    // `CodeGeneratorRISCV64::Generate{Array,Field}LoadWithBakerReadBarrier()` calls
+    // `CodeGeneratorLOONGARCH64::Generate{Array,Field}LoadWithBakerReadBarrier()` calls
     // but we currently do not support implicit null checks on `HArrayGet`.
     DCHECK(!instruction->CanDoImplicitNullCheckOn(instruction->InputAt(0)));
     Location temp = locations->GetTemp(0);
@@ -3100,13 +3100,91 @@ void InstructionCodeGeneratorLOONGARCH64::VisitClinitCheck(HClinitCheck* instruc
 }
 
 void LocationsBuilderLOONGARCH64::VisitCompare(HCompare* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type in_type = instruction->InputAt(0)->GetType();
+
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+
+  switch (in_type) {
+    case DataType::Type::kBool:
+    case DataType::Type::kUint8:
+    case DataType::Type::kInt8:
+    case DataType::Type::kUint16:
+    case DataType::Type::kInt16:
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, RegisterOrZeroBitPatternLocation(instruction->InputAt(1)));
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetInAt(1, Location::RequiresFpuRegister());
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+
+    default:
+      LOG(FATAL) << "Unexpected type for compare operation " << in_type;
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitCompare(HCompare* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister result = locations->Out().AsRegister<XRegister>();
+  DataType::Type in_type = instruction->InputAt(0)->GetType();
+
+  //  0 if: left == right
+  //  1 if: left  > right
+  // -1 if: left  < right
+  switch (in_type) {
+    case DataType::Type::kBool:
+    case DataType::Type::kUint8:
+    case DataType::Type::kInt8:
+    case DataType::Type::kUint16:
+    case DataType::Type::kInt16:
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64: {
+      XRegister left = locations->InAt(0).AsRegister<XRegister>();
+      XRegister right = InputXRegisterOrZero(locations->InAt(1));
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      __ Slt(tmp, left, right);
+      __ Slt(result, right, left);
+      __ Sub_d(result, result, tmp);
+      break;
+    }
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64: {
+      FRegister left = locations->InAt(0).AsFpuRegister<FRegister>();
+      FRegister right = locations->InAt(1).AsFpuRegister<FRegister>();
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister tmp = srs.AllocateXRegister();
+      if (instruction->IsGtBias()) {
+        // ((fcmp.cle l,r) ^ 1) - (fcmp.clt l,r);
+        Fcmp_cle(FCC0, left, right, in_type);
+        Fcmp_clt(FCC1, left, right, in_type);
+        __ Movcf2gr(tmp, FCC0);
+        __ Movcf2gr(result, FCC1);
+        __ Xori(tmp, tmp, 1);
+        __ Sub_d(result, tmp, result);
+      } else {
+        // ((fcmp.cle r,l) - 1) + (fcmp.clt r,l);
+        Fcmp_cle(FCC0, right, left, in_type);
+        Fcmp_clt(FCC1, right, left, in_type);
+        __ Movcf2gr(tmp, FCC0);
+        __ Movcf2gr(result, FCC1);
+        __ Addi_D(tmp, tmp, -1);
+        __ Add_d(result, result, tmp);
+      }
+      break;
+    }
+
+    default:
+      LOG(FATAL) << "Unimplemented compare type " << in_type;
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitConstructorFence(HConstructorFence* instruction) {
@@ -4394,15 +4472,21 @@ void LocationsBuilderLOONGARCH64::VisitReturn(HReturn* instruction) {
   locations->SetInAt(0, Loongarch64ReturnLocation(return_type));
 }
 
-void InstructionCodeGeneratorLOONGARCH64::VisitReturn([[maybe_unused]] HReturn* instruction) {
-  //if (GetGraph()->IsCompilingOsr()) {
-  //  // To simplify callers of an OSR method, we put a floating point return value
-  //  // in both floating point and core return registers.
-  //  switch (instruction->InputAt(0)->GetType()) {
-  //    default:
-  //      break;
-  //  }
-  //}
+void InstructionCodeGeneratorLOONGARCH64::VisitReturn(HReturn* instruction) {
+  if (GetGraph()->IsCompilingOsr()) {
+    // To simplify callers of an OSR method, we put a floating point return value
+    // in both floating point and core return registers.
+    switch (instruction->InputAt(0)->GetType()) {
+      case DataType::Type::kFloat32:
+        __ Movfr2gr_s(A0, FA0);
+        break;
+      case DataType::Type::kFloat64:
+        __ Movfr2gr_d(A0, FA0);
+        break;
+      default:
+        break;
+    }
+  }
   codegen_->GenerateFrameExit();
 }
 
