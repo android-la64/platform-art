@@ -541,6 +541,27 @@ class ReadBarrierForRootSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
   DISALLOW_COPY_AND_ASSIGN(ReadBarrierForRootSlowPathLOONGARCH64);
 };
 
+class DivZeroCheckSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
+ public:
+  explicit DivZeroCheckSlowPathLOONGARCH64(HDivZeroCheck* instruction)
+      : SlowPathCodeLOONGARCH64(instruction) {}
+
+  void EmitNativeCode(CodeGenerator* codegen) override {
+    CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
+    __ Bind(GetEntryLabel());
+    loongarch64_codegen->InvokeRuntime(
+        kQuickThrowDivZero, instruction_, instruction_->GetDexPc(), this);
+    CheckEntrypointTypes<kQuickThrowDivZero, void, void>();
+  }
+
+  bool IsFatal() const override { return true; }
+
+  const char* GetDescription() const override { return "DivZeroCheckSlowPathLOONGARCH64"; }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DivZeroCheckSlowPathLOONGARCH64);
+};
+
 class ReadBarrierMarkSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
  public:
   ReadBarrierMarkSlowPathLOONGARCH64(HInstruction* instruction, Location ref, Location entrypoint)
@@ -1323,23 +1344,147 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateTestAndBranch(HInstruction* in
 }
 
 void InstructionCodeGeneratorLOONGARCH64::DivRemOneOrMinusOne(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(instruction->IsDiv() || instruction->IsRem());
+  DataType::Type type = instruction->GetResultType();
+
+  LocationSummary* locations = instruction->GetLocations();
+  Location second = locations->InAt(1);
+  DCHECK(second.IsConstant());
+
+  XRegister out = locations->Out().AsRegister<XRegister>();
+  XRegister dividend = locations->InAt(0).AsRegister<XRegister>();
+  int64_t imm = Int64FromConstant(second.GetConstant());
+  DCHECK(imm == 1 || imm == -1);
+
+  if (instruction->IsRem()) {
+    __ Move(out, Zero);
+  } else {
+    if (imm == -1) {
+      if (type == DataType::Type::kInt32) {
+        __ Sub_w(out, Zero, dividend);
+      } else {
+        DCHECK_EQ(type, DataType::Type::kInt64);
+        __ Sub_d(out, Zero, dividend);
+      }
+    } else if (out != dividend) {
+      __ Move(out, dividend);
+    }
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::DivRemByPowerOfTwo(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(instruction->IsDiv() || instruction->IsRem());
+  DataType::Type type = instruction->GetResultType();
+  DCHECK(type == DataType::Type::kInt32 || type == DataType::Type::kInt64) << type;
+
+  LocationSummary* locations = instruction->GetLocations();
+  Location second = locations->InAt(1);
+  DCHECK(second.IsConstant());
+
+  XRegister out = locations->Out().AsRegister<XRegister>();
+  XRegister dividend = locations->InAt(0).AsRegister<XRegister>();
+  int64_t imm = Int64FromConstant(second.GetConstant());
+  int64_t abs_imm = static_cast<uint64_t>(AbsOrMin(imm));
+  int ctz_imm = CTZ(abs_imm);
+  DCHECK_GE(ctz_imm, 1);  // Division by +/-1 is handled by `DivRemOneOrMinusOne()`.
+
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister tmp = srs.AllocateXRegister();
+  // Calculate the negative dividend adjustment `tmp = dividend < 0 ? abs_imm - 1 : 0`.
+  // This adjustment is needed for rounding the division result towards zero.
+  if (type == DataType::Type::kInt32 || ctz_imm == 1) {
+    // A 32-bit dividend is sign-extended to 64-bit, so we can use the upper bits.
+    // And for a 64-bit division by +/-2, we need just the sign bit.
+    DCHECK_IMPLIES(type == DataType::Type::kInt32, ctz_imm < 32);
+    __ Srli_d(tmp, dividend, 64 - ctz_imm);
+  } else {
+    // For other 64-bit divisions, we need to replicate the sign bit.
+    __ Srai_d(tmp, dividend, 63);
+    __ Srli_d(tmp, tmp, 64 - ctz_imm);
+  }
+  // The rest of the calculation can use 64-bit operations even for 32-bit div/rem.
+  __ Add_d(tmp, tmp, dividend);
+  if (instruction->IsDiv()) {
+    __ Srai_d(out, tmp, ctz_imm);
+    if (imm < 0) {
+      __ Sub_d(out, Zero, out);
+    }
+  } else {
+    ScratchRegisterScope srs2(GetAssembler());
+    XRegister tmp2 = srs2.AllocateXRegister();
+
+    __ Li(tmp2, -abs_imm);
+    __ And(tmp, tmp, tmp2);
+    __ Sub_d(out, dividend, tmp);
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateDivRemWithAnyConstant(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(instruction->IsDiv() || instruction->IsRem());
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister dividend = locations->InAt(0).AsRegister<XRegister>();
+  XRegister out = locations->Out().AsRegister<XRegister>();
+  Location second = locations->InAt(1);
+  int64_t imm = Int64FromConstant(second.GetConstant());
+  DataType::Type type = instruction->GetResultType();
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister tmp = srs.AllocateXRegister();
+
+  // TODO: optimize with constant.
+  __ LoadConst64(tmp, imm);
+  if (instruction->IsDiv()) {
+    if (type == DataType::Type::kInt32) {
+      __ Div_w(out, dividend, tmp);
+    } else {
+      __ Div_d(out, dividend, tmp);
+    }
+  } else {
+    if (type == DataType::Type::kInt32)  {
+      __ Mod_w(out, dividend, tmp);
+    } else {
+      __ Mod_d(out, dividend, tmp);
+    }
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateDivRemIntegral(HBinaryOperation* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(instruction->IsDiv() || instruction->IsRem());
+  DataType::Type type = instruction->GetResultType();
+  DCHECK(type == DataType::Type::kInt32 || type == DataType::Type::kInt64) << type;
+
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister out = locations->Out().AsRegister<XRegister>();
+  Location second = locations->InAt(1);
+
+  if (second.IsConstant()) {
+    int64_t imm = Int64FromConstant(second.GetConstant());
+    if (imm == 0) {
+      // Do not generate anything. DivZeroCheck would prevent any code to be executed.
+    } else if (imm == 1 || imm == -1) {
+      DivRemOneOrMinusOne(instruction);
+    } else if (IsPowerOfTwo(AbsOrMin(imm))) {
+      DivRemByPowerOfTwo(instruction);
+    } else {
+      DCHECK(imm <= -2 || imm >= 2);
+      GenerateDivRemWithAnyConstant(instruction);
+    }
+  } else {
+    XRegister dividend = locations->InAt(0).AsRegister<XRegister>();
+    XRegister divisor = second.AsRegister<XRegister>();
+    if (instruction->IsDiv()) {
+      if (type == DataType::Type::kInt32) {
+        __ Div_w(out, dividend, divisor);
+      } else {
+        __ Div_d(out, dividend, divisor);
+      }
+    } else {
+      if (type == DataType::Type::kInt32) {
+        __ Mod_w(out, dividend, divisor);
+      } else {
+        __ Mod_d(out, dividend, divisor);
+      }
+    }
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenerateIntLongCondition(IfCondition cond,
@@ -3289,23 +3434,87 @@ void InstructionCodeGeneratorLOONGARCH64::VisitDeoptimize(HDeoptimize* instructi
 }
 
 void LocationsBuilderLOONGARCH64::VisitDiv(HDiv* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations =
+      new (GetGraph()->GetAllocator()) LocationSummary(instruction, LocationSummary::kNoCall);
+  switch (instruction->GetResultType()) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+      locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
+      break;
+
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresFpuRegister());
+      locations->SetInAt(1, Location::RequiresFpuRegister());
+      locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      break;
+
+    default:
+      LOG(FATAL) << "Unexpected div type " << instruction->GetResultType();
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitDiv(HDiv* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DataType::Type type = instruction->GetType();
+  LocationSummary* locations = instruction->GetLocations();
+
+  switch (type) {
+    case DataType::Type::kInt32:
+    case DataType::Type::kInt64:
+      GenerateDivRemIntegral(instruction);
+      break;
+    case DataType::Type::kFloat32: {
+      FRegister dst = locations->Out().AsFpuRegister<FRegister>();
+      FRegister lhs = locations->InAt(0).AsFpuRegister<FRegister>();
+      FRegister rhs = locations->InAt(1).AsFpuRegister<FRegister>();
+      __ FDiv_s(dst, lhs, rhs);
+      break;
+    }
+    case DataType::Type::kFloat64: {
+      FRegister dst = locations->Out().AsFpuRegister<FRegister>();
+      FRegister lhs = locations->InAt(0).AsFpuRegister<FRegister>();
+      FRegister rhs = locations->InAt(1).AsFpuRegister<FRegister>();
+      __ FDiv_d(dst, lhs, rhs);
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unexpected div type " << type;
+      UNREACHABLE();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitDivZeroCheck(HDivZeroCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = codegen_->CreateThrowingSlowPathLocations(instruction);
+  locations->SetInAt(0, Location::RegisterOrConstant(instruction->InputAt(0)));
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitDivZeroCheck(HDivZeroCheck* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  SlowPathCodeLOONGARCH64* slow_path =
+      new (codegen_->GetScopedAllocator()) DivZeroCheckSlowPathLOONGARCH64(instruction);
+  codegen_->AddSlowPath(slow_path);
+  Location value = instruction->GetLocations()->InAt(0);
+
+  DataType::Type type = instruction->GetType();
+
+  if (!DataType::IsIntegralType(type)) {
+    LOG(FATAL) << "Unexpected type " << type << " for DivZeroCheck.";
+    UNREACHABLE();
+  }
+
+  if (value.IsConstant()) {
+    int64_t divisor = codegen_->GetInt64ValueOf(value.GetConstant()->AsConstant());
+    if (divisor == 0) {
+      __ B(slow_path->GetEntryLabel());
+    } else {
+      // A division by a non-null constant is valid. We don't need to perform
+      // any check, so simply fall through.
+    }
+  } else {
+    __ Beqz(value.AsRegister<XRegister>(), slow_path->GetEntryLabel());
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitDoubleConstant(HDoubleConstant* instruction) {
@@ -4325,7 +4534,8 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNot(HNot* instruction) {
   switch (instruction->GetResultType()) {
     case DataType::Type::kInt32:
     case DataType::Type::kInt64:
-      __ Xori(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsRegister<XRegister>(), -1);
+      __ Li(AT, -1);
+      __ Xor(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsRegister<XRegister>(), AT);
       break;
 
     default:
@@ -4361,13 +4571,11 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNullCheck(HNullCheck* instruction
 }
 
 void LocationsBuilderLOONGARCH64::VisitOr(HOr* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitOr(HOr* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  HandleBinaryOp(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitPackedSwitch(HPackedSwitch* instruction) {
