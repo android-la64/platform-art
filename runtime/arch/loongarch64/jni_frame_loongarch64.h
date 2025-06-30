@@ -69,14 +69,11 @@ inline size_t GetCriticalNativeStubFrameSize(std::string_view shorty) {
   // The size of outgoing arguments.
   size_t size = GetCriticalNativeCallArgsSize(shorty);
 
-  // We can make a tail call if there are no stack args and we do not need
-  // to extend the result. Otherwise, add space for return PC.
-  // if (size != 0u || shorty[0] == 'B' || shorty[0] == 'C' || shorty[0] == 'S' || shorty[0] == 'Z') {
-  //  size += kFramePointerSize;  // We need to spill RA with the args.
-  // }
-
-  // Add return address size.
-  size += kFramePointerSize;
+  // We can make a tail call if there are no stack args. Otherwise, add space for return PC.
+  // Note: Result does not neeed to be zero- or sign-extended.
+  if (size != 0u) {
+    size += kFramePointerSize;  // We need to spill RA with the args.
+  }
 
   return RoundUp(size, kLoongarch64StackAlignment);
 }

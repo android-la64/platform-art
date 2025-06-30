@@ -4431,6 +4431,10 @@ void InstructionCodeGeneratorLOONGARCH64::VisitMul(HMul* instruction) {
   LocationSummary* locations = instruction->GetLocations();
   switch (instruction->GetResultType()) {
     case DataType::Type::kInt32:
+      __ Mul_w(locations->Out().AsRegister<XRegister>(),
+               locations->InAt(0).AsRegister<XRegister>(),
+               locations->InAt(1).AsRegister<XRegister>());
+      break;
     case DataType::Type::kInt64:
       __ Mul_d(locations->Out().AsRegister<XRegister>(),
                locations->InAt(0).AsRegister<XRegister>(),
@@ -4438,7 +4442,15 @@ void InstructionCodeGeneratorLOONGARCH64::VisitMul(HMul* instruction) {
       break;
 
     case DataType::Type::kFloat32:
+      __ FMul_s(locations->Out().AsFpuRegister<FRegister>(),
+               locations->InAt(0).AsFpuRegister<FRegister>(),
+               locations->InAt(1).AsFpuRegister<FRegister>());
+      break;
     case DataType::Type::kFloat64:
+      __ FMul_d(locations->Out().AsFpuRegister<FRegister>(),
+               locations->InAt(0).AsFpuRegister<FRegister>(),
+               locations->InAt(1).AsFpuRegister<FRegister>());
+      break;
     default:
       LOG(FATAL) << "Unexpected mul type " << instruction->GetResultType();
   }
@@ -5958,7 +5970,7 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
           __ Store_D(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
         } else {
           __ FStore_D(source.AsFpuRegister<FRegister>(), SP, destination.GetStackIndex());
-	}
+        }
       } else {
         if (source.IsRegister()) {
           __ Store_W(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());

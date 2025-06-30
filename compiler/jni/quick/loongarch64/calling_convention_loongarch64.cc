@@ -297,6 +297,25 @@ uint32_t Loongarch64JniCallingConvention::FpSpillMask() const {
   return is_critical_native_ ? 0u : kFpCalleeSpillMask;
 }
 
+size_t Loongarch64JniCallingConvention::CurrentParamSize() const {
+  if (IsCurrentArgExtraForJni()) {
+    return static_cast<size_t>(frame_pointer_size_);  // JNIEnv or jobject/jclass
+  } else {
+    size_t arg_pos = GetIteratorPositionWithinShorty();
+    DCHECK_LT(arg_pos, NumArgs());
+    if (IsStatic()) {
+      ++arg_pos;  // 0th argument must skip return value at start of the shorty
+    } else if (arg_pos == 0) {
+      return static_cast<size_t>(kLoongarch64PointerSize);  // this argument
+    }
+    // The loongarch64 native calling convention specifies that integers narrower than XLEN (64)
+    // bits are "widened according to the sign of their type up to 32 bits, then sign-extended
+    // to XLEN bits." Thus, everything other than `float` (which has the high 32 bits undefined)
+    // is passed as 64 bits, whether in register, or on the stack.
+    return (GetShorty()[arg_pos] == 'F') ? 4u : static_cast<size_t>(kLoongarch64PointerSize);
+  }
+}
+
 bool Loongarch64JniCallingConvention::IsCurrentParamInRegister() {
   // FP args use FPRs, then GPRs and only then the stack.
   if (itr_float_and_doubles_ < kMaxFloatOrDoubleArgumentRegisters) {
