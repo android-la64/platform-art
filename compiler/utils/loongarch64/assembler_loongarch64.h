@@ -996,7 +996,7 @@ class Loongarch64Assembler final : public Assembler {
     DCHECK(IsUint<5>(static_cast<uint32_t>(rj)));
     DCHECK(IsUint<5>(static_cast<uint32_t>(rd)));
     uint32_t encoding = opcode << 10 | static_cast<uint32_t>(rj) << 5 |
-                        static_cast<uint32_t>(rj);
+                        static_cast<uint32_t>(rd);
     Emit(encoding);
   }
 

@@ -1233,7 +1233,7 @@ void Loongarch64Assembler::Addi_D(XRegister rd, XRegister rs1, int32_t imm12) {
   Emit2RI12(0x0b, imm12, rs1, rd);
 }
 void Loongarch64Assembler::Lu52i_D(XRegister rd, XRegister rs1, int32_t imm12) {
-  Emit2RI12(0x0c, imm12, rs1, rd);
+  Emit2RI12(0x0c, imm12, rs1, rd, false);
 }
 
 void Loongarch64Assembler::Andi(XRegister rd, XRegister rs1, uint32_t imm12) {
