@@ -319,6 +319,17 @@ ENTRY \c_name
 END \c_name
 .endm
 
+INVOKE_TRAMPOLINE art_quick_invoke_interface_trampoline_with_access_check, \
+                  artInvokeInterfaceTrampolineWithAccessCheck
+INVOKE_TRAMPOLINE art_quick_invoke_static_trampoline_with_access_check, \
+                  artInvokeStaticTrampolineWithAccessCheck
+INVOKE_TRAMPOLINE art_quick_invoke_direct_trampoline_with_access_check, \
+                  artInvokeDirectTrampolineWithAccessCheck
+INVOKE_TRAMPOLINE art_quick_invoke_super_trampoline_with_access_check, \
+                  artInvokeSuperTrampolineWithAccessCheck
+INVOKE_TRAMPOLINE art_quick_invoke_virtual_trampoline_with_access_check, \
+                  artInvokeVirtualTrampolineWithAccessCheck
+
 
 .macro DEOPT_OR_RETURN temp, is_ref = 0
     ld.wu   \temp, $xSELF, THREAD_DEOPT_CHECK_REQUIRED_OFFSET
@@ -839,6 +850,11 @@ NO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING art_quick_throw_div_zero, artThrowDivZe
 // Called by managed code to create and deliver an ArrayIndexOutOfBoundsException.
 // Arg0 holds index, arg1 holds limit.
 TWO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING art_quick_throw_array_bounds, artThrowArrayBoundsFromCode
+
+// Called by managed code to create and deliver a StringIndexOutOfBoundsException
+// as if thrown from a call to String.charAt(). Arg0 holds index, arg1 holds limit.
+TWO_ARG_RUNTIME_EXCEPTION_SAVE_EVERYTHING \
+        art_quick_throw_string_bounds, artThrowStringBoundsFromCode
 
 // Called by managed code to deliver an exception.
 ONE_ARG_RUNTIME_EXCEPTION art_quick_deliver_exception, artDeliverExceptionFromCode
@@ -1752,12 +1768,6 @@ UNDEFINED art_quick_get_char_static
 UNDEFINED art_quick_get32_static
 UNDEFINED art_quick_get64_static
 UNDEFINED art_quick_get_obj_static
-UNDEFINED art_quick_invoke_direct_trampoline_with_access_check
-UNDEFINED art_quick_invoke_interface_trampoline_with_access_check
-UNDEFINED art_quick_invoke_static_trampoline_with_access_check
-UNDEFINED art_quick_invoke_super_trampoline_with_access_check
-UNDEFINED art_quick_invoke_virtual_trampoline_with_access_check
-UNDEFINED art_quick_throw_string_bounds
 UNDEFINED art_quick_update_inline_cache
 UNDEFINED art_quick_indexof
 UNDEFINED art_quick_deoptimize
