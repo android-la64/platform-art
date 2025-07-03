@@ -1685,28 +1685,19 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
   FRegister rs1 = locations->InAt(0).AsFpuRegister<FRegister>();
   FRegister rs2 = locations->InAt(1).AsFpuRegister<FRegister>();
 
-  UNUSED(to_all_bits);
-
+  bool reverse_condition = false;
   switch (cond) {
-    case kCondEQ: {
-      if (gt_bias) {
-        Fcmp_cueq(FCC0, rs1, rs2, type);
-      } else {
-        Fcmp_ceq(FCC0, rs1, rs2, type);
-      }
+    case kCondEQ:
+      Fcmp_ceq(FCC0, rs1, rs2, type);
       break;
-    }
-    case kCondNE: {
-      if (gt_bias) {
-        Fcmp_cune(FCC0, rs1, rs2, type);
-      } else {
-        Fcmp_cne(FCC0, rs1, rs2, type);
-      }
+    case kCondNE:
+      Fcmp_ceq(FCC0, rs1, rs2, type);
+      reverse_condition = true;
       break;
-    }
     case kCondGE: {
       if (gt_bias) {
-        Fcmp_cule(FCC0, rs2, rs1, type);
+        Fcmp_clt(FCC0, rs1, rs2, type);
+        reverse_condition = true;
       } else {
         Fcmp_cle(FCC0, rs2, rs1, type);
       }
@@ -1714,23 +1705,26 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
     }
     case kCondLT: {
       if (gt_bias) {
-        Fcmp_cult(FCC0, rs1, rs2, type);
-      } else {
         Fcmp_clt(FCC0, rs1, rs2, type);
+      } else {
+        Fcmp_cle(FCC0, rs2, rs1, type);
+        reverse_condition = true;
       }
       break;
     }
     case kCondLE: {
       if (gt_bias) {
-        Fcmp_cule(FCC0, rs1, rs2, type);
-      } else {
         Fcmp_cle(FCC0, rs1, rs2, type);
+      } else {
+        Fcmp_clt(FCC0, rs2, rs1, type);
+        reverse_condition = true;
       }
       break;
     }
     case kCondGT: {
       if (gt_bias) {
-        Fcmp_cult(FCC0, rs2, rs1, type);
+        Fcmp_cle(FCC0, rs1, rs2, type);
+        reverse_condition = true;
       } else {
         Fcmp_clt(FCC0, rs2, rs1, type);
       }
@@ -1741,11 +1735,24 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateFpCondition(IfCondition cond,
       UNREACHABLE();
   }
 
+  __ Movcf2gr(rd, FCC0);
   if (label != nullptr) {
-    __ Bcnez(FCC0, label);
+    if (reverse_condition) {
+      __ Beqz(rd, label);
+    } else {
+      __ Bnez(rd, label);
+    }
+  } else if (to_all_bits) {
+    // Store the result to all bits; in other words, "true" is represented by -1.
+    if (reverse_condition) {
+      __ Addi_D(rd, rd, -1);  // 0 -> -1, 1 -> 0
+    } else {
+      __ Sub_d(rd, Zero, rd); // 0 -> 0, 1 -> -1
+    }
   } else {
-    __ Movcf2gr(rd, FCC0);
-    __ Sub_d(rd, Zero, rd);
+    if (reverse_condition) {
+      __ Xori(rd, rd, 1);
+    }
   }
 }
 
@@ -4489,9 +4496,12 @@ void InstructionCodeGeneratorLOONGARCH64::VisitNeg(HNeg* instruction) {
       break;
 
     case DataType::Type::kFloat32:
+      __ FNeg_s(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsFpuRegister<FRegister>());
+      break;
+
     case DataType::Type::kFloat64:
-      LOG(FATAL) << "Unsupported neg type " << instruction->GetResultType();
-      UNREACHABLE();
+      __ FNeg_d(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsFpuRegister<FRegister>());
+      break;
     default:
       LOG(FATAL) << "Unexpected neg type " << instruction->GetResultType();
       UNREACHABLE();
@@ -4950,9 +4960,9 @@ void InstructionCodeGeneratorLOONGARCH64::VisitSelect(HSelect* instruction) {
       true_reg = (false_reg == Zero) ? srs.AllocateXRegister()
                                      : locations->GetTemp(0).AsRegister<XRegister>();
       if(type == DataType::Type::kFloat32) {
-        __ Movfr2gr_s(false_reg, locations->InAt(0).AsFpuRegister<FRegister>());
+        __ Movfr2gr_s(true_reg, locations->InAt(1).AsFpuRegister<FRegister>());
       } else if(type == DataType::Type::kFloat64) {
-        __ Movfr2gr_d(false_reg, locations->InAt(0).AsFpuRegister<FRegister>());
+        __ Movfr2gr_d(true_reg, locations->InAt(1).AsFpuRegister<FRegister>());
       }
     }
     // We can clobber the "true value" with the XOR result.
