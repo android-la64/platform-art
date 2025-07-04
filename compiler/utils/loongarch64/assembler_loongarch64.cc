@@ -1109,6 +1109,15 @@ void Loongarch64Assembler::Ext_w_b(XRegister rd, XRegister rj) {
   Emit2R(0x17, rj, rd);
 }
 
+void Loongarch64Assembler::Rdtime_l_w(XRegister rd, XRegister rj) {
+  Emit2R(0x18, rj, rd);
+}
+void Loongarch64Assembler::Rdtime_h_w(XRegister rd, XRegister rj) {
+  Emit2R(0x19, rj, rd);
+}
+void Loongarch64Assembler::Rdtime_d(XRegister rd, XRegister rj) {
+  Emit2R(0x1a, rj, rd);
+}
 /////////////////////////////// LOONGARCH64 "4R-Type" Instructions ///////////////////////////////
 
 /////////////////////////////// LOONGARCH64 "2RI8-Type" Instructions ///////////////////////////////

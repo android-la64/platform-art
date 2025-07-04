@@ -676,6 +676,9 @@ class Loongarch64Assembler final : public Assembler {
   //                                        ~ 00 0000 0000 0000 0001 0111
   void Ext_w_h(XRegister rd, XRegister rj);
   void Ext_w_b(XRegister rd, XRegister rj);
+  void Rdtime_l_w(XRegister rd, XRegister rj);
+  void Rdtime_h_w(XRegister rd, XRegister rj);
+  void Rdtime_d(XRegister rd, XRegister rj);
   // Environment call and breakpoint , opcode from 0 0000 0000 0101 0100
   //                                             ~ 0 0000 0000 0101 0110
   void brk(uint32_t imm15);
