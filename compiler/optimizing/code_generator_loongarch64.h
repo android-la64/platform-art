@@ -530,6 +530,7 @@ class InstructionCodeGeneratorLOONGARCH64 : public InstructionCodeGenerator {
                            Loongarch64Label* label,
                            XRegister rd,
                            bool to_all_bits);
+  void GenerateMethodEntryExitHook(HInstruction* instruction);
   void HandleGoto(HInstruction* got, HBasicBlock* successor);
   void GenPackedSwitchWithCompares(XRegister adjusted,
                                    XRegister temp,
