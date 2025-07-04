@@ -1729,7 +1729,120 @@ END \name
 .endm
 
 
-UNDEFINED art_quick_osr_stub
+/*  extern"C" void art_quick_osr_stub(void*          stack,                 A0
+ *                                    size_t         stack_size_in_bytes,   A1
+ *                                    const uint8_t* native_pc,             A2
+ *                                    JValue*        result,                A3
+ *                                    char*          shorty,                A4
+ *                                    Thread*        self)                  A5
+ */
+ENTRY art_quick_osr_stub
+    // Save all callee-save registers (we do not fill the spill area in the OSR frame, so we
+    // need to preserve them here) and A3 (it will be needed after the OSR method returns).
+    // Also add space for the `ArtMethod*` slot (null to indicate transition) and padding.
+    SAVE_SIZE=(10 + 8 + /* RA */ 1 + /* A3 */ 1 + /* ArtMethod* */ 1 + /* padding */ 1) * 8
+    INCREASE_FRAME SAVE_SIZE
+    st.d $zero, $sp, 0*8      // Store null to the `ArtMethod*` slot to indicate transition.
+                              // Skip padding.
+    SAVE_GPR $a3,  2*8        // Save `result`.
+    SAVE_FPR $fs0, 3*8
+    SAVE_FPR $fs1, 4*8
+    SAVE_FPR $fs2, 5*8
+    SAVE_FPR $fs3, 6*8
+    SAVE_FPR $fs4, 7*8
+    SAVE_FPR $fs5, 8*8
+    SAVE_FPR $fs6, 9*8
+    SAVE_FPR $fs7, 10*8
+    SAVE_GPR $s0,  11*8
+    SAVE_GPR $s2,  12*8
+    SAVE_GPR $s3,  13*8
+    SAVE_GPR $s4,  14*8
+    SAVE_GPR $s5,  15*8
+    SAVE_GPR $s6,  16*8
+    SAVE_GPR $s7,  17*8
+    SAVE_GPR $s8,  18*8
+    SAVE_GPR $xSELF, 19*8      // Save xSELF/S1.
+    SAVE_GPR $fp,  20*8        // Save FP/S9.
+    SAVE_GPR $ra,  21*8        // Save return address.
+
+    // Make the new FP point to the location where we stored the old FP.
+    // Some stack-walking tools may rely on this simply-linked list of saved FPs.
+    addi.d $fp, $sp, (20*8)  // save frame pointer
+    .cfi_def_cfa $fp, SAVE_SIZE - (20*8)
+
+    move   $xSELF, $a5
+
+    CFI_REMEMBER_STATE
+    bl .Losr_entry
+
+    // The called method removes the stack frame created in `.Losr_entry`.
+    // The SP is already correctly restored, we do not need to restore it from FP.
+    .cfi_def_cfa $sp, SAVE_SIZE
+
+    // Restore saved registers including the result address.
+    RESTORE_GPR $a3,  2*8       // Restore `result`.
+    RESTORE_FPR $fs0, 3*8
+    RESTORE_FPR $fs1, 4*8
+    RESTORE_FPR $fs2, 5*8
+    RESTORE_FPR $fs3, 6*8
+    RESTORE_FPR $fs4, 7*8
+    RESTORE_FPR $fs5, 8*8
+    RESTORE_FPR $fs6, 9*8
+    RESTORE_FPR $fs7, 10*8
+    RESTORE_GPR $s0,  11*8
+    RESTORE_GPR $s2,  12*8
+    RESTORE_GPR $s3,  13*8
+    RESTORE_GPR $s4,  14*8
+    RESTORE_GPR $s5,  15*8
+    RESTORE_GPR $s6,  16*8
+    RESTORE_GPR $s7,  17*8
+    RESTORE_GPR $s8,  18*8
+    RESTORE_GPR $xSELF, 19*8  // Restore xSELF/S1.
+    RESTORE_GPR $fp,  20*8     // Restore FP/S9.
+    RESTORE_GPR $ra,  21*8     // Restore return address.
+    DECREASE_FRAME SAVE_SIZE
+
+    // The compiler put the result in A0. Doesn't matter if it is 64 or 32 bits.
+    st.d   $a0, $a3, 0
+    jirl $zero, $ra, 0
+
+.Losr_entry:
+    CFI_RESTORE_STATE_AND_DEF_CFA $fp, SAVE_SIZE - (20*8)
+
+    // Prepare the destination register for backward copy of arguments.
+    addi.d $t1, $sp, -8
+
+    // Update stack pointer for the callee frame.
+    sub.d  $sp, $sp, $a1
+
+    // Subtract the return address slot size from args size.
+    addi.d $a1, $a1, -8
+
+    // Update return address slot expected by the callee.
+    st.d   $ra, $t1, 0
+
+    // Prepare the source register for backward copy of arguments.
+    add.d  $t0, $a0, $a1
+
+    // Copy arguments into stack frame. Use simple backward-copy routine for now.
+    // There is always at least the `ArtMethod*` to to copy.
+    // A0 - source address
+    // A1 - args length
+    // SP - destination address.
+    // T0 - loop variable initialized to A0 + A1 for backward copy
+    // T1 - loop variable initialized to SP + A1 for backward copy
+    // T2 - temporary for holding the copied value
+.Losr_loop:
+    addi.d $t0, $t0, -8
+    ld.d   $t2, $t0, 0
+    addi.d $t1, $t1, -8
+    st.d   $t2, $t1, 0
+    bne  $t1, $sp, .Losr_loop
+
+    // Branch to the OSR entry point.
+    jirl   $zero, $a2, 0
+
+END art_quick_osr_stub
 
     /*
      * Entry from managed code when uninitialized static storage, this stub will run the class
