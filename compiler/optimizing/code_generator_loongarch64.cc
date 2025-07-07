@@ -1954,13 +1954,23 @@ void InstructionCodeGeneratorLOONGARCH64::HandleBinaryOp(HBinaryOperation* instr
         }
       } else if (instruction->IsOr()) {
         if (use_imm) {
-          __ Ori(rd, rs1, imm);
+          if (imm >=0 && imm <= 4095) {
+            __ Ori(rd, rs1, imm);
+          } else {
+            __ Li(AT, imm);
+            __ Or(rd, rs1, AT);
+          }
         } else {
           __ Or(rd, rs1, rs2);
         }
       } else if (instruction->IsXor()) {
         if (use_imm) {
-          __ Xori(rd, rs1, imm);
+          if (imm >=0 && imm <= 4095) {
+            __ Xori(rd, rs1, imm);
+          } else {
+            __ Li(AT, imm);
+            __ Xor(rd, rs1, AT);
+          }
         } else {
           __ Xor(rd, rs1, rs2);
         }
@@ -6167,17 +6177,23 @@ size_t CodeGeneratorLOONGARCH64::RestoreCoreRegister(size_t stack_index, uint32_
 }
 
 size_t CodeGeneratorLOONGARCH64::SaveFloatingPointRegister(size_t stack_index, uint32_t reg_id) {
-  UNUSED(stack_index);
-  UNUSED(reg_id);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  if (GetGraph()->HasSIMD()) {
+    // TODO(loongarch64): LOONGARCH vector extension.
+    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
+    UNREACHABLE();
+  }
+  __ FStore_D(FRegister(reg_id), SP, stack_index);
+  return kLoongarch64FloatRegSizeInBytes;
 }
 
 size_t CodeGeneratorLOONGARCH64::RestoreFloatingPointRegister(size_t stack_index, uint32_t reg_id) {
-  UNUSED(stack_index);
-  UNUSED(reg_id);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  if (GetGraph()->HasSIMD()) {
+    // TODO(loongarch64): LOONGARCH vector extension.
+    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
+    UNREACHABLE();
+  }
+  __ FLoad_D(FRegister(reg_id), SP, stack_index);
+  return kLoongarch64FloatRegSizeInBytes;
 }
 
 void CodeGeneratorLOONGARCH64::DumpCoreRegister(std::ostream& stream, int reg) const {
