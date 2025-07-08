@@ -19,6 +19,10 @@
 
 namespace art {
 
+
+// Cast entrypoints.
+extern "C" size_t artInstanceOfFromCode(mirror::Object* obj, mirror::Class* ref_class);
+
 // art_quick_read_barrier_mark_regX uses an non-standard calling convention: it
 // expects its input in register X and returns its result in that same register,
 // and saves and restores all other registers.
@@ -33,6 +37,10 @@ void InitEntryPoints(JniEntryPoints* jpoints,
                      QuickEntryPoints* qpoints,
                      bool monitor_jni_entry_exit) {
   DefaultInitEntryPoints(jpoints, qpoints, monitor_jni_entry_exit);
+
+  // Cast
+  qpoints->SetInstanceofNonTrivial(artInstanceOfFromCode);
+  qpoints->SetCheckInstanceOf(art_quick_check_instance_of);
   // TODO(loongarch64): add other entrypoints
 }
 
