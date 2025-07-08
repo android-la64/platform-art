@@ -1390,7 +1390,7 @@ ENTRY \name
     // a1: int32_t component_count
     // a2: Thread* self
     SETUP_SAVE_REFS_ONLY_FRAME                              // Save callee saves in case of GC.
-    move    $a2, $xSELF                                         // Pass Thread::Current().
+    move    $a2, $xSELF                                     // Pass Thread::Current().
     bl  \entrypoint
     RESTORE_SAVE_REFS_ONLY_FRAME
     RETURN_OR_DEOPT_IF_RESULT_IS_NON_NULL_OR_DELIVER
@@ -1626,29 +1626,34 @@ ART_QUICK_ALLOC_OBJECT_ROSALLOC art_quick_alloc_object_initialized_rosalloc, \
 .macro COMPUTE_ARRAY_SIZE_8 class, count, temp0, temp1, temp2
     // Add array data offset and alignment adjustment to the `\count`.
     li.d     \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
-    bstrpick.d $t5, \count ,31, 0
-    add.w \temp1, $t5, \temp1
+    add.w \temp1, \count, \temp1
 .endm
 
 .macro COMPUTE_ARRAY_SIZE_16 class, count, temp0, temp1, temp2
     // Add array data offset and alignment adjustment to the shifted `\count`.
     li.d     \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
-    bstrpick.d $t5, \count ,31, 0
-    alsl.w \temp1, $t5, \temp1, 1
+    slli.d $t7, \count, 32
+    srli.d $t7, $t7, 32
+    slli.d $t7, $t7, 1
+    add.d  \temp1, $t7, \temp1
 .endm
 
 .macro COMPUTE_ARRAY_SIZE_32 class, count, temp0, temp1, temp2
     // Add array data offset and alignment adjustment to the shifted `\count`.
     li.d     \temp1, (MIRROR_INT_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
-    bstrpick.d $t5, \count ,31, 0
-    alsl.w \temp1, $t5, \temp1, 2
+    slli.d $t7, \count, 32
+    srli.d $t7, $t7, 32
+    slli.d $t7, $t7, 2
+    add.d  \temp1, $t7, \temp1
 .endm
 
 .macro COMPUTE_ARRAY_SIZE_64 class, count, temp0, temp1, temp2
     // Add array data offset and alignment adjustment to the shifted `\count`.
     li.d     \temp1, (MIRROR_WIDE_ARRAY_DATA_OFFSET + OBJECT_ALIGNMENT_MASK)
-    bstrpick.d $t5, \count ,31, 0
-    alsl.w \temp1, $t5, \temp1, 3
+    slli.d $t7, \count, 32
+    srli.d $t7, $t7, 32
+    slli.d $t7, $t7, 3
+    add.d  \temp1, $t7, \temp1
 .endm
 
 GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved_region_tlab, \
