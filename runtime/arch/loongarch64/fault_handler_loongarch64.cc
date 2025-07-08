@@ -73,8 +73,7 @@ bool NullPointerHandler::Action(int sig ATTRIBUTE_UNUSED, siginfo_t* info, void*
 
   // Need to work out the size of the instruction that caused the exception.
   uintptr_t old_pc = mc->sc_pc;
-  uintptr_t instr_size = (reinterpret_cast<uint16_t*>(old_pc)[0] & 3u) == 3u ? 4u : 2u;
-  uintptr_t return_pc = old_pc + instr_size;
+  uintptr_t return_pc = old_pc + 4u;
   if (!IsValidReturnPc(sp, return_pc)) {
     return false;
   }
