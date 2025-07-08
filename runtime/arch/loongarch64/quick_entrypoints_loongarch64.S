@@ -16,6 +16,7 @@
 
 #include "asm_support_loongarch64.S"
 #include "arch/quick_alloc_entrypoints.S"
+#include "arch/quick_field_entrypoints.S"
 
 // Wrap ExecuteSwitchImpl in assembly method which specifies DEX PC for unwinding.
 //  Argument 0: a0: The context pointer for ExecuteSwitchImpl.
@@ -1692,6 +1693,20 @@ GENERATE_ALLOC_ARRAY_TLAB art_quick_alloc_array_resolved64_tlab, \
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
 
 
+.macro RETURN_OR_DEOPT_OR_DELIVER_PENDING_EXCEPTION is_ref = 0
+    ld.wu   $a1, $xSELF, THREAD_EXCEPTION_OFFSET   // Get exception field.
+    bnez  $a1, 1f
+    DEOPT_OR_RETURN $a1, \is_ref                // Check if deopt is required.
+1:
+    DELIVER_PENDING_EXCEPTION                  // Deliver exception on current thread.
+.endm
+
+
+.macro RETURN_REF_OR_DEOPT_OR_DELIVER_PENDING_EXCEPTION
+    RETURN_OR_DEOPT_OR_DELIVER_PENDING_EXCEPTION /* is_ref= */ 1
+.endm
+
+
 .macro DEOPT_OR_RESTORE_SAVE_EVERYTHING_FRAME_AND_RETURN_A0 temp, is_ref
   ld.d      \temp, $xSELF, THREAD_DEOPT_CHECK_REQUIRED_OFFSET
   CFI_REMEMBER_STATE
@@ -1849,6 +1864,10 @@ ENTRY art_quick_osr_stub
 
 END art_quick_osr_stub
 
+
+GENERATE_FIELD_ENTRYPOINTS
+
+
     /*
      * Entry from managed code when uninitialized static storage, this stub will run the class
      * initializer and deliver the exception on error. On success the static storage base is
@@ -1862,30 +1881,6 @@ ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_method_type, artResolveMethod
 ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_string, artResolveStringFromCode
 
 
-UNDEFINED art_quick_set8_instance
-UNDEFINED art_quick_set8_static
-UNDEFINED art_quick_set16_instance
-UNDEFINED art_quick_set16_static
-UNDEFINED art_quick_set32_instance
-UNDEFINED art_quick_set32_static
-UNDEFINED art_quick_set64_instance
-UNDEFINED art_quick_set64_static
-UNDEFINED art_quick_set_obj_instance
-UNDEFINED art_quick_set_obj_static
-UNDEFINED art_quick_get_byte_instance
-UNDEFINED art_quick_get_boolean_instance
-UNDEFINED art_quick_get_short_instance
-UNDEFINED art_quick_get_char_instance
-UNDEFINED art_quick_get32_instance
-UNDEFINED art_quick_get64_instance
-UNDEFINED art_quick_get_obj_instance
-UNDEFINED art_quick_get_byte_static
-UNDEFINED art_quick_get_boolean_static
-UNDEFINED art_quick_get_short_static
-UNDEFINED art_quick_get_char_static
-UNDEFINED art_quick_get32_static
-UNDEFINED art_quick_get64_static
-UNDEFINED art_quick_get_obj_static
 UNDEFINED art_quick_update_inline_cache
 UNDEFINED art_quick_indexof
 UNDEFINED art_quick_deoptimize
