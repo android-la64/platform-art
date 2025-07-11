@@ -41,6 +41,28 @@ void InitEntryPoints(JniEntryPoints* jpoints,
   // Cast
   qpoints->SetInstanceofNonTrivial(artInstanceOfFromCode);
   qpoints->SetCheckInstanceOf(art_quick_check_instance_of);
+
+  // Math
+  // TODO(loongarch64): null entrypoints not needed for loongarch64 - using generated code.
+  qpoints->SetCmpgDouble(nullptr);
+  qpoints->SetCmpgFloat(nullptr);
+  qpoints->SetCmplDouble(nullptr);
+  qpoints->SetCmplFloat(nullptr);
+  qpoints->SetFmod(fmod);
+  qpoints->SetL2d(nullptr);
+  qpoints->SetFmodf(fmodf);
+  qpoints->SetL2f(nullptr);
+  qpoints->SetD2iz(nullptr);
+  qpoints->SetF2iz(nullptr);
+  qpoints->SetIdivmod(nullptr);
+  qpoints->SetD2l(nullptr);
+  qpoints->SetF2l(nullptr);
+  qpoints->SetLdiv(nullptr);
+  qpoints->SetLmod(nullptr);
+  qpoints->SetLmul(nullptr);
+  qpoints->SetShlLong(nullptr);
+  qpoints->SetShrLong(nullptr);
+  qpoints->SetUshrLong(nullptr);
   // TODO(loongarch64): add other entrypoints
 }
 
