@@ -306,24 +306,24 @@ ENTRY art_jni_dlsym_lookup_critical_stub
     addi.d  $t1, $fp, -16
 
     // Restore arg registers.
-    fld.d   $fa0, $t1, (1*8)
-    fld.d   $fa1, $t1, (2*8)
-    fld.d   $fa2, $t1, (3*8)
-    fld.d   $fa3, $t1, (4*8)
-    fld.d   $fa4, $t1, (5*8)
-    fld.d   $fa5, $t1, (6*8)
-    fld.d   $fa6, $t1, (7*8)
-    fld.d   $fa7, $t1, (8*8)
+    fld.d   $fa0, $fp, (1*8)
+    fld.d   $fa1, $fp, (2*8)
+    fld.d   $fa2, $fp, (3*8)
+    fld.d   $fa3, $fp, (4*8)
+    fld.d   $fa4, $fp, (5*8)
+    fld.d   $fa5, $fp, (6*8)
+    fld.d   $fa6, $fp, (7*8)
+    fld.d   $fa7, $fp, (8*8)
     // fp (x8) is restored last to keep CFI data valid until then.
     // s1 (x9) is the ART thread register
     // a0 (x10) is the method pointer
-    ld.d    $a1, $t1, (9*8)   // x11
-    ld.d    $a2, $t1, (10*8)  // x12
-    ld.d    $a3, $t1, (11*8)  // x13
-    ld.d    $a4, $t1, (12*8)  // x14
-    ld.d    $a5, $t1, (13*8)  // x15
-    ld.d    $a6, $t1, (14*8)  // x16
-    ld.d    $a7, $t1, (15*8)  // x17
+    ld.d    $a1, $fp, (9*8)   // x11
+    ld.d    $a2, $fp, (10*8)  // x12
+    ld.d    $a3, $fp, (11*8)  // x13
+    ld.d    $a4, $fp, (12*8)  // x14
+    ld.d    $a5, $fp, (13*8)  // x15
+    ld.d    $a6, $fp, (14*8)  // x16
+    ld.d    $a7, $fp, (15*8)  // x17
     RESTORE_GPR_BASE $fp, $s0,  (17*8)  // x23
     RESTORE_GPR_BASE $fp, $s2,  (18*8)  // x25
     RESTORE_GPR_BASE $fp, $s3,  (19*8)  // x26
