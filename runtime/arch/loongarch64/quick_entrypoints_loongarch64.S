@@ -1727,6 +1727,48 @@ NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFr
 .endm
 
 
+.macro UPDATE_INLINE_CACHE_ENTRY class, entry, temp, loop_label, done_label, next_label
+\loop_label:
+    ld.wu   \temp, \entry, 0
+    beq     \class, \temp, \done_label
+    bnez    \temp, \next_label
+    ll.w    \temp, \entry, 0
+    bnez    \temp, \loop_label
+    move    \temp, \class
+    sc.w    \temp, \entry, 0
+    bnez    \temp, \done_label
+    b       \loop_label
+.endm
+
+// A0 contains the class, T8 contains the inline cache. T6 can be used, T8 can be clobbered.
+// T8 may cause 570-checker-osr-locals fail
+ENTRY art_quick_update_inline_cache
+#if (INLINE_CACHE_SIZE != 5)
+#error "INLINE_CACHE_SIZE not as expected."
+#endif
+#if defined(USE_READ_BARRIER) && defined(USE_BAKER_READ_BARRIER)
+    // Don't update the cache if we are marking.
+    ld.wu   $t6, $xSELF, THREAD_IS_GC_MARKING_OFFSET
+    bnez    $t6, .Ldone
+#endif
+    addi.d    $t8, $t8, INLINE_CACHE_CLASSES_OFFSET
+    UPDATE_INLINE_CACHE_ENTRY $a0, $t8, $t6, .Lentry1_loop, .Ldone, .Lentry2
+.Lentry2:
+    addi.d    $t8, $t8, 4
+    UPDATE_INLINE_CACHE_ENTRY $a0, $t8, $t6, .Lentry2_loop, .Ldone, .Lentry3
+.Lentry3:
+    addi.d    $t8, $t8, 4
+    UPDATE_INLINE_CACHE_ENTRY $a0, $t8, $t6, .Lentry3_loop, .Ldone, .Lentry4
+.Lentry4:
+    addi.d    $t8, $t8, 4
+    UPDATE_INLINE_CACHE_ENTRY $a0, $t8, $t6, .Lentry4_loop, .Ldone, .Lentry5
+.Lentry5:
+    // Unconditionally store, the inline cache is megamorphic.
+    st.w      $a0, $t8, 4
+.Ldone:
+    jirl $zero, $ra, 0
+END art_quick_update_inline_cache
+
     /*
      * Macro for resolution and initialization of indexed DEX file
      * constants such as classes and strings.
@@ -1881,6 +1923,5 @@ ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_method_type, artResolveMethod
 ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_string, artResolveStringFromCode
 
 
-UNDEFINED art_quick_update_inline_cache
 UNDEFINED art_quick_indexof
 UNDEFINED art_quick_deoptimize
