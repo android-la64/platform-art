@@ -98,12 +98,8 @@ static constexpr size_t kRuntimeParameterFpuRegistersLength =
   V(ByteValueOf)                                \
   V(ShortValueOf)                               \
   V(CharacterValueOf)                           \
-  V(DoubleDoubleToRawLongBits)                  \
   V(DoubleIsInfinite)                           \
-  V(DoubleLongBitsToDouble)                     \
-  V(FloatFloatToRawIntBits)                     \
   V(FloatIsInfinite)                            \
-  V(FloatIntBitsToFloat)                        \
   V(IntegerReverse)                             \
   V(IntegerReverseBytes)                        \
   V(IntegerBitCount)                            \

@@ -43,6 +43,20 @@ static void CreateIntToIntLocations(ArenaAllocator* allocator, HInvoke* invoke) 
   locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
 }
 
+static void CreateFPToIntLocations(ArenaAllocator* allocator, HInvoke* invoke) {
+  LocationSummary* locations =
+      new (allocator) LocationSummary(invoke, LocationSummary::kNoCall, kIntrinsified);
+  locations->SetInAt(0, Location::RequiresFpuRegister());
+  locations->SetOut(Location::RequiresRegister());
+}
+
+static void CreateIntToFPLocations(ArenaAllocator* allocator, HInvoke* invoke) {
+  LocationSummary* locations =
+      new (allocator) LocationSummary(invoke, LocationSummary::kNoCall, kIntrinsified);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresFpuRegister());
+}
+
 template <typename EmitOp>
 void EmitMemoryPeek(HInvoke* invoke, EmitOp&& emit_op) {
   LocationSummary* locations = invoke->GetLocations();
@@ -54,7 +68,7 @@ void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPeekByte(HInvoke* invoke) 
 }
 
 void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPeekByte(HInvoke* invoke) {
-  EmitMemoryPeek(invoke, [&](XRegister rd, XRegister rs1) { __ Ld_D(rd, rs1, 0); });
+  EmitMemoryPeek(invoke, [&](XRegister rd, XRegister rs1) { __ Ld_B(rd, rs1, 0); });
 }
 
 void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPeekIntNative(HInvoke* invoke) {
@@ -124,6 +138,46 @@ void IntrinsicLocationsBuilderLOONGARCH64::VisitMemoryPokeShortNative(HInvoke* i
 
 void IntrinsicCodeGeneratorLOONGARCH64::VisitMemoryPokeShortNative(HInvoke* invoke) {
   EmitMemoryPoke(invoke, [&](XRegister rs2, XRegister rs1) { __ St_H(rs2, rs1, 0); });
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitDoubleDoubleToRawLongBits(HInvoke* invoke) {
+  CreateFPToIntLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitDoubleDoubleToRawLongBits(HInvoke* invoke) {
+  LocationSummary* locations = invoke->GetLocations();
+  Loongarch64Assembler* assembler = GetAssembler();
+  __ Movfr2gr_d(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsFpuRegister<FRegister>());
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitDoubleLongBitsToDouble(HInvoke* invoke) {
+  CreateIntToFPLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitDoubleLongBitsToDouble(HInvoke* invoke) {
+  LocationSummary* locations = invoke->GetLocations();
+  Loongarch64Assembler* assembler = GetAssembler();
+  __ Movgr2fr_d(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsRegister<XRegister>());
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitFloatFloatToRawIntBits(HInvoke* invoke) {
+  CreateFPToIntLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitFloatFloatToRawIntBits(HInvoke* invoke) {
+  LocationSummary* locations = invoke->GetLocations();
+  Loongarch64Assembler* assembler = GetAssembler();
+  __ Movfr2gr_s(locations->Out().AsRegister<XRegister>(), locations->InAt(0).AsFpuRegister<FRegister>());
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitFloatIntBitsToFloat(HInvoke* invoke) {
+  CreateIntToFPLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitFloatIntBitsToFloat(HInvoke* invoke) {
+  LocationSummary* locations = invoke->GetLocations();
+  Loongarch64Assembler* assembler = GetAssembler();
+  __ Movgr2fr_w(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsRegister<XRegister>());
 }
 
 #define MARK_UNIMPLEMENTED(Name) UNIMPLEMENTED_INTRINSIC(LOONGARCH64, Name)
