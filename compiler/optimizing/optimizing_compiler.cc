@@ -476,6 +476,18 @@ bool OptimizingCompiler::RunRequiredPasses(HGraph* graph,
                               riscv64_optimizations);
     }
 #endif
+#if defined(ART_ENABLE_CODEGEN_loongarch64)
+    case InstructionSet::kLoongarch64: {
+      OptimizationDef loongarch64_optimizations[] = {
+          OptDef(OptimizationPass::kCriticalNativeAbiFixupLoongarch64),
+      };
+      return RunOptimizations(graph,
+                              codegen,
+                              dex_compilation_unit,
+                              pass_observer,
+                              loongarch64_optimizations);
+    }
+#endif
 #ifdef ART_ENABLE_CODEGEN_x86
     case InstructionSet::kX86: {
       OptimizationDef x86_optimizations[] = {
@@ -547,6 +559,21 @@ bool OptimizingCompiler::RunArchOptimizations(HGraph* graph,
                               dex_compilation_unit,
                               pass_observer,
                               riscv64_optimizations);
+    }
+#endif
+#if defined(ART_ENABLE_CODEGEN_loongarch64)
+    case InstructionSet::kLoongarch64: {
+      OptimizationDef loongarch64_optimizations[] = {
+          OptDef(OptimizationPass::kInstructionSimplifierLoongarch64),
+          OptDef(OptimizationPass::kSideEffectsAnalysis),
+          OptDef(OptimizationPass::kGlobalValueNumbering, "GVN$after_arch"),
+          OptDef(OptimizationPass::kCriticalNativeAbiFixupLoongarch64)
+      };
+      return RunOptimizations(graph,
+                              codegen,
+                              dex_compilation_unit,
+                              pass_observer,
+                              loongarch64_optimizations);
     }
 #endif
 #ifdef ART_ENABLE_CODEGEN_x86

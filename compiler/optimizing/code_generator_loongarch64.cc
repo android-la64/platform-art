@@ -50,6 +50,7 @@ namespace loongarch64 {
 // Placeholder values embedded in instructions, patched at link time.
 constexpr uint32_t kLinkTimeOffsetPlaceholderHigh = 0x12345;
 constexpr uint32_t kLinkTimeOffsetPlaceholderLow = 0x678;
+bool isCriticalNative = false;
 
 // Compare-and-jump packed switch generates approx. 3 + 1.5 * N 32-bit
 // instructions for N cases.
@@ -230,12 +231,14 @@ Location CriticalNativeCallingConventionVisitorLoongarch64::GetNextLocation(Data
     }
   }
   if (location.IsInvalid()) {
-    if (DataType::Is64BitType(type)) {
-      location = Location::DoubleStackSlot(stack_offset_);
-    } else {
+    // Only a `float` gets a single slot. Integral args need to be sign-extended to 64 bits.
+    if (type == DataType::Type::kFloat32) {
       location = Location::StackSlot(stack_offset_);
+    } else {
+      location = Location::DoubleStackSlot(stack_offset_);
     }
     stack_offset_ += kFramePointerSize;
+    VLOG(jit) << "zzz stack_offset_ is " << stack_offset_;
 
     if (for_register_allocation_) {
       location = Location::Any();
@@ -1917,7 +1920,11 @@ void LocationsBuilderLOONGARCH64::HandleBinaryOp(HBinaryOperation* instruction) 
     case DataType::Type::kFloat64:
       locations->SetInAt(0, Location::RequiresFpuRegister());
       locations->SetInAt(1, Location::RequiresFpuRegister());
-      locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      if (instruction->IsMin() || instruction->IsMax()) {
+        locations->SetOut(Location::RequiresFpuRegister(), Location::kOutputOverlap);
+      } else {
+        locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+      }
       break;
 
     default:
@@ -2454,24 +2461,22 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateMethodEntryExitHook(HInstructi
   __ Addi_D(tmp, tmp, -1);
   __ Bnez(tmp, slow_path->GetEntryLabel());
 
-  // Check if there is place in the buffer to store a new entry, if no, take the slow path.
-  int32_t trace_buffer_index_offset =
-      Thread::TraceBufferIndexOffset<kLoongarch64PointerSize>().Int32Value();
-  __ Load_D(tmp, TR, trace_buffer_index_offset);
-  __ Addi_D(tmp, tmp, -dchecked_integral_cast<int32_t>(kNumEntriesForWallClock));
-  __ Bltz(tmp, slow_path->GetEntryLabel());
-
-  // Update the index in the `Thread`.
-  __ Store_D(tmp, TR, trace_buffer_index_offset);
-
   // Allocate second core scratch register. We can no longer use `Stored()`
   // and similar macro instructions because there is no core scratch register left.
   XRegister tmp2 = temps.AllocateXRegister();
 
-  // Calculate the entry address in the buffer.
-  // /*addr*/ tmp = TR->GetMethodTraceBuffer() + sizeof(void*) * /*index*/ tmp;
+  // Check if there is place in the buffer to store a new entry, if no, take the slow path.
+  int32_t trace_buffer_curr_entry_offset =
+      Thread::TraceBufferIndexOffset<kLoongarch64PointerSize>().Int32Value();
+  __ Load_D(tmp, TR, trace_buffer_curr_entry_offset);
   __ Load_D(tmp2, TR, Thread::TraceBufferPtrOffset<kLoongarch64PointerSize>().SizeValue());
-  __ Alsl_d(tmp, tmp, tmp2, 3);
+  __ Addi_D(tmp, tmp, -dchecked_integral_cast<int32_t>(kNumEntriesForWallClock * sizeof(void*)));
+  __ Blt(tmp, tmp2, slow_path->GetEntryLabel());
+
+  // Update the index in the `Thread`. Temporarily free `tmp2` to be used by `Stored()`.
+  temps.FreeXRegister(tmp2);
+  __ Store_D(tmp, TR, trace_buffer_curr_entry_offset);
+  tmp2 = temps.AllocateXRegister();
 
   // Record method pointer and trace action.
   __ Ld_D(tmp2, SP, 0);
@@ -2487,12 +2492,85 @@ void InstructionCodeGeneratorLOONGARCH64::GenerateMethodEntryExitHook(HInstructi
   __ St_D(tmp2, tmp, kMethodOffsetInBytes);
 
   // Record the timestamp.
-  __ Rdtime_l_w(tmp2, Zero);
+  __ Rdtime_d(tmp2, Zero);
   static_assert(IsInt<12>(kTimestampOffsetInBytes));  // No free scratch register for `Stored()`.
   __ St_D(tmp2, tmp, kTimestampOffsetInBytes);
 
   __ Bind(slow_path->GetExitLabel());
 }
+
+//void InstructionCodeGeneratorLOONGARCH64::GenerateMethodEntryExitHook(HInstruction* instruction) {
+//  SlowPathCodeLOONGARCH64* slow_path =
+//      new (codegen_->GetScopedAllocator()) MethodEntryExitHooksSlowPathLOONGARCH64(instruction);
+//  codegen_->AddSlowPath(slow_path);
+//
+//  ScratchRegisterScope temps(GetAssembler());
+//  XRegister tmp = temps.AllocateXRegister();
+//
+//  if (instruction->IsMethodExitHook()) {
+//    // Check if we are required to check if the caller needs a deoptimization. Strictly speaking it
+//    // would be sufficient to check if CheckCallerForDeopt bit is set. Though it is faster to check
+//    // if it is just non-zero. kCHA bit isn't used in debuggable runtimes as cha optimization is
+//    // disabled in debuggable runtime. The other bit is used when this method itself requires a
+//    // deoptimization due to redefinition. So it is safe to just check for non-zero value here.
+//    __ Load_WU(tmp, SP, codegen_->GetStackOffsetOfShouldDeoptimizeFlag());
+//    __ Bnez(tmp, slow_path->GetEntryLabel());
+//  }
+//
+//  uint64_t hook_offset = instruction->IsMethodExitHook() ?
+//      instrumentation::Instrumentation::HaveMethodExitListenersOffset().SizeValue() :
+//      instrumentation::Instrumentation::HaveMethodEntryListenersOffset().SizeValue();
+//  auto [base_hook_address, hook_imm12] = SplitJitAddress(
+//      reinterpret_cast64<uint64_t>(Runtime::Current()->GetInstrumentation()) + hook_offset);
+//  __ LoadConst64(tmp, base_hook_address);
+//  __ Ld_BU(tmp, tmp, hook_imm12);
+//  // Check if there are any method entry / exit listeners. If no, continue.
+//  __ Beqz(tmp, slow_path->GetExitLabel());
+//  // Check if there are any slow (jvmti / trace with thread cpu time) method entry / exit listeners.
+//  // If yes, just take the slow path.
+//  static_assert(instrumentation::Instrumentation::kFastTraceListeners == 1u);
+//  __ Addi_D(tmp, tmp, -1);
+//  __ Bnez(tmp, slow_path->GetEntryLabel());
+//
+//  // Check if there is place in the buffer to store a new entry, if no, take the slow path.
+//  int32_t trace_buffer_index_offset =
+//      Thread::TraceBufferIndexOffset<kLoongarch64PointerSize>().Int32Value();
+//  __ Load_D(tmp, TR, trace_buffer_index_offset);
+//  __ Addi_D(tmp, tmp, -dchecked_integral_cast<int32_t>(kNumEntriesForWallClock));
+//  __ Bltz(tmp, slow_path->GetEntryLabel());
+//
+//  // Update the index in the `Thread`.
+//  __ Store_D(tmp, TR, trace_buffer_index_offset);
+//
+//  // Allocate second core scratch register. We can no longer use `Stored()`
+//  // and similar macro instructions because there is no core scratch register left.
+//  XRegister tmp2 = temps.AllocateXRegister();
+//
+//  // Calculate the entry address in the buffer.
+//  // /*addr*/ tmp = TR->GetMethodTraceBuffer() + sizeof(void*) * /*index*/ tmp;
+//  __ Load_D(tmp2, TR, Thread::TraceBufferPtrOffset<kLoongarch64PointerSize>().SizeValue());
+//  __ Alsl_d(tmp, tmp, tmp2, 3);
+//
+//  // Record method pointer and trace action.
+//  __ Ld_D(tmp2, SP, 0);
+//  // Use last two bits to encode trace method action. For MethodEntry it is 0
+//  // so no need to set the bits since they are 0 already.
+//  DCHECK_GE(ArtMethod::Alignment(kRuntimePointerSize), static_cast<size_t>(4));
+//  static_assert(enum_cast<int32_t>(TraceAction::kTraceMethodEnter) == 0);
+//  static_assert(enum_cast<int32_t>(TraceAction::kTraceMethodExit) == 1);
+//  if (instruction->IsMethodExitHook()) {
+//    __ Ori(tmp2, tmp2, enum_cast<int32_t>(TraceAction::kTraceMethodExit));
+//  }
+//  static_assert(IsInt<12>(kMethodOffsetInBytes));  // No free scratch register for `Stored()`.
+//  __ St_D(tmp2, tmp, kMethodOffsetInBytes);
+//
+//  // Record the timestamp.
+//  __ Rdtime_d(tmp2, Zero);
+//  static_assert(IsInt<12>(kTimestampOffsetInBytes));  // No free scratch register for `Stored()`.
+//  __ St_D(tmp2, tmp, kTimestampOffsetInBytes);
+//
+//  __ Bind(slow_path->GetExitLabel());
+//}
 
 void CodeGeneratorLOONGARCH64::GenerateReadBarrierSlow(HInstruction* instruction,
                                                  Location out,
@@ -2672,11 +2750,11 @@ void InstructionCodeGeneratorLOONGARCH64::VisitAbs(HAbs* abs) {
       break;
     }
     case DataType::Type::kFloat32: {
-      LOG(FATAL) << "Unexpected abs type kFloat32.";
+      __ FAbs_s(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsFpuRegister<FRegister>());
       break;
     }
     case DataType::Type::kFloat64: {
-      LOG(FATAL) << "Unexpected abs type kFloat64.";
+      __ FAbs_d(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsFpuRegister<FRegister>());
       break;
     }
     default:
@@ -3310,8 +3388,7 @@ void InstructionCodeGeneratorLOONGARCH64::VisitCheckCast(HCheckCast* instruction
                                         maybe_temp2_loc,
                                         kWithoutReadBarrier);
       // /* HeapReference<Class> */ temp = temp->iftable_
-      GenerateReferenceLoadTwoRegisters(instruction,
-                                       temp_loc,
+      GenerateReferenceLoadOneRegister(instruction,
                                        temp_loc,
                                        iftable_offset,
                                        maybe_temp2_loc,
@@ -4346,13 +4423,13 @@ void InstructionCodeGeneratorLOONGARCH64::VisitLoadMethodHandle(HLoadMethodHandl
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadMethodType(HLoadMethodType* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  InvokeRuntimeCallingConvention calling_convention;
+  Location loc = Location::RegisterLocation(calling_convention.GetRegisterAt(0));
+  CodeGenerator::CreateLoadMethodTypeRuntimeCallLocationSummary(instruction, loc, loc);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitLoadMethodType(HLoadMethodType* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  codegen_->GenerateLoadMethodTypeRuntimeCall(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitLoadString(HLoadString* instruction) {
@@ -5322,13 +5399,34 @@ void InstructionCodeGeneratorLOONGARCH64::VisitXor(HXor* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitBitwiseNegatedRight(HBitwiseNegatedRight* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(DataType::IsIntegralType(instruction->GetType())) << instruction->GetType();
+
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresRegister());
+  locations->SetInAt(1, Location::RequiresRegister());
+  locations->SetOut(Location::RequiresRegister(), Location::kNoOutputOverlap);
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitBitwiseNegatedRight(HBitwiseNegatedRight* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  XRegister lhs = locations->InAt(0).AsRegister<XRegister>();
+  XRegister rhs = locations->InAt(1).AsRegister<XRegister>();
+  XRegister dst = locations->Out().AsRegister<XRegister>();
+
+  switch (instruction->GetOpKind()) {
+    case HInstruction::kAnd:
+      __ Andn(dst, lhs, rhs);
+      break;
+    case HInstruction::kOr:
+      __ Orn(dst, lhs, rhs);
+      break;
+    case HInstruction::kXor:
+      __ Xor(dst, lhs, rhs);
+      __ Nor(dst, dst, Zero);
+      break;
+    default:
+      LOG(FATAL) << "Unreachable";
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecReplicateScalar(HVecReplicateScalar* instruction) {
@@ -6084,8 +6182,11 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
               destination.IsStackSlot() ? DataType::Type::kFloat32 : DataType::Type::kFloat64;
         }
       }
-      DCHECK((destination.IsDoubleStackSlot() == DataType::Is64BitType(dst_type)) &&
-             (source.IsFpuRegister() == DataType::IsFloatingPointType(dst_type)));
+      DCHECK_EQ(source.IsFpuRegister(), DataType::IsFloatingPointType(dst_type));
+      // For direct @CriticalNative calls, we need to sign-extend narrow integral args
+      // to 64 bits, so widening integral values is allowed. Narrowing is forbidden.
+      DCHECK_IMPLIES(DataType::IsFloatingPointType(dst_type) || destination.IsStackSlot(),
+                     destination.IsDoubleStackSlot() == DataType::Is64BitType(dst_type));
       // Move to stack from GPR/FPR
       if (DataType::Is64BitType(dst_type)) {
         if (source.IsRegister()) {
@@ -6095,7 +6196,11 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
         }
       } else {
         if (source.IsRegister()) {
-          __ Store_W(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
+          if(isCriticalNative) {
+            __ Store_D(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
+          } else {
+            __ Store_W(source.AsRegister<XRegister>(), SP, destination.GetStackIndex());
+          }
         } else {
           __ FStore_S(source.AsFpuRegister<FRegister>(), SP, destination.GetStackIndex());
         }
@@ -6109,22 +6214,32 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
         __ LoadConst64(gpr, value);
       }
       if (destination.IsStackSlot()) {
+        if(isCriticalNative) {
+          __ Store_D(gpr, SP, destination.GetStackIndex());
+        } else {
         __ Store_W(gpr, SP, destination.GetStackIndex());
+        }
       } else {
         DCHECK(destination.IsDoubleStackSlot());
         __ Store_D(gpr, SP, destination.GetStackIndex());
       }
     } else {
       DCHECK(source.IsStackSlot() || source.IsDoubleStackSlot());
-      DCHECK_EQ(source.IsDoubleStackSlot(), destination.IsDoubleStackSlot());
+      // For direct @CriticalNative calls, we need to sign-extend narrow integral args
+      // to 64 bits, so widening move is allowed. Narrowing move is forbidden.
+      DCHECK_IMPLIES(destination.IsStackSlot(), source.IsStackSlot());
       // Move to stack from stack
       ScratchRegisterScope srs(GetAssembler());
       XRegister tmp = srs.AllocateXRegister();
-      if (destination.IsStackSlot()) {
+      if (source.IsStackSlot()) {
         __ Load_W(tmp, SP, source.GetStackIndex());
-        __ Store_W(tmp, SP, destination.GetStackIndex());
       } else {
         __ Load_D(tmp, SP, source.GetStackIndex());
+      }
+      if (destination.IsStackSlot()) {
+        // May need to align ABI
+        __ Store_W(tmp, SP, destination.GetStackIndex());
+      } else {
         __ Store_D(tmp, SP, destination.GetStackIndex());
       }
     }
@@ -6563,12 +6678,15 @@ void CodeGeneratorLOONGARCH64::EmitLinkerPatches(ArenaVector<linker::LinkerPatch
     DCHECK(boot_image_type_patches_.empty());
     DCHECK(boot_image_string_patches_.empty());
   }
+  DCHECK_IMPLIES(!GetCompilerOptions().IsAppImage(), app_image_type_patches_.empty());
   if (GetCompilerOptions().IsBootImage()) {
     EmitPcRelativeLinkerPatches<NoDexFileAdapter<linker::LinkerPatch::IntrinsicReferencePatch>>(
         boot_image_other_patches_, linker_patches);
   } else {
     EmitPcRelativeLinkerPatches<NoDexFileAdapter<linker::LinkerPatch::BootImageRelRoPatch>>(
         boot_image_other_patches_, linker_patches);
+    EmitPcRelativeLinkerPatches<linker::LinkerPatch::TypeAppImageRelRoPatch>(
+        app_image_type_patches_, linker_patches);
   }
   EmitPcRelativeLinkerPatches<linker::LinkerPatch::MethodBssEntryPatch>(
       method_bss_entry_patches_, linker_patches);
@@ -6662,16 +6780,9 @@ void CodeGeneratorLOONGARCH64::LoadMethod(MethodLoadKind load_kind, Location tem
           info_low, temp.AsRegister<XRegister>(), temp.AsRegister<XRegister>());
       break;
     }
-    // Read-only data area in Boot Image
     case MethodLoadKind::kBootImageRelRo: {
-      // get the method offset in Boot Image
       uint32_t boot_image_offset = GetBootImageOffset(invoke);
-      PcRelativePatchInfo* info_high = NewBootImageRelRoPatch(boot_image_offset);
-      EmitPcRelativePcaddu12iPlaceholder(info_high, temp.AsRegister<XRegister>());
-      PcRelativePatchInfo* info_low = NewBootImageRelRoPatch(boot_image_offset, info_high);
-      // Note: Boot image is in the low 4GiB and the entry is 32-bit, so emit a 32-bit load.
-      EmitPcRelativeLd_wuPlaceholder(
-          info_low, temp.AsRegister<XRegister>(), temp.AsRegister<XRegister>());
+      LoadBootImageRelRoEntry(temp.AsRegister<XRegister>(), boot_image_offset);
       break;
     }
     case MethodLoadKind::kBssEntry: {
@@ -6745,25 +6856,27 @@ void CodeGeneratorLOONGARCH64::GenerateStaticOrDirectCall(HInvokeStaticOrDirect*
       break;
     case CodePtrLocation::kCallArtMethod:
       // RA = callee_method->entry_point_from_quick_compiled_code_;
-      __ Load_D(TMP,
+      __ Load_D(RA,
                callee_method.AsRegister<XRegister>(),
                ArtMethod::EntryPointFromQuickCompiledCodeOffset(kLoongarch64PointerSize).Int32Value());
       // RA()
-      __ Jirl(RA, TMP, 0);
+      __ Jirl(RA, RA, 0);
       RecordPcInfo(invoke, invoke->GetDexPc(), slow_path);
       break;
     case CodePtrLocation::kCallCriticalNative: {
+      isCriticalNative = true;
       size_t out_frame_size =
           PrepareCriticalNativeCall<CriticalNativeCallingConventionVisitorLoongarch64,
                                     kLoongarch64StackAlignment,
                                     GetCriticalNativeDirectCallFrameSize>(invoke);
+      isCriticalNative = false;
       if (invoke->GetMethodLoadKind() == MethodLoadKind::kBootImageLinkTimePcRelative) {
-        __ Jirl(RA, TMP, 0);
+        // Entrypoint is already loaded in RA.
       } else {
-        // TMP2 = callee_method->ptr_sized_fields_.data_;  // EntryPointFromJni
+        // RA = callee_method->ptr_sized_fields_.data_;  // EntryPointFromJni
         MemberOffset offset = ArtMethod::EntryPointFromJniOffset(kLoongarch64PointerSize);
-        __ Load_D(TMP2, callee_method.AsRegister<XRegister>(), offset.Int32Value());
-        __ Jirl(RA, TMP2, 0);
+        __ Load_D(RA, callee_method.AsRegister<XRegister>(), offset.Int32Value());
+        __ Jirl(RA, RA, 0);
       }
       RecordPcInfo(invoke, invoke->GetDexPc(), slow_path);
       // The result is returned the same way in native ABI and managed ABI. No result conversion is
@@ -6789,7 +6902,8 @@ void CodeGeneratorLOONGARCH64::MaybeGenerateInlineCacheCheck(HInstruction* instr
       uint64_t address = reinterpret_cast64<uint64_t>(cache);
       Loongarch64Label done;
       // The `art_quick_update_inline_cache` expects the inline cache in T5.
-      XRegister ic_reg = T5;
+      // T8/T5 may cause 570-checker-osr-locals fail
+      XRegister ic_reg = T8;
       ScratchRegisterScope srs(GetAssembler());
       DCHECK_EQ(srs.AvailableXRegisters(), 2u);
       srs.ExcludeXRegister(ic_reg);
@@ -6846,9 +6960,9 @@ void CodeGeneratorLOONGARCH64::GenerateVirtualCall(HInvokeVirtual* invoke,
   // temp = temp->GetMethodAt(method_offset);
   __ Load_D(temp, temp, method_offset.Int32Value());
   // RA = temp->GetEntryPoint();
-  __ Load_D(TMP, temp, entry_point.Int32Value());
+  __ Load_D(RA, temp, entry_point.Int32Value());
   // RA();
-  __ Jirl(RA, TMP, 0);
+  __ Jirl(RA, RA, 0);
   RecordPcInfo(invoke, invoke->GetDexPc(), slow_path);
 }
 

@@ -142,6 +142,8 @@ uint64_t GetTimestamp() {
   t = (static_cast<uint64_t>(hi) << 32) | lo;
 #elif defined(__riscv)
   asm volatile("rdtime %0" : "=r"(t));
+#elif defined(__loongarch64)
+  asm volatile("rdtime.d %0, $zero" : "=r"(t));
 #else
   t = MicroTime();
 #endif

@@ -27,6 +27,10 @@
 #include "critical_native_abi_fixup_riscv64.h"
 #include "instruction_simplifier_riscv64.h"
 #endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+#include "critical_native_abi_fixup_loongarch64.h"
+#include "instruction_simplifier_loongarch64.h"
+#endif
 #ifdef ART_ENABLE_CODEGEN_x86
 #include "pc_relative_fixups_x86.h"
 #include "instruction_simplifier_x86.h"
@@ -118,6 +122,12 @@ const char* OptimizationPassName(OptimizationPass pass) {
     case OptimizationPass::kInstructionSimplifierRiscv64:
       return riscv64::InstructionSimplifierRiscv64::kInstructionSimplifierRiscv64PassName;
 #endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+    case OptimizationPass::kCriticalNativeAbiFixupLoongarch64:
+      return loongarch64::CriticalNativeAbiFixupLoongarch64::kCriticalNativeAbiFixupLoongarch64PassName;
+    case OptimizationPass::kInstructionSimplifierLoongarch64:
+      return loongarch64::InstructionSimplifierLoongarch64::kInstructionSimplifierLoongarch64PassName;
+#endif
 #ifdef ART_ENABLE_CODEGEN_x86
     case OptimizationPass::kPcRelativeFixupsX86:
       return x86::PcRelativeFixups::kPcRelativeFixupsX86PassName;
@@ -167,6 +177,10 @@ OptimizationPass OptimizationPassByName(const std::string& pass_name) {
 #ifdef ART_ENABLE_CODEGEN_riscv64
   X(OptimizationPass::kCriticalNativeAbiFixupRiscv64);
   X(OptimizationPass::kInstructionSimplifierRiscv64);
+#endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+  X(OptimizationPass::kCriticalNativeAbiFixupLoongarch64);
+  X(OptimizationPass::kInstructionSimplifierLoongarch64);
 #endif
 #ifdef ART_ENABLE_CODEGEN_x86
   X(OptimizationPass::kPcRelativeFixupsX86);
@@ -321,6 +335,16 @@ ArenaVector<HOptimization*> ConstructOptimizations(
       case OptimizationPass::kInstructionSimplifierRiscv64:
         DCHECK(alt_name == nullptr) << "arch-specific pass does not support alternative name";
         opt = new (allocator) riscv64::InstructionSimplifierRiscv64(graph, stats);
+        break;
+#endif
+#ifdef ART_ENABLE_CODEGEN_loongarch64
+      case OptimizationPass::kCriticalNativeAbiFixupLoongarch64:
+        DCHECK(alt_name == nullptr) << "arch-specific pass does not support alternative name";
+        opt = new (allocator) loongarch64::CriticalNativeAbiFixupLoongarch64(graph, stats);
+        break;
+      case OptimizationPass::kInstructionSimplifierLoongarch64:
+        DCHECK(alt_name == nullptr) << "arch-specific pass does not support alternative name";
+        opt = new (allocator) loongarch64::InstructionSimplifierLoongarch64(graph, stats);
         break;
 #endif
 #ifdef ART_ENABLE_CODEGEN_x86
