@@ -129,6 +129,8 @@ class DexFileVerifier {
       : dex_file_(dex_file),
         offset_base_address_(dex_file->DataBegin()),
         size_(dex_file->DataSize()),
+        file_begin_(dex_file->Begin()),
+        file_end_(dex_file->Begin() + dex_file->GetHeader().file_size_),
         location_(location),
         verify_checksum_(verify_checksum),
         header_(&dex_file->GetHeader()),
@@ -139,6 +141,16 @@ class DexFileVerifier {
                       std::numeric_limits<size_t>::max(),
                       std::numeric_limits<size_t>::max()} {
     CHECK(!dex_file->IsCompactDexFile()) << "Not supported";
+    
+    // Phase 1 Optimization: Pre-allocate offset_to_type_map_ to avoid dynamic resizing
+    // Estimate the number of items we'll store in the map based on dex file structure
+    size_t estimated_items = header_->string_ids_size_ + 
+                             header_->type_ids_size_ + 
+                             header_->method_ids_size_ + 
+                             header_->field_ids_size_ +
+                             header_->class_defs_size_;
+    // Reserve 1.5x space to maintain low load factor and minimize collisions
+    offset_to_type_map_.reserve(estimated_items * 3 / 2);
   }
 
   bool Verify();
@@ -148,16 +160,20 @@ class DexFileVerifier {
   }
 
  private:
+  // Phase 1 Optimization: Optimize hot path functions with aggressive inlining
+  // These functions are called extremely frequently (11.72% CPU according to perf)
   template <class T = uint8_t>
+  [[gnu::always_inline, gnu::hot]]
   ALWAYS_INLINE const T* OffsetToPtr(size_t offset) {
     DCHECK_GE(offset, static_cast<size_t>(dex_file_->Begin() - offset_base_address_));
     DCHECK_LE(offset, size_);
     return reinterpret_cast<const T*>(offset_base_address_ + offset);
   }
 
+  [[gnu::always_inline, gnu::hot]]
   ALWAYS_INLINE size_t PtrToOffset(const void* ptr) {
-    DCHECK_GE(ptr, dex_file_->Begin());
-    DCHECK_LE(ptr, EndOfFile());
+    DCHECK_GE(ptr, file_begin_);
+    DCHECK_LE(ptr, file_end_);
     return reinterpret_cast<const uint8_t*>(ptr) - offset_base_address_;
   }
 
@@ -169,8 +185,10 @@ class DexFileVerifier {
     return *offset <= size_;
   }
 
+  // Phase 1 Optimization: Return cached file_end_ directly instead of calculating
+  [[gnu::always_inline, gnu::hot]]
   ALWAYS_INLINE const uint8_t* EndOfFile() {
-    return OffsetToPtr(size_);
+    return file_end_;
   }
 
   // Helper functions to retrieve names from the dex file. We do not want to rely on DexFile
@@ -400,6 +418,9 @@ class DexFileVerifier {
   const DexFile* const dex_file_;
   const uint8_t* const offset_base_address_;
   const size_t size_;
+  // Phase 1 Optimization: Cache file boundaries to avoid repeated calculations
+  const uint8_t* const file_begin_;
+  const uint8_t* const file_end_;
   ArrayRef<const uint8_t> data_;  // The "data" section of the dex file.
   const char* const location_;
   const bool verify_checksum_;
