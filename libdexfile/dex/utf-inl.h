@@ -71,6 +71,43 @@ inline uint32_t GetUtf16FromUtf8(const char** utf8_data_in) {
 
 inline int CompareModifiedUtf8ToModifiedUtf8AsUtf16CodePointValues(const char* utf8_1,
                                                                    const char* utf8_2) {
+  // Phase 2 P1 Optimization: Fast path using memcmp for common ASCII prefixes
+  // Most strings differ in the first few bytes, so we can avoid UTF-8 decoding
+  // by doing a quick byte-level comparison first.
+  const char* utf8_1_orig = utf8_1;
+  const char* utf8_2_orig = utf8_2;
+  
+  // Fast path: Compare bytes until we hit a non-ASCII character or difference
+  // ASCII characters (< 0x80) have the same encoding in UTF-8 and UTF-16
+  while (true) {
+    uint8_t c1 = static_cast<uint8_t>(*utf8_1);
+    uint8_t c2 = static_cast<uint8_t>(*utf8_2);
+    
+    // Check for null terminator or difference
+    if (c1 == 0) {
+      return (c2 == 0) ? 0 : -1;
+    } else if (c2 == 0) {
+      return 1;
+    }
+    
+    // Both are ASCII and equal - continue fast path
+    if (c1 == c2 && c1 < 0x80) {
+      utf8_1++;
+      utf8_2++;
+      continue;
+    }
+    
+    // Either different or non-ASCII - exit fast path
+    if (c1 != c2 && c1 < 0x80 && c2 < 0x80) {
+      // Both ASCII but different - can return directly
+      return static_cast<int>(c1) - static_cast<int>(c2);
+    }
+    
+    // Non-ASCII character encountered - fall through to slow path
+    break;
+  }
+  
+  // Slow path: UTF-8 decoding required for non-ASCII characters
   uint32_t c1, c2;
   do {
     c1 = *utf8_1;
