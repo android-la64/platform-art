@@ -50,6 +50,22 @@ static void CreateFPToIntLocations(ArenaAllocator* allocator, HInvoke* invoke) {
   locations->SetOut(Location::RequiresRegister());
 }
 
+static void CreateFpFpFpToFpNoOverlapLocations(ArenaAllocator* allocator, HInvoke* invoke) {
+  DCHECK_EQ(invoke->GetNumberOfArguments(), 3U);
+  DCHECK(DataType::IsFloatingPointType(invoke->InputAt(0)->GetType()));
+  DCHECK(DataType::IsFloatingPointType(invoke->InputAt(1)->GetType()));
+  DCHECK(DataType::IsFloatingPointType(invoke->InputAt(2)->GetType()));
+  DCHECK(DataType::IsFloatingPointType(invoke->GetType()));
+
+  LocationSummary* const locations =
+      new (allocator) LocationSummary(invoke, LocationSummary::kNoCall, kIntrinsified);
+
+  locations->SetInAt(0, Location::RequiresFpuRegister());
+  locations->SetInAt(1, Location::RequiresFpuRegister());
+  locations->SetInAt(2, Location::RequiresFpuRegister());
+  locations->SetOut(Location::RequiresFpuRegister(), Location::kNoOutputOverlap);
+}
+
 static void CreateIntToFPLocations(ArenaAllocator* allocator, HInvoke* invoke) {
   LocationSummary* locations =
       new (allocator) LocationSummary(invoke, LocationSummary::kNoCall, kIntrinsified);
@@ -178,6 +194,34 @@ void IntrinsicCodeGeneratorLOONGARCH64::VisitFloatIntBitsToFloat(HInvoke* invoke
   LocationSummary* locations = invoke->GetLocations();
   Loongarch64Assembler* assembler = GetAssembler();
   __ Movgr2fr_w(locations->Out().AsFpuRegister<FRegister>(), locations->InAt(0).AsRegister<XRegister>());
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMathFmaDouble(HInvoke* invoke) {
+  CreateFpFpFpToFpNoOverlapLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMathFmaDouble(HInvoke* invoke) {
+  LocationSummary* locations = invoke->GetLocations();
+  FRegister a = locations->InAt(0).AsFpuRegister<FRegister>();
+  FRegister b = locations->InAt(1).AsFpuRegister<FRegister>();
+  FRegister c = locations->InAt(2).AsFpuRegister<FRegister>();
+  FRegister out = locations->Out().AsFpuRegister<FRegister>();
+
+  __ FMadd_d(out, a, b, c);
+}
+
+void IntrinsicLocationsBuilderLOONGARCH64::VisitMathFmaFloat(HInvoke* invoke) {
+  CreateFpFpFpToFpNoOverlapLocations(allocator_, invoke);
+}
+
+void IntrinsicCodeGeneratorLOONGARCH64::VisitMathFmaFloat(HInvoke* invoke) {
+  LocationSummary* locations = invoke->GetLocations();
+  FRegister a = locations->InAt(0).AsFpuRegister<FRegister>();
+  FRegister b = locations->InAt(1).AsFpuRegister<FRegister>();
+  FRegister c = locations->InAt(2).AsFpuRegister<FRegister>();
+  FRegister out = locations->Out().AsFpuRegister<FRegister>();
+
+  __ FMadd_s(out, a, b, c);
 }
 
 #define MARK_UNIMPLEMENTED(Name) UNIMPLEMENTED_INTRINSIC(LOONGARCH64, Name)

@@ -583,6 +583,12 @@ class Loongarch64Assembler final : public Assembler {
   void Fcmp_sune_d (FCCRegister cd, FRegister fj, FRegister fk);
 
   // 4R-Type
+  // Float instructions : opcode from 0000 1000 0001
+  //                                ~ 0000 1000 0010
+  void FMadd_s(FRegister fd, FRegister fj, FRegister fk, FRegister fa);
+  void FMadd_d(FRegister fd, FRegister fj, FRegister fk, FRegister fa);
+
+  // 4R-Type
   // Float instructions : opcode from 0000 1101 0000
   void Fsel (FRegister fd, FRegister fj, FRegister fk, FCCRegister ca);
 

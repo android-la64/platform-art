@@ -1437,6 +1437,13 @@ void Loongarch64Assembler::Fcmp_sune_d (FCCRegister cd, FRegister fj, FRegister 
   Emit4R(0xc2, fcmp_sule, fk, fj, cd);
 }
 
+void Loongarch64Assembler::FMadd_s(FRegister fd, FRegister fj, FRegister fk, FRegister fa) {
+  Emit4R(0x81, fa, fk, fj, fd);
+}
+
+void Loongarch64Assembler::FMadd_d(FRegister fd, FRegister fj, FRegister fk, FRegister fa) {
+  Emit4R(0x82, fa, fk, fj, fd);
+}
 
 void Loongarch64Assembler::Fsel (FRegister fd, FRegister fj, FRegister fk, FCCRegister ca) {
   Emit4R(0xd0, ca, fk, fj, fd);
