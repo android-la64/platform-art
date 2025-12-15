@@ -1,0 +1,166 @@
+art/test.py -h                                                                                                             
+usage: test.py [-h] [-j N_THREADS] [--run-test] [--gtest] [--target] [--host] [--help-runner]
+
+Test runner wrapper to run ART run tests. All unrecognised arguments are passed on to art/test/testrunner/testrunner.py.
+
+options:
+  -h, --help      show this help message and exit
+  -j N_THREADS    specify number of concurrent tests
+  --run-test, -r  execute run tests
+  --gtest, -g     execute gtest tests
+  --target        test on target system
+  --host          test on build host system
+  --help-runner   show help for optional run test arguments
+
+   art/test.py --help-runner
+/home/yanxi/loongson/aosp15.la/art/test/testrunner/testrunner.py --help
+usage: testrunner.py [-h] [-t TESTS] [-j N_THREAD] [--timeout TIMEOUT] [--verbose] [--dry-run] [--skip SKIPS] [--no-skips] [--no-build-dependencies] [-b] [--dist] [--gdb] [--gdb-arg GDB_ARG]
+                     [--dump-cfg DUMP_CFG] [--gdb-dex2oat] [--gdb-dex2oat-args GDB_DEX2OAT_ARGS] [--run-test-option RUN_TEST_OPTION] [--with-agent WITH_AGENT] [--runtime-option RUNTIME_OPTION]
+                     [--dex2oat-jobs DEX2OAT_JOBS] [-a] [--csv-results CSV_RESULT] [--all-run] [--debug] [--ndebug] [--all-target] [--target] [--jvm] [--host] [--all-trace] [--stream] [--ntrace]
+                     [--trace] [--all-image] [--picimage] [--no-image] [--all-debuggable] [--ndebuggable] [--debuggable] [--all-gc] [--gcstress] [--gcverify] [--cms] [--all-prebuild] [--no-prebuild]
+                     [--prebuild] [--all-relocate] [--no-relocate] [--relocate] [--all-jni] [--checkjni] [--forcecopy] [--jni] [--all-address_sizes] [--64] [--32] [--all-jvmti] [--field-stress]
+                     [--jvmti-stress] [--no-jvmti] [--redefine-stress] [--step-stress] [--trace-stress] [--all-compiler] [--jit-on-first-use] [--interpreter] [--optimizing] [--baseline] [--jit]
+                     [--speed-profile] [--interp-ac]
+                     [tests ...]
+
+Runs all or a subset of the ART test suite.
+
+positional arguments:
+  tests                 name(s) of the test(s)
+
+options:
+  -h, --help            show this help message and exit
+  -t TESTS, --test TESTS
+                        name(s) of the test(s) (deprecated: use positional arguments at the end without any option instead)
+
+Global options:
+  Options that affect all tests being run
+
+  -j N_THREAD           Number of CPUs to use. Defaults to half of CPUs on target and all CPUs on host.
+  --timeout TIMEOUT
+  --verbose, -v
+  --dry-run
+  --skip SKIPS          强制跳过指定的测试。
+  --no-skips            忽略 knownfailures.json 中的配置，强制运行所有测试（即使已知会失败）。
+  --no-build-dependencies
+                        Don't build dependencies under any circumstances. This is the behavior if ART_TEST_RUN_TEST_ALWAYS_BUILD is not set to 'true'.
+  -b, --build-dependencies
+                        Build dependencies under all circumstances. By default we will not build dependencies unless ART_TEST_RUN_TEST_BUILD=true.
+  --dist                If dependencies are to be built, pass `dist` to the build command line. You may want to also set the DIST_DIR environment variable when using this flag.
+  --gdb
+  --gdb-arg GDB_ARG
+  --dump-cfg DUMP_CFG   导出控制流图 (Control Flow Graph)，用于分析编译器优化过程。
+  --gdb-dex2oat
+  --gdb-dex2oat-args GDB_DEX2OAT_ARGS
+  --run-test-option RUN_TEST_OPTION
+                        透传参数给底层的 run-test Shell 脚本。
+                        Pass an option, unaltered, to the run-test script. This should be enclosed in single-quotes to allow for spaces. The option will be split using shlex.split() prior to invoking
+                        run-test. Example "--run-test-option='--with-agent libtifast.so=MethodExit'".
+  --with-agent WITH_AGENT
+                        Pass an agent to be attached to the runtime
+  --runtime-option RUNTIME_OPTION
+                        透传参数给 ART 运行时 (dalvikvm)。例如：--runtime-option=-Xjitthreshold:0 (修改 JIT 阈值)
+                        Pass an option to the runtime. Runtime options starting with a '-' must be separated by a '=', for example '--runtime-option=-Xjitthreshold:0'.
+  --dex2oat-jobs DEX2OAT_JOBS
+                        指定 dex2oat 编译器的并发线程数。
+                        Number of dex2oat jobs
+  -a, --all             Run all the possible configurations for the input test set
+  --csv-results CSV_RESULT
+                        Store a CSV record of all results.
+
+run-type Options:
+  Options that control the 'run' variants.
+
+  --all-run             Enable all variants of run
+  --debug
+  --ndebug
+
+target-type Options:
+  Options that control the 'target' variants.
+
+  --all-target          Enable all variants of target
+  --target
+  --jvm
+  --host
+
+trace-type Options:
+  Options that control the 'trace' variants.
+
+  --all-trace           Enable all variants of trace
+  --stream
+  --ntrace
+  --trace
+
+image-type Options:
+  Options that control the 'image' variants.
+
+  --all-image           Enable all variants of image
+  --picimage
+  --no-image
+
+debuggable-type Options:
+  Options that control the 'debuggable' variants.
+
+  --all-debuggable      Enable all variants of debuggable
+  --ndebuggable
+  --debuggable         //编译器: 生成包含调试信息且未过度优化的代码。运行时: 开启特定的 JNI 行为（Opaque JNI IDs）并确保 JIT 编译也遵循调试模式。
+
+gc-type Options:
+  Options that control the 'gc' variants.
+
+  --all-gc              Enable all variants of gc
+  --gcstress             //GC 压力测试。极其频繁地触发 GC，用于检测内存破坏或对象引用问题。
+  --gcverify            // GC 验证模式，检查堆的完整性。
+  --cms                 //标准并发标记清除 (Concurrent Mark Sweep) 或默认 GC。
+
+prebuild-type Options:
+  Options that control the 'prebuild' variants.
+
+  --all-prebuild        Enable all variants of prebuild
+  --no-prebuild
+  --prebuild
+
+relocate-type Options:
+  Options that control the 'relocate' variants.
+
+  --all-relocate        Enable all variants of relocate
+  --no-relocate
+  --relocate
+
+jni-type Options:
+  Options that control the 'jni' variants.
+
+  --all-jni             Enable all variants of jni
+  --checkjni            //开启 JNI 检查 (-Xcheck:jni)，这是发现 Native 代码 bug 的利器。
+  --forcecopy
+  --jni
+
+address_sizes-type Options:
+  Options that control the 'address_sizes' variants.
+
+  --all-address_sizes   Enable all variants of address_sizes
+  --64
+  --32
+
+jvmti-type Options:
+  Options that control the 'jvmti' variants.
+
+  --all-jvmti           Enable all variants of jvmti
+  --field-stress
+  --jvmti-stress
+  --no-jvmti
+  --redefine-stress
+  --step-stress
+  --trace-stress
+
+compiler-type Options:
+  Options that control the 'compiler' variants.
+
+  --all-compiler        Enable all variants of compiler
+  --jit-on-first-use  //JIT（即时编译）在首次使用时激活
+  --interpreter
+  --optimizing
+  --baseline
+  --jit
+  --speed-profile  //生成一个随机的profile文件测试PGO性能
+  --interp-ac    // switch-interpreter
