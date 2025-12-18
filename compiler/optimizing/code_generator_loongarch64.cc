@@ -61,8 +61,18 @@ static constexpr uint32_t kPackedSwitchCompareJumpThreshold = 6;
 
 static constexpr XRegister kCoreCalleeSaves[] = {
     // S1(TR) is excluded as the ART thread register.
-    S0, S2, S3, S4, S5, S6, S7, S8, RA
-};
+    // FP(S9) is included to match NTERP_SIZE_SAVE_CALLEE_SAVES for OSR compatibility.
+    // Order matches nterp's SETUP_NTERP_SAVE_CALLEE_SAVES: FP before S0.
+    FP,
+    S0,
+    S2,
+    S3,
+    S4,
+    S5,
+    S6,
+    S7,
+    S8,
+    RA};
 
 static constexpr FRegister kFpuCalleeSaves[] = {
     FS0, FS1, FS2, FS3, FS4, FS5, FS6, FS7
@@ -430,7 +440,10 @@ class LoadClassSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
 
     InvokeRuntimeCallingConvention calling_convention;
     if (must_resolve_type) {
-      DCHECK(IsSameDexFile(cls_->GetDexFile(), loongarch64_codegen->GetGraph()->GetDexFile()));
+      DCHECK(IsSameDexFile(cls_->GetDexFile(), loongarch64_codegen->GetGraph()->GetDexFile()) ||
+             loongarch64_codegen->GetCompilerOptions().WithinOatFile(&cls_->GetDexFile()) ||
+             ContainsElement(Runtime::Current()->GetClassLinker()->GetBootClassPath(),
+                             &cls_->GetDexFile()));
       dex::TypeIndex type_index = cls_->GetTypeIndex();
       __ LoadConst32(calling_convention.GetRegisterAt(0), type_index.index_);
       if (cls_->NeedsAccessCheck()) {

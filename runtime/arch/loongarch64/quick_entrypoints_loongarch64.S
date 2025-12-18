@@ -1871,38 +1871,45 @@ ENTRY art_quick_osr_stub
 .Losr_entry:
     CFI_RESTORE_STATE_AND_DEF_CFA $fp, SAVE_SIZE - (20*8)
 
-    // Prepare the destination register for backward copy of arguments.
-    addi.d $t1, $sp, -8
+    // Save original arguments for later use
+    // A0 = source, A1 = size, A2 = native_pc
+    move   $t3, $a0          // Save source address in t3
+    move   $t4, $a1          // Save size in t4
+    move   $t5, $a2          // Save native_pc in t5
 
     // Update stack pointer for the callee frame.
     sub.d  $sp, $sp, $a1
 
-    // Subtract the return address slot size from args size.
+    // Update link register slot expected by the callee.
+    // Store return address at [sp + (size - 8)] like ARM64 does.
     addi.d $a1, $a1, -8
-
-    // Update return address slot expected by the callee.
+    add.d  $t1, $sp, $a1
     st.d   $ra, $t1, 0
 
-    // Prepare the source register for backward copy of arguments.
-    add.d  $t0, $a0, $a1
+    // Restore a1 to original size for copy loop counter
+    move   $a1, $t4
+    addi.d $a1, $a1, -8      // Exclude RA slot from copy
 
-    // Copy arguments into stack frame. Use simple backward-copy routine for now.
-    // There is always at least the `ArtMethod*` to to copy.
-    // A0 - source address
-    // A1 - args length
+    // Copy arguments into stack frame. Use simple copy routine for now.
+    // 4 bytes per slot (stack slots are 32-bit, same as ARM64).
+    // A0 - source address (t3 saved)
+    // A1 - args length (in bytes), loop counter (now excluding return address slot)
     // SP - destination address.
-    // T0 - loop variable initialized to A0 + A1 for backward copy
-    // T1 - loop variable initialized to SP + A1 for backward copy
+    // T0 - temporary source pointer
+    // T1 - temporary destination pointer
     // T2 - temporary for holding the copied value
 .Losr_loop:
-    addi.d $t0, $t0, -8
-    ld.d   $t2, $t0, 0
-    addi.d $t1, $t1, -8
-    st.d   $t2, $t1, 0
-    bne  $t1, $sp, .Losr_loop
+    beqz   $a1, .Losr_loop_exit
+    addi.d $a1, $a1, -4
+    add.d  $t0, $a0, $a1
+    ld.w   $t2, $t0, 0
+    add.d  $t1, $sp, $a1
+    st.w   $t2, $t1, 0
+    b      .Losr_loop
+.Losr_loop_exit:
 
     // Branch to the OSR entry point.
-    jirl   $zero, $a2, 0
+    jirl   $zero, $t5, 0
 
 END art_quick_osr_stub
 
