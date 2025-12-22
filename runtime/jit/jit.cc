@@ -67,6 +67,73 @@ static constexpr bool kEnableOnStackReplacement = true;
 // JIT compiler
 JitCompilerInterface* Jit::jit_compiler_ = nullptr;
 
+// Filter for single method JIT compilation.
+// Set to non-empty string to only compile methods containing this substring.
+// Examples:
+//   "java.util.Arrays.sort" - only compile Arrays.sort method
+//   "void com.example.MyClass.myMethod(" - more specific match
+//   "" - empty string means compile all methods (default behavior)
+static const char* kJitCompileMethodFilters[] = {
+    // "scimark2.Random.nextDouble",
+    nullptr  // Array terminator, do not remove
+};
+
+// Exclusion filter array for JIT compilation.
+// Methods containing any of these substrings will NOT be compiled.
+// Set first element to nullptr to disable exclusion filtering.
+static const char* kJitCompileMethodNotFilters[] = {
+    // Add patterns to exclude here, for example:
+    // "java",
+    // "com",
+    // "scimark2.LU",
+    // "scimark2.FFT",
+    // "scimark2.SOR",
+    // "scimark2.MonteCarlo",
+    // "scimark2.SparseCompRow",
+    // "scimark2.Random.nextDouble",
+    // "android.view.",
+    nullptr  // Array terminator, do not remove
+};
+
+// Helper function to check if a method should be compiled based on filter
+static bool ShouldCompileMethod(ArtMethod* method) {
+  std::string method_name;
+  {
+    ScopedObjectAccess soa(Thread::Current());
+    method_name = method->PrettyMethod();
+  }
+
+  // 先做排除过滤
+  for (size_t i = 0; kJitCompileMethodNotFilters[i] != nullptr; ++i) {
+    if (method_name.find(kJitCompileMethodNotFilters[i]) != std::string::npos) {
+      // LOG(INFO) << "JIT filter: EXCLUDED - not compiling " << method_name
+      // << " (matched exclusion pattern: " << kJitCompileMethodNotFilters[i] << ")";
+      return false;
+    }
+  }
+
+  // 然后做包含过滤
+  // 如果没有包含过滤条件，则全部编译
+  if (kJitCompileMethodFilters[0] == nullptr) {
+    // LOG(INFO) << "JIT filter: MATCH (no inclusion filter) - will compile " << method_name;
+    return true;
+  }
+
+  // 检查方法是否匹配任何包含过滤条件
+  for (size_t i = 0; kJitCompileMethodFilters[i] != nullptr; ++i) {
+    if (method_name.find(kJitCompileMethodFilters[i]) != std::string::npos) {
+      LOG(INFO) << "JIT filter: MATCH - will compile " << method_name
+                << " (matched inclusion pattern: " << kJitCompileMethodFilters[i] << ")";
+      return true;
+    }
+  }
+
+  // No inclusion filter matched
+  LOG(INFO) << "JIT filter: SKIP - not compiling " << method_name
+            << " (no inclusion pattern matched)";
+  return false;
+}
+
 void Jit::DumpInfo(std::ostream& os) {
   code_cache_->Dump(os);
   cumulative_timings_.Dump(os);
@@ -157,6 +224,12 @@ bool Jit::CompileMethodInternal(ArtMethod* method,
                                 bool prejit) {
   DCHECK(Runtime::Current()->UseJitCompilation());
   DCHECK(!method->IsRuntimeMethod());
+
+  // Check if this method should be compiled based on filter
+  if (!ShouldCompileMethod(method)) {
+    VLOG(jit) << "JIT filter: SKIP - not compiling " << method->PrettyMethod();
+    return false;
+  }
 
   // If the baseline flag was explicitly passed in the compiler options, change the compilation kind
   // from optimized to baseline.
