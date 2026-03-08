@@ -1322,6 +1322,13 @@
         ]
     },
     {
+        "tests": ["570-checker-osr-locals"],
+        "variant": "jit-on-first-use",
+        "description": [
+          "This test waits for OSR code, but jit-on-first-use does not enqueue OSR compilation."
+        ]
+    },
+    {
         "tests": ["454-get-vreg", "457-regs"],
         "variant": "baseline",
         "description": ["Tests are expected to fail with baseline."]
