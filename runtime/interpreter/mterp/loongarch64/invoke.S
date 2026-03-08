@@ -409,7 +409,9 @@
 %  try_01_args(vreg="s7", shorty="u0", z0="t0", z1="t1", z2="t2", y0="t7", y1="t8", y2="s0", skip=f".L{uniq}_slow", call=f".L{uniq}_01_call", uniq=uniq, range=range)
                                  // if u0 := shorty, then maybe (a2, fa0) := fp[D] or fp[CCCC + 1]
 .L${uniq}_01_call:
+   move s7, u0
    jirl ra, s8, 0                       // args a0, a1, and maybe a2, fa0
+   move u0, s7
    beqz u0, .L${uniq}_next_op    // no shorty, no scalar return
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_0")
                                  // a0 := fa0 if float return
@@ -422,7 +424,9 @@
 %  else:
 %    slow_setup_args(shorty="u0", vregs="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", uniq=uniq)
 %#:
+   move s7, u0
    jirl ra, s8, 0                       // args in a0-a5, fa0-fa4
+   move u0, s7
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_1")
                                  // a0 := fa0 if float return
 .L${uniq}_next_op:
@@ -483,7 +487,9 @@
 %  try_01_args_static(vreg="s7", shorty="u0", z0="t0", z1="t1", z2="t2", y0="t7", y1="t8", skip=f".L{uniq}_slow", call=f".L{uniq}_01_call", uniq=uniq, range=range)
                                // if u0 := shorty, then maybe (a2, fa0) := fp[C] or fp[CCCC]
 .L${uniq}_01_call:
+   move s7, u0
    jirl ra, s8, 0                     // args a0, and maybe a1, fa0
+   move u0, s7
    beqz u0, .L${uniq}_next_op  // no shorty, no scalar return
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_0")
                                // a0 := fa0 if float return
@@ -496,7 +502,9 @@
 %  else:
 %    slow_setup_args(shorty="u0", vregs="s7", z0="t0", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", arg_start="0", uniq=uniq)
 %#:
+   move s7, u0
    jirl ra, s8, 0                     // args (regular) a0 - a5 and fa0 - fa4, (range) a0 - a7 and fa0 - fa7 and maybe stack
+   move u0, s7
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_1")
                                // a0 := fa0 if float return
 .L${uniq}_next_op:
@@ -538,7 +546,9 @@
                                // if u0 := shorty, then maybe (a2, fa0) := fp[D] or fp[CCCC + 1]
                                // (xINST clobbered, if taking this fast path)
 .L${uniq}_01_call:
+   move s7, u0
    jirl ra, s8, 0              // args a0, a1, and t0, and maybe a2, fa0
+   move u0, s7
    beqz u0, .L${uniq}_next_op  // no shorty, no scalar return
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_0")
                                // a0 := fa0 if float return
@@ -551,7 +561,9 @@
 %  else:
 %    slow_setup_args(shorty="u0", vregs="s7", z0="t7", z1="t1", z2="t2", z3="t3", z4="t4", z5="t5", z6="t6", uniq=uniq)
 %#:
+   move s7, u0
    jirl ra, s8, 0                     // args (regular) a0 - a5, fa0 - fa4, t0, (range) a0 - a7, fa0 - fa7, t0
+   move u0, s7
 %  maybe_float_returned(shorty="u0", z0="t0", z1="t1", uniq=f"{uniq}_1")
                                // a0 := fa0 if float return
 .L${uniq}_next_op:
@@ -1131,9 +1143,11 @@
 
    andi $gpr, $vregs, 0xF    // gpr := vreg id
    beq $z0, $J, .L${uniq}_gpr_load_8_bytes
+   beq $z0, $L, .L${uniq}_gpr_load_ref
 %  get_vreg(gpr, gpr)        #  gpr := 32-bit load
-   bne $z0, $L, .L${uniq}_gpr_load_common
-   bstrpick.d $gpr, $gpr, 31, 0
+   b .L${uniq}_gpr_load_common
+.L${uniq}_gpr_load_ref:
+   GET_VREG_OBJECT $gpr, $gpr  // gpr := reference from xREFS
 .L${uniq}_gpr_load_common:
    srli.w $vregs, $vregs, 4   // shift out the processed arg, one vreg
    b .L${uniq}_gpr_set       // and exit
@@ -1187,9 +1201,11 @@
    beq $z0, $D, .L${uniq}_gpr_range_skip_2_vreg
 
    beq $z0, $J, .L${uniq}_gpr_range_load_2_vreg
+   beq $z0, $L, .L${uniq}_gpr_range_load_ref
 %  get_vreg(gpr, idx)
-   bne $z0, $L, .L${uniq}_gpr_range_load_common
-   bstrpick.d $gpr, $gpr, 31, 0
+   b .L${uniq}_gpr_range_load_common
+.L${uniq}_gpr_range_load_ref:
+   GET_VREG_OBJECT $gpr, $idx  // gpr := reference from xREFS
 .L${uniq}_gpr_range_load_common:
    addi.d $idx, $idx, 1
    b .L${uniq}_gpr_range_done
@@ -1677,4 +1693,3 @@
    addi.d $outs, $outs, 8
    addi.d $fp, $fp, 8
    b .Lentry_fstack
-

@@ -14,8 +14,7 @@
    srli.w t1, xINST, 12   // t1 := B
    srli.w t2, xINST, 8    // t2 := B|A
 %  if is_object:
-     // Note: leaves a useful breadcrumb if the reference is corrupted, unlike GET_VREG_OBJECT.
-%    get_vreg("t1", "t1", is_unsigned=True)  # t1 = fp[B], zext
+     GET_VREG_OBJECT t1, t1  // t1 := refs[B]
 %  else:
 %    get_vreg("t1", "t1", is_wide=is_wide)  # t1 := fp[B]
 %#:
@@ -35,8 +34,7 @@
    FETCH t1, count=1      // t1 := BBBB
    srli.w t2, xINST, 8    // t2 := AA
 %  if is_object:
-     // Note: leaves a useful breadcrumb if the reference is corrupted, unlike GET_VREG_OBJECT.
-%    get_vreg("t1", "t1", is_unsigned=True)  # t1 = fp[BBBB], zext
+     GET_VREG_OBJECT t1, t1  // t1 := refs[BBBB]
 %  else:
 %    get_vreg("t1", "t1", is_wide=is_wide)  # t1 := fp[BBBB]
 %#:
@@ -55,8 +53,7 @@
    FETCH t1, count=2     // t1 := BBBB
    FETCH t2, count=1     // t2 := AAAA
 %  if is_object:
-     // Note: leaves a useful breadcrumb if the reference is corrupted, unlike GET_VREG_OBJECT.
-%    get_vreg("t1", "t1", is_unsigned=True)  # t1 = fp[BBBB], zext
+     GET_VREG_OBJECT t1, t1  // t1 := refs[BBBB]
 %  else:
 %    get_vreg("t1", "t1", is_wide=is_wide)  # t1 := fp[BBBB]
 %#:
@@ -437,4 +434,3 @@
 
 %def op_unused_fd():
 %  unused()
-
