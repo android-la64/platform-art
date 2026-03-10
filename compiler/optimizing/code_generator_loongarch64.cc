@@ -170,14 +170,10 @@ std::pair<uint64_t, int32_t> SplitJitAddress(uint64_t address) {
 
 int32_t ReadBarrierMarkEntrypointOffset(Location ref) {
   DCHECK(ref.IsRegister());
-  int reg = ref.reg();
-  DCHECK(T0 <= reg && reg <= T8 && reg != TR) << reg;
-  // Note: Entrypoints for registers r30 (S7) and r31 (S8) are stored in entries
-  // for X0 (Zero) and X1 (RA) because these are not valid registers for marking
-  // and we currently have slots only up to register 29.
-  // TO-verify
-  int entry_point_number = (reg >= 30) ? reg - 30 : reg;
-  return Thread::ReadBarrierMarkEntryPointsOffset<kLoongarch64PointerSize>(entry_point_number);
+  // LoongArch64 interpreter and quick entrypoints use the A0 mark-reg stub as the
+  // Baker read barrier activation flag. Compiler-generated slow paths route all
+  // references through A0 before jumping to that entrypoint.
+  return Thread::ReadBarrierMarkEntryPointsOffset<kLoongarch64PointerSize>(10u);
 }
 
 Location InvokeRuntimeCallingConvention::GetReturnLocation(DataType::Type return_type) {
@@ -611,23 +607,15 @@ class ReadBarrierMarkSlowPathLOONGARCH64 : public SlowPathCodeLOONGARCH64 {
     CodeGeneratorLOONGARCH64* loongarch64_codegen = down_cast<CodeGeneratorLOONGARCH64*>(codegen);
     //DCHECK(ref_reg >= T0 && ref_reg != TR) << " reg_reg:" << ref_reg;
 
-    // "Compact" slow path, saving two moves.
-    //
-    // Instead of using the standard runtime calling convention (input
-    // and output in A0 and V0 respectively):
-    //
-    //   A0 <- ref
-    //   V0 <- ReadBarrierMark(A0)
-    //   ref <- V0
-    //
-    // we just use rX (the register containing `ref`) as input and output
-    // of a dedicated entrypoint:
-    //
-    //   rX <- ReadBarrierMarkRegX(rX)
-    //
     loongarch64_codegen->ValidateInvokeRuntimeWithoutRecordingPcInfo(instruction_, this);
     DCHECK_NE(entrypoint_.AsRegister<XRegister>(), TMP);  // A taken branch can clobber `TMP`.
+    if (ref_reg != A0) {
+      __ Move(A0, ref_reg);
+    }
     __ Jirl(RA, entrypoint_.AsRegister<XRegister>(), 0);  // Clobbers `RA` (used as the `entrypoint_`).
+    if (ref_reg != A0) {
+      __ Move(ref_reg, A0);
+    }
     __ B(GetExitLabel());
   }
 

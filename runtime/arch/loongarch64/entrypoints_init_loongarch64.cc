@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <math.h>
+
 #include "entrypoints/quick/quick_default_init_entrypoints.h"
 #include "entrypoints/quick/quick_entrypoints.h"
 
@@ -27,11 +29,17 @@ extern "C" size_t artInstanceOfFromCode(mirror::Object* obj, mirror::Class* ref_
 // expects its input in register X and returns its result in that same register,
 // and saves and restores all other registers.
 extern "C" mirror::Object* art_quick_read_barrier_mark_reg10(mirror::Object*);  // a0/r4
+extern "C" mirror::Object* art_quick_read_barrier_mark_reg11(mirror::Object*);  // a1/r5
+extern "C" mirror::Object* art_quick_read_barrier_mark_reg13(mirror::Object*);  // a3/r7
+extern "C" mirror::Object* art_quick_read_barrier_mark_reg14(mirror::Object*);  // a4/r8
 
 void UpdateReadBarrierEntrypoints(QuickEntryPoints* qpoints, bool is_active) {
-  // TODO(loongarch64): add read barrier entrypoints
+  // Current loongarch64 assembly provides only a subset of mark-reg entrypoints.
   qpoints->SetReadBarrierMarkReg10(is_active ? art_quick_read_barrier_mark_reg10 : nullptr);
- }
+  qpoints->SetReadBarrierMarkReg11(is_active ? art_quick_read_barrier_mark_reg11 : nullptr);
+  qpoints->SetReadBarrierMarkReg13(is_active ? art_quick_read_barrier_mark_reg13 : nullptr);
+  qpoints->SetReadBarrierMarkReg14(is_active ? art_quick_read_barrier_mark_reg14 : nullptr);
+}
 
 void InitEntryPoints(JniEntryPoints* jpoints,
                      QuickEntryPoints* qpoints,
@@ -63,7 +71,34 @@ void InitEntryPoints(JniEntryPoints* jpoints,
   qpoints->SetShlLong(nullptr);
   qpoints->SetShrLong(nullptr);
   qpoints->SetUshrLong(nullptr);
-  // TODO(loongarch64): add other entrypoints
+
+  // More math.
+  qpoints->SetCos(cos);
+  qpoints->SetSin(sin);
+  qpoints->SetAcos(acos);
+  qpoints->SetAsin(asin);
+  qpoints->SetAtan(atan);
+  qpoints->SetAtan2(atan2);
+  qpoints->SetPow(pow);
+  qpoints->SetCbrt(cbrt);
+  qpoints->SetCosh(cosh);
+  qpoints->SetExp(exp);
+  qpoints->SetExpm1(expm1);
+  qpoints->SetHypot(hypot);
+  qpoints->SetLog(log);
+  qpoints->SetLog10(log10);
+  qpoints->SetNextAfter(nextafter);
+  qpoints->SetSinh(sinh);
+  qpoints->SetTan(tan);
+  qpoints->SetTanh(tanh);
+
+  // Intrinsics.
+  qpoints->SetIndexOf(art_quick_indexof);
+
+  // Read barrier.
+  UpdateReadBarrierEntrypoints(qpoints, /*is_active=*/ false);
+  qpoints->SetReadBarrierSlow(artReadBarrierSlow);
+  qpoints->SetReadBarrierForRootSlow(artReadBarrierForRootSlow);
 }
 
 }  // namespace art

@@ -507,6 +507,14 @@ class Loongarch64Assembler final : public Assembler {
   void Mod_d(XRegister rd, XRegister rs1, XRegister rs2);
   void Div_du(XRegister rd, XRegister rs1, XRegister rs2);
   void Mod_du(XRegister rd, XRegister rs1, XRegister rs2);
+  void Crc_w_b_w(XRegister rd, XRegister data, XRegister crc);
+  void Crc_w_h_w(XRegister rd, XRegister data, XRegister crc);
+  void Crc_w_w_w(XRegister rd, XRegister data, XRegister crc);
+  void Crc_w_d_w(XRegister rd, XRegister data, XRegister crc);
+  void Crcc_w_b_w(XRegister rd, XRegister data, XRegister crc);
+  void Crcc_w_h_w(XRegister rd, XRegister data, XRegister crc);
+  void Crcc_w_w_w(XRegister rd, XRegister data, XRegister crc);
+  void Crcc_w_d_w(XRegister rd, XRegister data, XRegister crc);
 
   enum fcmp_cond {
     fcmp_caf           = 0x00,
@@ -713,8 +721,8 @@ class Loongarch64Assembler final : public Assembler {
 
   void Bind(Label* label) override { Bind(down_cast<Loongarch64Label*>(label)); }
 
-  void Jump(Label* label ATTRIBUTE_UNUSED) override {
-    UNIMPLEMENTED(FATAL) << "Do not use Jump for LOONGARCH64";
+  void Jump(Label* label) override {
+    B(down_cast<Loongarch64Label*>(label));
   }
 
   void Bind(Loongarch64Label* label);

@@ -73,6 +73,10 @@ class IntrinsicCodeGeneratorLOONGARCH64 final : public IntrinsicVisitor {
 
   ArenaAllocator* GetAllocator();
 
+  void HandleValueOf(HInvoke* invoke,
+                     const IntrinsicVisitor::ValueOfInfo& info,
+                     DataType::Type type);
+
   CodeGeneratorLOONGARCH64* const codegen_;
 
   DISALLOW_COPY_AND_ASSIGN(IntrinsicCodeGeneratorLOONGARCH64);
@@ -82,4 +86,3 @@ class IntrinsicCodeGeneratorLOONGARCH64 final : public IntrinsicVisitor {
 }  // namespace art
 
 #endif  // ART_COMPILER_OPTIMIZING_INTRINSICS_LOONGARCH64_H_
-

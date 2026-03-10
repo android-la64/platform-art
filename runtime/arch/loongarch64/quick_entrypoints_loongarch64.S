@@ -1930,5 +1930,82 @@ ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_method_type, artResolveMethod
 ONE_ARG_SAVE_EVERYTHING_DOWNCALL art_quick_resolve_string, artResolveStringFromCode
 
 
-UNDEFINED art_quick_indexof
+// String's indexOf.
+//
+// TODO: Not very optimized. We should use the vector extension.
+// On entry:
+//    a0: string object (known non-null)
+//    a1: char to match (known <= 0xFFFF)
+//    a2: starting offset in string data
+ENTRY art_quick_indexof
+#if (STRING_COMPRESSION_FEATURE)
+    ld.wu   $a4, $a0, MIRROR_STRING_COUNT_OFFSET
+#else
+    ld.wu   $a3, $a0, MIRROR_STRING_COUNT_OFFSET
+#endif
+    addi.d  $a0, $a0, MIRROR_STRING_VALUE_OFFSET
+#if (STRING_COMPRESSION_FEATURE)
+    // Split the count into length (a3) and compression flag (a4).
+    srli.w  $a3, $a4, 1
+    andi    $a4, $a4, 1
+#endif
+
+    // Clamp start to [0..count).
+    blt     $a2, $zero, .Lstring_indexof_start_zero
+.Lstring_indexof_check_start:
+    bge     $a2, $a3, .Lstring_indexof_nomatch
+
+#if (STRING_COMPRESSION_FEATURE)
+    beqz    $a4, .Lstring_indexof_compressed
+#endif
+
+    // Build pointers to start and end of the data to compare.
+    alsl.d  $a2, $a2, $a0, 1
+    alsl.d  $a3, $a3, $a0, 1
+
+    /*
+     * At this point we have:
+     *   a0: original start of string data
+     *   a1: char to compare
+     *   a2: start of the data to test
+     *   a3: end of the data to test
+     */
+.Lstring_indexof_loop:
+    ld.hu   $a4, $a2, 0
+    beq     $a4, $a1, .Lstring_indexof_match
+    addi.d  $a2, $a2, 2
+    bne     $a2, $a3, .Lstring_indexof_loop
+.Lstring_indexof_nomatch:
+    li.d    $a0, -1
+    jirl    $zero, $ra, 0
+.Lstring_indexof_match:
+    sub.d   $a0, $a2, $a0
+    srli.d  $a0, $a0, 1
+    jirl    $zero, $ra, 0
+
+#if (STRING_COMPRESSION_FEATURE)
+.Lstring_indexof_start_zero:
+    move    $a2, $zero
+    b       .Lstring_indexof_check_start
+
+    // Compare compressed string one character at a time with the input character.
+.Lstring_indexof_compressed:
+    add.d   $a2, $a2, $a0
+    add.d   $a3, $a3, $a0
+.Lstring_indexof_compressed_loop:
+    ld.bu   $a4, $a2, 0
+    beq     $a4, $a1, .Lstring_indexof_compressed_match
+    addi.d  $a2, $a2, 1
+    bne     $a2, $a3, .Lstring_indexof_compressed_loop
+    li.d    $a0, -1
+    jirl    $zero, $ra, 0
+.Lstring_indexof_compressed_match:
+    sub.d   $a0, $a2, $a0
+    jirl    $zero, $ra, 0
+#else
+.Lstring_indexof_start_zero:
+    move    $a2, $zero
+    b       .Lstring_indexof_check_start
+#endif
+END art_quick_indexof
 UNDEFINED art_quick_deoptimize

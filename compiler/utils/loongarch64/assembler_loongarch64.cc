@@ -133,8 +133,6 @@ void Loongarch64Assembler::LoadConst32(XRegister rd, int32_t value) {
 }
 
 void Loongarch64Assembler::LoadConst64(XRegister rd, int64_t value) {
-  CHECK_NE(rd, TMP);
-  //LoadImmediate(rd, value, /*can_use_tmp=*/ true);
   LoadImmediate(rd, value);
 }
 
@@ -178,11 +176,7 @@ void Loongarch64Assembler::AddConst32(XRegister rd, XRegister rs1, int32_t value
 void Loongarch64Assembler::AddConst64(XRegister rd, XRegister rs1, int64_t value) {
   auto addi = [&](XRegister rd, XRegister rs1, int32_t value) { Addi_D(rd, rs1, value); };
   auto add_large = [&](XRegister rd, XRegister rs1, int64_t value) {
-    // We cannot load TMP with `LoadConst64()`, so use `Li()`.
-    // TODO(loongarch64): Refactor `LoadImmediate()` so that we can reuse the code to detect
-    // when the code path using the `TMP` is beneficial, and use that path with a small
-    // modification - instead of adding the two parts togeter, add them individually
-    // to the input `rs1`. (This works as long as `rd` is not `TMP`.)
+    // Materialize the constant in TMP before the add.
     Li(TMP, value);
     Add_d(rd, rs1, TMP);
   };
@@ -495,6 +489,38 @@ void Loongarch64Assembler::Div_du(XRegister rd, XRegister rs1, XRegister rs2) {
 
 void Loongarch64Assembler::Mod_du(XRegister rd, XRegister rs1, XRegister rs2) {
   Emit3R(0x47, rs2, rs1, rd);
+}
+
+void Loongarch64Assembler::Crc_w_b_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x48, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crc_w_h_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x49, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crc_w_w_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x4a, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crc_w_d_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x4b, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crcc_w_b_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x4c, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crcc_w_h_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x4d, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crcc_w_w_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x4e, crc, data, rd);
+}
+
+void Loongarch64Assembler::Crcc_w_d_w(XRegister rd, XRegister data, XRegister crc) {
+  Emit3R(0x4f, crc, data, rd);
 }
 
 void Loongarch64Assembler::Load_B(XRegister rd, XRegister rs1, int32_t offset) {
