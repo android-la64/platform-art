@@ -1134,7 +1134,7 @@ TEST_F(AssemblerLOONGARCH64Test, LoadConst32) {
 
 TEST_F(AssemblerLOONGARCH64Test, LoadConst64) {
   TestLoadConst64("LoadConst64",
-                  /*can_use_tmp=*/ true,
+                  /*can_use_tmp=*/ false,
                   [&](XRegister rd, int64_t value) { __ LoadConst64(rd, value); });
 }
 

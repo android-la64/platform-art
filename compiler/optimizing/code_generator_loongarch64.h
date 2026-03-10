@@ -50,121 +50,11 @@ static constexpr size_t kRuntimeParameterFpuRegistersLength =
     arraysize(kRuntimeParameterFpuRegisters);
 
 #define UNIMPLEMENTED_INTRINSIC_LIST_LOONGARCH64(V) \
-  V(IntegerRemainderUnsigned)                       \
-  V(LongRemainderUnsigned)                          \
-  V(SystemArrayCopyByte)                            \
-  V(SystemArrayCopyInt)                             \
-  V(FP16Compare)                                    \
-  V(FP16Min)                                        \
-  V(FP16Max)                                        \
-  V(UnsafeGetByte)                                  \
-  V(UnsafePutByte)                                  \
-  V(JdkUnsafeCASInt)                                \
-  V(JdkUnsafeCASLong)                               \
-  V(JdkUnsafeCASObject)                             \
-  V(JdkUnsafeCompareAndSetInt)                      \
-  V(JdkUnsafeCompareAndSetLong)                     \
-  V(JdkUnsafeCompareAndSetReference)                \
-  V(JdkUnsafeGet)                                   \
-  V(JdkUnsafeGetVolatile)                           \
-  V(JdkUnsafeGetAcquire)                            \
-  V(JdkUnsafeGetReference)                          \
-  V(JdkUnsafeGetReferenceVolatile)                  \
-  V(JdkUnsafeGetReferenceAcquire)                   \
-  V(JdkUnsafeGetLong)                               \
-  V(JdkUnsafeGetLongVolatile)                       \
-  V(JdkUnsafeGetLongAcquire)                        \
-  V(JdkUnsafeGetByte)                               \
-  V(JdkUnsafePut)                                   \
-  V(JdkUnsafePutOrdered)                            \
-  V(JdkUnsafePutRelease)                            \
-  V(JdkUnsafePutVolatile)                           \
-  V(JdkUnsafePutReference)                          \
-  V(JdkUnsafePutObjectOrdered)                      \
-  V(JdkUnsafePutReferenceVolatile)                  \
-  V(JdkUnsafePutReferenceRelease)                   \
-  V(JdkUnsafePutLong)                               \
-  V(JdkUnsafePutLongOrdered)                        \
-  V(JdkUnsafePutLongVolatile)                       \
-  V(JdkUnsafePutLongRelease)                        \
-  V(JdkUnsafePutByte)                               \
-  V(JdkUnsafeGetAndAddInt)                          \
-  V(JdkUnsafeGetAndAddLong)                         \
-  V(JdkUnsafeGetAndSetInt)                          \
-  V(JdkUnsafeGetAndSetLong)                         \
-  V(JdkUnsafeGetAndSetReference)                    \
-  V(ByteValueOf)                                    \
-  V(ShortValueOf)                                   \
-  V(CharacterValueOf)                               \
-  V(DoubleIsInfinite)                               \
-  V(FloatIsInfinite)                                \
-  V(IntegerReverse)                                 \
-  V(IntegerReverseBytes)                            \
-  V(IntegerBitCount)                                \
-  V(IntegerDivideUnsigned)                          \
-  V(IntegerHighestOneBit)                           \
-  V(IntegerLowestOneBit)                            \
-  V(IntegerNumberOfLeadingZeros)                    \
-  V(IntegerNumberOfTrailingZeros)                   \
-  V(LongReverse)                                    \
-  V(LongReverseBytes)                               \
-  V(LongBitCount)                                   \
-  V(LongDivideUnsigned)                             \
-  V(LongHighestOneBit)                              \
-  V(LongLowestOneBit)                               \
-  V(LongNumberOfLeadingZeros)                       \
-  V(LongNumberOfTrailingZeros)                      \
-  V(ShortReverseBytes)                              \
-  V(MathCos)                                        \
-  V(MathSin)                                        \
-  V(MathAcos)                                       \
-  V(MathAsin)                                       \
-  V(MathAtan)                                       \
-  V(MathAtan2)                                      \
-  V(MathPow)                                        \
-  V(MathCbrt)                                       \
-  V(MathCosh)                                       \
-  V(MathExp)                                        \
-  V(MathExpm1)                                      \
-  V(MathHypot)                                      \
-  V(MathLog)                                        \
-  V(MathLog10)                                      \
-  V(MathNextAfter)                                  \
-  V(MathSinh)                                       \
-  V(MathTan)                                        \
-  V(MathTanh)                                       \
-  V(MathSqrt)                                       \
-  V(MathCeil)                                       \
-  V(MathFloor)                                      \
-  V(MathRint)                                       \
-  V(MathRoundDouble)                                \
-  V(MathRoundFloat)                                 \
-  V(MathMultiplyHigh)                               \
-  V(SystemArrayCopyChar)                            \
-  V(SystemArrayCopy)                                \
-  V(ThreadCurrentThread)                            \
-  V(FP16Ceil)                                       \
-  V(FP16Floor)                                      \
-  V(FP16Rint)                                       \
-  V(FP16ToFloat)                                    \
-  V(FP16ToHalf)                                     \
-  V(FP16Greater)                                    \
-  V(FP16GreaterEquals)                              \
-  V(FP16Less)                                       \
-  V(FP16LessEquals)                                 \
   V(StringCompareTo)                                \
-  V(StringEquals)                                   \
-  V(StringGetCharsNoCheck)                          \
-  V(StringIndexOf)                                  \
-  V(StringIndexOfAfter)                             \
   V(StringStringIndexOf)                            \
   V(StringStringIndexOfAfter)                       \
-  V(StringNewStringFromBytes)                       \
-  V(StringNewStringFromChars)                       \
-  V(StringNewStringFromString)                      \
   V(StringBufferAppend)                             \
   V(StringBufferLength)                             \
-  V(StringBufferToString)                           \
   V(StringBuilderAppendObject)                      \
   V(StringBuilderAppendString)                      \
   V(StringBuilderAppendCharSequence)                \
@@ -175,72 +65,8 @@ static constexpr size_t kRuntimeParameterFpuRegistersLength =
   V(StringBuilderAppendLong)                        \
   V(StringBuilderAppendFloat)                       \
   V(StringBuilderAppendDouble)                      \
-  V(StringBuilderLength)                            \
-  V(StringBuilderToString)                          \
-  V(UnsafeCASInt)                                   \
-  V(UnsafeCASLong)                                  \
-  V(UnsafeCASObject)                                \
-  V(UnsafeGet)                                      \
-  V(UnsafeGetVolatile)                              \
-  V(UnsafeGetObject)                                \
-  V(UnsafeGetObjectVolatile)                        \
-  V(UnsafeGetLong)                                  \
-  V(UnsafeGetLongVolatile)                          \
-  V(UnsafePut)                                      \
-  V(UnsafePutOrdered)                               \
-  V(UnsafePutVolatile)                              \
-  V(UnsafePutObject)                                \
-  V(UnsafePutObjectOrdered)                         \
-  V(UnsafePutObjectVolatile)                        \
-  V(UnsafePutLong)                                  \
-  V(UnsafePutLongOrdered)                           \
-  V(UnsafePutLongVolatile)                          \
-  V(UnsafeGetAndAddInt)                             \
-  V(UnsafeGetAndAddLong)                            \
-  V(UnsafeGetAndSetInt)                             \
-  V(UnsafeGetAndSetLong)                            \
-  V(UnsafeGetAndSetObject)                          \
-  V(ReferenceGetReferent)                           \
-  V(ReferenceRefersTo)                              \
-  V(IntegerValueOf)                                 \
-  V(ThreadInterrupted)                              \
-  V(ReachabilityFence)                              \
-  V(CRC32Update)                                    \
-  V(CRC32UpdateBytes)                               \
-  V(CRC32UpdateByteBuffer)                          \
   V(MethodHandleInvokeExact)                        \
-  V(MethodHandleInvoke)                             \
-  V(VarHandleCompareAndExchange)                    \
-  V(VarHandleCompareAndExchangeAcquire)             \
-  V(VarHandleCompareAndExchangeRelease)             \
-  V(VarHandleCompareAndSet)                         \
-  V(VarHandleGet)                                   \
-  V(VarHandleGetAcquire)                            \
-  V(VarHandleGetAndAdd)                             \
-  V(VarHandleGetAndAddAcquire)                      \
-  V(VarHandleGetAndAddRelease)                      \
-  V(VarHandleGetAndBitwiseAnd)                      \
-  V(VarHandleGetAndBitwiseAndAcquire)               \
-  V(VarHandleGetAndBitwiseAndRelease)               \
-  V(VarHandleGetAndBitwiseOr)                       \
-  V(VarHandleGetAndBitwiseOrAcquire)                \
-  V(VarHandleGetAndBitwiseOrRelease)                \
-  V(VarHandleGetAndBitwiseXor)                      \
-  V(VarHandleGetAndBitwiseXorAcquire)               \
-  V(VarHandleGetAndBitwiseXorRelease)               \
-  V(VarHandleGetAndSet)                             \
-  V(VarHandleGetAndSetAcquire)                      \
-  V(VarHandleGetAndSetRelease)                      \
-  V(VarHandleGetOpaque)                             \
-  V(VarHandleGetVolatile)                           \
-  V(VarHandleSet)                                   \
-  V(VarHandleSetOpaque)                             \
-  V(VarHandleSetRelease)                            \
-  V(VarHandleSetVolatile)                           \
-  V(VarHandleWeakCompareAndSet)                     \
-  V(VarHandleWeakCompareAndSetAcquire)              \
-  V(VarHandleWeakCompareAndSetPlain)                \
-  V(VarHandleWeakCompareAndSetRelease)
+  V(MethodHandleInvoke)
 
 // Method register on invoke.
 static const XRegister kArtMethodRegister = A0;
