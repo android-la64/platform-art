@@ -73,11 +73,13 @@ JitOptions* JitOptions::CreateFromRuntimeArguments(const RuntimeArgumentMap& opt
       : kJitDefaultWarmupThreshold;
 
   if (options.Exists(RuntimeArgumentMap::JITOptimizeThreshold)) {
+    jit_options->has_explicit_optimize_threshold_ = true;
     jit_options->optimize_threshold_ = *options.Get(RuntimeArgumentMap::JITOptimizeThreshold);
   }
   DCHECK_LE(jit_options->optimize_threshold_, kJitMaxThreshold);
 
   if (options.Exists(RuntimeArgumentMap::JITWarmupThreshold)) {
+    jit_options->has_explicit_warmup_threshold_ = true;
     jit_options->warmup_threshold_ = *options.Get(RuntimeArgumentMap::JITWarmupThreshold);
   }
   DCHECK_LE(jit_options->warmup_threshold_, kJitMaxThreshold);

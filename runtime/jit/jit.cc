@@ -63,9 +63,31 @@ namespace art HIDDEN {
 namespace jit {
 
 static constexpr bool kEnableOnStackReplacement = true;
+// Debug ART on LoongArch64 uses a very high default first-tier threshold. Lower it so short-lived
+// code can leave the interpreter earlier.
+static constexpr uint16_t kLoongArch64DebugTieredWarmupThreshold = 8192;
 
 // JIT compiler
 JitCompilerInterface* Jit::jit_compiler_ = nullptr;
+
+static void MaybeTuneLoongArch64TieredJitThresholds(JitOptions* options) {
+  if (!kIsDebugBuild || kRuntimeISA != InstructionSet::kLoongarch64) {
+    return;
+  }
+
+  Runtime* runtime = Runtime::Current();
+  if (runtime->IsJavaDebuggable() || options->UseBaselineCompiler()) {
+    return;
+  }
+
+  if (!options->HasExplicitWarmupThreshold() &&
+      options->GetWarmupThreshold() > kLoongArch64DebugTieredWarmupThreshold) {
+    options->SetWarmupThreshold(kLoongArch64DebugTieredWarmupThreshold);
+    VLOG(jit) << "Adjusting LoongArch64 debug JIT warmup threshold to "
+              << options->GetWarmupThreshold()
+              << " for earlier baseline compilation";
+  }
+}
 
 void Jit::DumpInfo(std::ostream& os) {
   code_cache_->Dump(os);
@@ -110,13 +132,6 @@ std::unique_ptr<Jit> Jit::Create(JitCodeCache* code_cache, JitOptions* options) 
         !jit->JitAtFirstUse());
   }
 
-  VLOG(jit) << "JIT created with initial_capacity="
-      << PrettySize(options->GetCodeCacheInitialCapacity())
-      << ", max_capacity=" << PrettySize(options->GetCodeCacheMaxCapacity())
-      << ", warmup_threshold=" << options->GetWarmupThreshold()
-      << ", optimize_threshold=" << options->GetOptimizeThreshold()
-      << ", profile_saver_options=" << options->GetProfileSaverOptions();
-
   // We want to know whether the compiler is compiling baseline, as this
   // affects how we GC ProfilingInfos.
   for (const std::string& option : Runtime::Current()->GetCompilerOptions()) {
@@ -125,6 +140,15 @@ std::unique_ptr<Jit> Jit::Create(JitCodeCache* code_cache, JitOptions* options) 
       break;
     }
   }
+
+  MaybeTuneLoongArch64TieredJitThresholds(options);
+
+  VLOG(jit) << "JIT created with initial_capacity="
+            << PrettySize(options->GetCodeCacheInitialCapacity())
+            << ", max_capacity=" << PrettySize(options->GetCodeCacheMaxCapacity())
+            << ", warmup_threshold=" << options->GetWarmupThreshold()
+            << ", optimize_threshold=" << options->GetOptimizeThreshold()
+            << ", profile_saver_options=" << options->GetProfileSaverOptions();
 
   // Notify native debugger about the classes already loaded before the creation of the jit.
   jit->DumpTypeInfoForLoadedTypes(Runtime::Current()->GetClassLinker());

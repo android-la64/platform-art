@@ -45,8 +45,16 @@ class JitOptions {
     return optimize_threshold_;
   }
 
+  bool HasExplicitOptimizeThreshold() const {
+    return has_explicit_optimize_threshold_;
+  }
+
   uint16_t GetWarmupThreshold() const {
     return warmup_threshold_;
+  }
+
+  bool HasExplicitWarmupThreshold() const {
+    return has_explicit_warmup_threshold_;
   }
 
   uint16_t GetPriorityThreadWeight() const {
@@ -110,12 +118,20 @@ class JitOptions {
     optimize_threshold_ = 0;
   }
 
+  void SetOptimizeThreshold(uint16_t threshold) {
+    optimize_threshold_ = threshold;
+  }
+
   void SetUseBaselineCompiler() {
     use_baseline_compiler_ = true;
   }
 
   bool UseBaselineCompiler() const {
     return use_baseline_compiler_;
+  }
+
+  void SetWarmupThreshold(uint16_t threshold) {
+    warmup_threshold_ = threshold;
   }
 
  private:
@@ -126,6 +142,8 @@ class JitOptions {
   bool use_jit_compilation_;
   bool use_profiled_jit_compilation_;
   bool use_baseline_compiler_;
+  bool has_explicit_optimize_threshold_;
+  bool has_explicit_warmup_threshold_;
   size_t code_cache_initial_capacity_;
   size_t code_cache_max_capacity_;
   uint32_t optimize_threshold_;
@@ -141,6 +159,8 @@ class JitOptions {
       : use_jit_compilation_(false),
         use_profiled_jit_compilation_(false),
         use_baseline_compiler_(false),
+        has_explicit_optimize_threshold_(false),
+        has_explicit_warmup_threshold_(false),
         code_cache_initial_capacity_(0),
         code_cache_max_capacity_(0),
         optimize_threshold_(0),
