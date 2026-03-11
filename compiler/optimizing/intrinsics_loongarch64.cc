@@ -32,8 +32,12 @@ using IntrinsicSlowPathLOONGARCH64 =
                       Loongarch64Assembler>;
 
 bool IntrinsicLocationsBuilderLOONGARCH64::TryDispatch(HInvoke* invoke) {
-  UNUSED(invoke);
-  return false;
+  Dispatch(invoke);
+  LocationSummary* res = invoke->GetLocations();
+  if (res == nullptr) {
+    return false;
+  }
+  return res->Intrinsified();
 }
 
 Loongarch64Assembler* IntrinsicCodeGeneratorLOONGARCH64::GetAssembler() {
