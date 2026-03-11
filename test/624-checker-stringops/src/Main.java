@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Tests properties of some string operations represented by intrinsics.
@@ -289,6 +290,11 @@ public class Main {
     x.toString();
   }
 
+  static String allocSmallUtf16AsciiString() {
+    byte[] data = new byte[] { 'a', 0, 'b', 0, 'c', 0 };
+    return new String(data, StandardCharsets.UTF_16LE);
+  }
+
   public static void main(String[] args) throws Exception {
     expectEquals(1865, liveIndexOf());
     expectEquals(29, deadIndexOf());
@@ -315,6 +321,7 @@ public class Main {
     expectEquals(30, builderLoopAppenderSmali());
     expectEquals(0, bufferDeadLoop());
     expectEquals(0, builderDeadLoop());
+    expectEquals("abc", allocSmallUtf16AsciiString());
 
     doesNothing();
 
@@ -323,6 +330,12 @@ public class Main {
 
   private static void expectEquals(int expected, int result) {
     if (expected != result) {
+      throw new Error("Expected: " + expected + ", found: " + result);
+    }
+  }
+
+  private static void expectEquals(String expected, String result) {
+    if (!expected.equals(result)) {
       throw new Error("Expected: " + expected + ", found: " + result);
     }
   }

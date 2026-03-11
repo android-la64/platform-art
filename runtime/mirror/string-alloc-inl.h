@@ -35,6 +35,126 @@
 namespace art HIDDEN {
 namespace mirror {
 
+namespace string_copy {
+
+ALWAYS_INLINE inline void CopyBytes(uint8_t* dst, const uint8_t* src, int32_t length) {
+  memcpy(dst, src, length * sizeof(uint8_t));
+}
+
+ALWAYS_INLINE inline void CopyUtf16ToBytes(uint8_t* dst, const uint16_t* src, int32_t length) {
+  int32_t i = 0;
+  for (; i + 8 <= length; i += 8) {
+    dst[i + 0] = static_cast<uint8_t>(src[i + 0]);
+    dst[i + 1] = static_cast<uint8_t>(src[i + 1]);
+    dst[i + 2] = static_cast<uint8_t>(src[i + 2]);
+    dst[i + 3] = static_cast<uint8_t>(src[i + 3]);
+    dst[i + 4] = static_cast<uint8_t>(src[i + 4]);
+    dst[i + 5] = static_cast<uint8_t>(src[i + 5]);
+    dst[i + 6] = static_cast<uint8_t>(src[i + 6]);
+    dst[i + 7] = static_cast<uint8_t>(src[i + 7]);
+  }
+  for (; i < length; ++i) {
+    dst[i] = static_cast<uint8_t>(src[i]);
+  }
+}
+
+ALWAYS_INLINE inline void CopyBytesToUtf16(
+    uint16_t* dst, const uint8_t* src, int32_t length, uint16_t high_byte = 0u) {
+  int32_t i = 0;
+  for (; i + 8 <= length; i += 8) {
+    dst[i + 0] = high_byte | static_cast<uint16_t>(src[i + 0]);
+    dst[i + 1] = high_byte | static_cast<uint16_t>(src[i + 1]);
+    dst[i + 2] = high_byte | static_cast<uint16_t>(src[i + 2]);
+    dst[i + 3] = high_byte | static_cast<uint16_t>(src[i + 3]);
+    dst[i + 4] = high_byte | static_cast<uint16_t>(src[i + 4]);
+    dst[i + 5] = high_byte | static_cast<uint16_t>(src[i + 5]);
+    dst[i + 6] = high_byte | static_cast<uint16_t>(src[i + 6]);
+    dst[i + 7] = high_byte | static_cast<uint16_t>(src[i + 7]);
+  }
+  for (; i < length; ++i) {
+    dst[i] = high_byte | static_cast<uint16_t>(src[i]);
+  }
+}
+
+ALWAYS_INLINE inline void CopyUtf16BytesToBytes(uint8_t* dst, const uint8_t* src, uint32_t length) {
+  uint32_t i = 0;
+  for (; i + 8 <= length; i += 8) {
+    uint32_t src_index = i << 1;
+    dst[i + 0] = src[src_index + 0];
+    dst[i + 1] = src[src_index + 2];
+    dst[i + 2] = src[src_index + 4];
+    dst[i + 3] = src[src_index + 6];
+    dst[i + 4] = src[src_index + 8];
+    dst[i + 5] = src[src_index + 10];
+    dst[i + 6] = src[src_index + 12];
+    dst[i + 7] = src[src_index + 14];
+  }
+  for (; i < length; ++i) {
+    dst[i] = src[i << 1];
+  }
+}
+
+ALWAYS_INLINE inline void CopyUtf16BytesToUtf16(
+    uint16_t* dst, const uint8_t* src, uint32_t length) {
+  uint32_t i = 0;
+  for (; i + 8 <= length; i += 8) {
+    uint32_t src_index = i << 1;
+    dst[i + 0] = static_cast<uint16_t>(src[src_index + 0]) |
+                 (static_cast<uint16_t>(src[src_index + 1]) << 8);
+    dst[i + 1] = static_cast<uint16_t>(src[src_index + 2]) |
+                 (static_cast<uint16_t>(src[src_index + 3]) << 8);
+    dst[i + 2] = static_cast<uint16_t>(src[src_index + 4]) |
+                 (static_cast<uint16_t>(src[src_index + 5]) << 8);
+    dst[i + 3] = static_cast<uint16_t>(src[src_index + 6]) |
+                 (static_cast<uint16_t>(src[src_index + 7]) << 8);
+    dst[i + 4] = static_cast<uint16_t>(src[src_index + 8]) |
+                 (static_cast<uint16_t>(src[src_index + 9]) << 8);
+    dst[i + 5] = static_cast<uint16_t>(src[src_index + 10]) |
+                 (static_cast<uint16_t>(src[src_index + 11]) << 8);
+    dst[i + 6] = static_cast<uint16_t>(src[src_index + 12]) |
+                 (static_cast<uint16_t>(src[src_index + 13]) << 8);
+    dst[i + 7] = static_cast<uint16_t>(src[src_index + 14]) |
+                 (static_cast<uint16_t>(src[src_index + 15]) << 8);
+  }
+  for (; i < length; ++i) {
+    uint32_t src_index = i << 1;
+    dst[i] = static_cast<uint16_t>(src[src_index]) |
+             (static_cast<uint16_t>(src[src_index + 1]) << 8);
+  }
+}
+
+template <typename SrcChar, typename DstChar>
+ALWAYS_INLINE inline void ReplaceChars(
+    DstChar* dst, const SrcChar* src, int32_t length, uint16_t old_c, uint16_t new_c) {
+  const SrcChar old_value = static_cast<SrcChar>(old_c);
+  const DstChar new_value = static_cast<DstChar>(new_c);
+  int32_t i = 0;
+  for (; i + 8 <= length; i += 8) {
+    const SrcChar c0 = src[i + 0];
+    const SrcChar c1 = src[i + 1];
+    const SrcChar c2 = src[i + 2];
+    const SrcChar c3 = src[i + 3];
+    const SrcChar c4 = src[i + 4];
+    const SrcChar c5 = src[i + 5];
+    const SrcChar c6 = src[i + 6];
+    const SrcChar c7 = src[i + 7];
+    dst[i + 0] = static_cast<DstChar>(c0 != old_value ? c0 : new_value);
+    dst[i + 1] = static_cast<DstChar>(c1 != old_value ? c1 : new_value);
+    dst[i + 2] = static_cast<DstChar>(c2 != old_value ? c2 : new_value);
+    dst[i + 3] = static_cast<DstChar>(c3 != old_value ? c3 : new_value);
+    dst[i + 4] = static_cast<DstChar>(c4 != old_value ? c4 : new_value);
+    dst[i + 5] = static_cast<DstChar>(c5 != old_value ? c5 : new_value);
+    dst[i + 6] = static_cast<DstChar>(c6 != old_value ? c6 : new_value);
+    dst[i + 7] = static_cast<DstChar>(c7 != old_value ? c7 : new_value);
+  }
+  for (; i < length; ++i) {
+    const SrcChar c = src[i];
+    dst[i] = static_cast<DstChar>(c != old_value ? c : new_value);
+  }
+}
+
+}  // namespace string_copy
+
 // Sets string count in the allocation code path to ensure it is guarded by a CAS.
 class SetStringCountVisitor {
  public:
@@ -70,15 +190,10 @@ class SetStringCountAndBytesVisitor {
     int32_t length = String::GetLengthFromCount(count_);
     const uint8_t* const src = reinterpret_cast<uint8_t*>(src_array_->GetData()) + offset_;
     if (string->IsCompressed()) {
-      uint8_t* valueCompressed = string->GetValueCompressed();
-      for (int i = 0; i < length; i++) {
-        valueCompressed[i] = (src[i] & 0xFF);
-      }
+      string_copy::CopyBytes(string->GetValueCompressed(), src, length);
     } else {
-      uint16_t* value = string->GetValue();
-      for (int i = 0; i < length; i++) {
-        value[i] = high_byte_ + (src[i] & 0xFF);
-      }
+      string_copy::CopyBytesToUtf16(
+          string->GetValue(), src, length, static_cast<uint16_t>(high_byte_));
     }
   }
 
@@ -105,16 +220,9 @@ class SetStringCountAndUtf16BytesVisitor {
     uint32_t length = String::GetLengthFromCount(count_);
     const uint8_t* const src = reinterpret_cast<uint8_t*>(src_array_->GetData()) + offset_;
     if (UNLIKELY(string->IsCompressed())) {
-      uint8_t* valueCompressed = string->GetValueCompressed();
-      for (uint32_t i = 0; i < length; i++) {
-        valueCompressed[i] = (src[i << 1] & 0xFF);
-      }
+      string_copy::CopyUtf16BytesToBytes(string->GetValueCompressed(), src, length);
     } else {
-      uint16_t* value = string->GetValue();
-      for (uint32_t i = 0; i < length; i++) {
-        uint32_t index = (i << 1);
-        value[i] = (src[index] & 0xFF) + ((src[index + 1] & 0xFF) << 8);
-      }
+      string_copy::CopyUtf16BytesToUtf16(string->GetValue(), src, length);
     }
   }
 
@@ -140,9 +248,7 @@ class SetStringCountAndValueVisitorFromCharArray {
     const uint16_t* const src = src_array_->GetData() + offset_;
     const int32_t length = String::GetLengthFromCount(count_);
     if (kUseStringCompression && String::IsCompressed(count_)) {
-      for (int i = 0; i < length; ++i) {
-        string->GetValueCompressed()[i] = static_cast<uint8_t>(src[i]);
-      }
+      string_copy::CopyUtf16ToBytes(string->GetValueCompressed(), src, length);
     } else {
       memcpy(string->GetValue(), src, length * sizeof(uint16_t));
     }
@@ -176,9 +282,7 @@ class SetStringCountAndValueVisitorFromString {
     } else {
       const uint16_t* const src = src_string_->GetValue() + offset_;
       if (compressible) {
-        for (int i = 0; i < length; ++i) {
-          string->GetValueCompressed()[i] = static_cast<uint8_t>(src[i]);
-        }
+        string_copy::CopyUtf16ToBytes(string->GetValueCompressed(), src, length);
       } else {
         memcpy(string->GetValue(), src, length * sizeof(uint16_t));
       }
