@@ -6457,7 +6457,14 @@ HLoadClass::LoadKind CodeGeneratorLOONGARCH64::GetSupportedLoadClassKind(
 HInvokeStaticOrDirect::DispatchInfo CodeGeneratorLOONGARCH64::GetSupportedInvokeStaticOrDirectDispatch(
     const HInvokeStaticOrDirect::DispatchInfo& desired_dispatch_info, ArtMethod* method) {
   UNUSED(method);
-  // On LOONGARCH64 we support all dispatch types.
+  if (desired_dispatch_info.code_ptr_location == CodePtrLocation::kCallCriticalNative) {
+    // Direct compiled @CriticalNative calls are not reliable on LoongArch64 yet.
+    // Fall back to the ArtMethod entrypoint so the existing JNI stub / GenericJNI paths
+    // handle the call correctly.
+    HInvokeStaticOrDirect::DispatchInfo supported_dispatch_info = desired_dispatch_info;
+    supported_dispatch_info.code_ptr_location = CodePtrLocation::kCallArtMethod;
+    return supported_dispatch_info;
+  }
   return desired_dispatch_info;
 }
 
