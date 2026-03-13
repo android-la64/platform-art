@@ -78,6 +78,127 @@ static constexpr FRegister kFpuCalleeSaves[] = {
     FS0, FS1, FS2, FS3, FS4, FS5, FS6, FS7
 };
 
+static constexpr size_t kLoongarch64SimdRegSizeInBytes = 16;
+
+static inline uint32_t EncodeVec2R(uint32_t opcode, XRegister rj, FRegister rd) {
+  DCHECK(IsUint<22>(opcode));
+  return opcode << 10 | static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
+}
+
+static inline uint32_t EncodeVec2RI12(uint32_t opcode, int32_t imm12, XRegister rj, FRegister rd) {
+  DCHECK(IsUint<10>(opcode));
+  DCHECK(IsInt<12>(imm12));
+  return opcode << 22 | (static_cast<uint32_t>(imm12) & 0xfffu) << 10 |
+      static_cast<uint32_t>(rj) << 5 | static_cast<uint32_t>(rd);
+}
+
+static inline uint32_t EncodeVec3R(uint32_t opcode, FRegister rk, FRegister rj, FRegister rd) {
+  DCHECK(IsUint<16>(opcode));
+  return opcode << 15 | static_cast<uint32_t>(rk) << 10 | static_cast<uint32_t>(rj) << 5 |
+      static_cast<uint32_t>(rd);
+}
+
+static inline void EmitVecMove(Loongarch64Assembler* assembler, FRegister dst, FRegister src) {
+  assembler->Emit(EncodeVec3R(0xe24d, src, src, dst));  // vor.v dst, src, src
+}
+
+static inline void EmitVecZero(Loongarch64Assembler* assembler, FRegister dst) {
+  assembler->Emit(EncodeVec3R(0xe24e, dst, dst, dst));  // vxor.v dst, dst, dst
+}
+
+static inline void EmitVecLoad(Loongarch64Assembler* assembler,
+                               FRegister dst,
+                               XRegister base,
+                               int32_t offset) {
+  assembler->Emit(EncodeVec2RI12(0xb0, offset, base, dst));  // vld
+}
+
+static inline void EmitVecStore(Loongarch64Assembler* assembler,
+                                FRegister src,
+                                XRegister base,
+                                int32_t offset) {
+  assembler->Emit(EncodeVec2RI12(0xb1, offset, base, src));  // vst
+}
+
+static inline void EmitVecReplicateFromGpr(Loongarch64Assembler* assembler,
+                                           DataType::Type type,
+                                           FRegister dst,
+                                           XRegister src) {
+  switch (type) {
+    case DataType::Type::kFloat32:
+      assembler->Emit(EncodeVec2R(0x1ca7c2, src, dst));  // vreplgr2vr.w
+      break;
+    case DataType::Type::kFloat64:
+      assembler->Emit(EncodeVec2R(0x1ca7c3, src, dst));  // vreplgr2vr.d
+      break;
+    default:
+      LOG(FATAL) << "Unsupported replicate type " << type;
+      UNREACHABLE();
+  }
+}
+
+static inline void EmitVecAdd(Loongarch64Assembler* assembler,
+                              DataType::Type type,
+                              FRegister dst,
+                              FRegister lhs,
+                              FRegister rhs) {
+  switch (type) {
+    case DataType::Type::kFloat32:
+      assembler->Emit(EncodeVec3R(0xe261, rhs, lhs, dst));  // vfadd.s
+      break;
+    case DataType::Type::kFloat64:
+      assembler->Emit(EncodeVec3R(0xe262, rhs, lhs, dst));  // vfadd.d
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD add type " << type;
+      UNREACHABLE();
+  }
+}
+
+static inline void EmitVecSub(Loongarch64Assembler* assembler,
+                              DataType::Type type,
+                              FRegister dst,
+                              FRegister lhs,
+                              FRegister rhs) {
+  switch (type) {
+    case DataType::Type::kFloat32:
+      assembler->Emit(EncodeVec3R(0xe265, rhs, lhs, dst));  // vfsub.s
+      break;
+    case DataType::Type::kFloat64:
+      assembler->Emit(EncodeVec3R(0xe266, rhs, lhs, dst));  // vfsub.d
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD sub type " << type;
+      UNREACHABLE();
+  }
+}
+
+static inline void EmitVecMul(Loongarch64Assembler* assembler,
+                              DataType::Type type,
+                              FRegister dst,
+                              FRegister lhs,
+                              FRegister rhs) {
+  switch (type) {
+    case DataType::Type::kFloat32:
+      assembler->Emit(EncodeVec3R(0xe271, rhs, lhs, dst));  // vfmul.s
+      break;
+    case DataType::Type::kFloat64:
+      assembler->Emit(EncodeVec3R(0xe272, rhs, lhs, dst));  // vfmul.d
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD mul type " << type;
+      UNREACHABLE();
+  }
+}
+
+static void AdjustBaseForVecOffset(Loongarch64Assembler* assembler,
+                                   XRegister tmp,
+                                   XRegister base,
+                                   int32_t offset) {
+  assembler->LoadConst32(tmp, offset);
+  assembler->Add_d(tmp, base, tmp);
+}
+
 #define QUICK_ENTRY_POINT(x) QUICK_ENTRYPOINT_OFFSET(kLoongarch64PointerSize, x).Int32Value()
 
 Location RegisterOrZeroBitPatternLocation(HInstruction* instruction) {
@@ -1880,11 +2001,30 @@ void InstructionCodeGeneratorLOONGARCH64::GenTableBasedPackedSwitch(XRegister ad
 int32_t InstructionCodeGeneratorLOONGARCH64::VecAddress(LocationSummary* locations,
                                                     size_t size,
                                                     /* out */ XRegister* adjusted_base) {
-  UNUSED(locations);
-  UNUSED(size);
-  UNUSED(adjusted_base);
-  LOG(FATAL) << "Unimplemented";
-  UNREACHABLE();
+  DCHECK(size == 4u || size == 8u);
+  Location base = locations->InAt(0);
+  Location index = locations->InAt(1);
+  XRegister array = base.AsRegister<XRegister>();
+  int32_t data_offset = mirror::Array::DataOffset(size).Uint32Value();
+  if (index.IsConstant()) {
+    int32_t element_index = index.GetConstant()->AsIntConstant()->GetValue();
+    int32_t offset = data_offset + element_index * static_cast<int32_t>(size);
+    if (IsInt<12>(offset)) {
+      *adjusted_base = array;
+      return offset;
+    }
+    DCHECK(*adjusted_base != array);
+    AdjustBaseForVecOffset(GetAssembler(), *adjusted_base, array, offset);
+    return 0;
+  }
+
+  DCHECK(index.IsRegister());
+  ShNAdd(*adjusted_base,
+         index.AsRegister<XRegister>(),
+         array,
+         size == 4u ? DataType::Type::kFloat32 : DataType::Type::kFloat64);
+  DCHECK(IsInt<12>(data_offset));
+  return data_offset;
 }
 
 void InstructionCodeGeneratorLOONGARCH64::GenConditionalMove(HSelect* select) {
@@ -5431,13 +5571,47 @@ void InstructionCodeGeneratorLOONGARCH64::VisitBitwiseNegatedRight(HBitwiseNegat
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecReplicateScalar(HVecReplicateScalar* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  HInstruction* input = instruction->InputAt(0);
+  bool is_zero = IsZeroBitPattern(input);
+  switch (instruction->GetPackedType()) {
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, is_zero ? Location::ConstantLocation(input)
+                                    : Location::RequiresFpuRegister());
+      locations->SetOut(is_zero ? Location::RequiresFpuRegister()
+                                : Location::SameAsFirstInput());
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD replicate type " << instruction->GetPackedType();
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitVecReplicateScalar(HVecReplicateScalar* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  FRegister dst = locations->Out().AsFpuRegister<FRegister>();
+  if (IsZeroBitPattern(instruction->InputAt(0))) {
+    EmitVecZero(GetAssembler(), dst);
+    return;
+  }
+
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister tmp = srs.AllocateXRegister();
+  FRegister src = locations->InAt(0).AsFpuRegister<FRegister>();
+  switch (instruction->GetPackedType()) {
+    case DataType::Type::kFloat32:
+      __ Movfr2gr_s(tmp, src);
+      EmitVecReplicateFromGpr(GetAssembler(), DataType::Type::kFloat32, dst, tmp);
+      break;
+    case DataType::Type::kFloat64:
+      __ Movfr2gr_d(tmp, src);
+      EmitVecReplicateFromGpr(GetAssembler(), DataType::Type::kFloat64, dst, tmp);
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD replicate type " << instruction->GetPackedType();
+      UNREACHABLE();
+  }
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecExtractScalar(HVecExtractScalar* instruction) {
@@ -5501,13 +5675,19 @@ void InstructionCodeGeneratorLOONGARCH64::VisitVecNot(HVecNot* instruction) {
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecAdd(HVecAdd* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresFpuRegister());
+  locations->SetInAt(1, Location::RequiresFpuRegister());
+  locations->SetOut(Location::SameAsFirstInput());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitVecAdd(HVecAdd* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  EmitVecAdd(GetAssembler(),
+             instruction->GetPackedType(),
+             locations->Out().AsFpuRegister<FRegister>(),
+             locations->InAt(0).AsFpuRegister<FRegister>(),
+             locations->InAt(1).AsFpuRegister<FRegister>());
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecHalvingAdd(HVecHalvingAdd* instruction) {
@@ -5521,23 +5701,35 @@ void InstructionCodeGeneratorLOONGARCH64::VisitVecHalvingAdd(HVecHalvingAdd* ins
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecSub(HVecSub* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresFpuRegister());
+  locations->SetInAt(1, Location::RequiresFpuRegister());
+  locations->SetOut(Location::SameAsFirstInput());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitVecSub(HVecSub* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  EmitVecSub(GetAssembler(),
+             instruction->GetPackedType(),
+             locations->Out().AsFpuRegister<FRegister>(),
+             locations->InAt(0).AsFpuRegister<FRegister>(),
+             locations->InAt(1).AsFpuRegister<FRegister>());
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecMul(HVecMul* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  locations->SetInAt(0, Location::RequiresFpuRegister());
+  locations->SetInAt(1, Location::RequiresFpuRegister());
+  locations->SetOut(Location::SameAsFirstInput());
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitVecMul(HVecMul* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  EmitVecMul(GetAssembler(),
+             instruction->GetPackedType(),
+             locations->Out().AsFpuRegister<FRegister>(),
+             locations->InAt(0).AsFpuRegister<FRegister>(),
+             locations->InAt(1).AsFpuRegister<FRegister>());
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecDiv(HVecDiv* instruction) {
@@ -5702,23 +5894,55 @@ void InstructionCodeGeneratorLOONGARCH64::VisitVecDotProd(HVecDotProd* instructi
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecLoad(HVecLoad* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  switch (instruction->GetPackedType()) {
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+      locations->SetOut(Location::RequiresFpuRegister());
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD load type " << instruction->GetPackedType();
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitVecLoad(HVecLoad* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  DCHECK(!instruction->IsStringCharAt());
+  LocationSummary* locations = instruction->GetLocations();
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister adjusted_base = srs.AllocateXRegister();
+  int32_t offset =
+      VecAddress(locations, DataType::Size(instruction->GetPackedType()), &adjusted_base);
+  EmitVecLoad(GetAssembler(), locations->Out().AsFpuRegister<FRegister>(), adjusted_base, offset);
+  codegen_->MaybeRecordImplicitNullCheck(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecStore(HVecStore* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = new (GetGraph()->GetAllocator()) LocationSummary(instruction);
+  switch (instruction->GetPackedType()) {
+    case DataType::Type::kFloat32:
+    case DataType::Type::kFloat64:
+      locations->SetInAt(0, Location::RequiresRegister());
+      locations->SetInAt(1, Location::RegisterOrConstant(instruction->InputAt(1)));
+      locations->SetInAt(2, Location::RequiresFpuRegister());
+      break;
+    default:
+      LOG(FATAL) << "Unsupported SIMD store type " << instruction->GetPackedType();
+      UNREACHABLE();
+  }
 }
 
 void InstructionCodeGeneratorLOONGARCH64::VisitVecStore(HVecStore* instruction) {
-  UNUSED(instruction);
-  LOG(FATAL) << "Unimplemented";
+  LocationSummary* locations = instruction->GetLocations();
+  ScratchRegisterScope srs(GetAssembler());
+  XRegister adjusted_base = srs.AllocateXRegister();
+  int32_t offset =
+      VecAddress(locations, DataType::Size(instruction->GetPackedType()), &adjusted_base);
+  EmitVecStore(
+      GetAssembler(), locations->InAt(2).AsFpuRegister<FRegister>(), adjusted_base, offset);
+  codegen_->MaybeRecordImplicitNullCheck(instruction);
 }
 
 void LocationsBuilderLOONGARCH64::VisitVecPredSetAll(HVecPredSetAll* instruction) {
@@ -5997,8 +6221,12 @@ void CodeGeneratorLOONGARCH64::GenerateFrameEntry() {
       --i;
       FRegister reg = kFpuCalleeSaves[i];
       if (allocated_registers_.ContainsFloatingPointRegister(reg)) {
-        offset -= kLoongarch64DoublewordSize;
-        __ FStore_D(reg, SP, offset);
+        offset -= GetCalleePreservedFPWidth();
+        if (GetGraph()->HasSIMD()) {
+          EmitVecStore(GetAssembler(), reg, SP, offset);
+        } else {
+          __ FStore_D(reg, SP, offset);
+        }
         __ cfi().RelOffset(dwarf::Reg::Loongarch64Fp(reg), offset);
       }
     }
@@ -6040,8 +6268,12 @@ void CodeGeneratorLOONGARCH64::GenerateFrameExit() {
       --i;
       FRegister reg = kFpuCalleeSaves[i];
       if (allocated_registers_.ContainsFloatingPointRegister(reg)) {
-        offset -= kLoongarch64DoublewordSize;
-        __ FLoad_D(reg, SP, offset);
+        offset -= GetCalleePreservedFPWidth();
+        if (GetGraph()->HasSIMD()) {
+          EmitVecLoad(GetAssembler(), reg, SP, offset);
+        } else {
+          __ FLoad_D(reg, SP, offset);
+        }
         __ cfi().Restore(dwarf::Reg::Loongarch64Fp(reg));
       }
     }
@@ -6071,9 +6303,13 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
   // When moving from and to a register, the `dst_type` can be used to generate 32-bit instead
   // of 64-bit moves but it's generally OK to use 64-bit moves for 32-bit values in registers.
   bool unspecified_type = (dst_type == DataType::Type::kVoid);
+  bool simd_move = GetGraph()->HasSIMD() &&
+      (destination.IsSIMDStackSlot() ||
+       source.IsSIMDStackSlot() ||
+       (destination.IsFpuRegister() && source.IsFpuRegister()));
   // TODO(loongarch64): Is the destination type known in all cases?
   // TODO(loongarch64): Can unspecified `dst_type` move 32-bit GPR to FPR without NaN-boxing?
-  CHECK(!unspecified_type);
+  CHECK(!unspecified_type || simd_move);
 
   if (destination.IsRegister() || destination.IsFpuRegister()) {
     if (unspecified_type) {
@@ -6148,8 +6384,9 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
     } else if (source.IsFpuRegister()) {
       if (destination.IsFpuRegister()) {
         if (GetGraph()->HasSIMD()) {
-          LOG(FATAL) << "Vector extension is unsupported";
-          UNREACHABLE();
+          EmitVecMove(GetAssembler(),
+                      destination.AsFpuRegister<FRegister>(),
+                      source.AsFpuRegister<FRegister>());
         } else {
           // Move to FPR from FPR
           if (dst_type == DataType::Type::kFloat32) {
@@ -6168,10 +6405,37 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
           __ Movfr2gr_d(destination.AsRegister<XRegister>(), source.AsFpuRegister<FRegister>());
         }
       }
+    } else if (source.IsSIMDStackSlot()) {
+      DCHECK(GetGraph()->HasSIMD());
+      DCHECK(destination.IsFpuRegister());
+      ScratchRegisterScope srs(GetAssembler());
+      XRegister base = SP;
+      int32_t offset = source.GetStackIndex();
+      if (!IsInt<12>(offset)) {
+        base = srs.AllocateXRegister();
+        AdjustBaseForVecOffset(GetAssembler(), base, SP, offset);
+        offset = 0;
+      }
+      EmitVecLoad(GetAssembler(), destination.AsFpuRegister<FRegister>(), base, offset);
     }
   } else if (destination.IsSIMDStackSlot()) {
-    LOG(FATAL) << "SIMD is unsupported";
-    UNREACHABLE();
+    DCHECK(GetGraph()->HasSIMD());
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister base = SP;
+    int32_t offset = destination.GetStackIndex();
+    if (!IsInt<12>(offset)) {
+      base = srs.AllocateXRegister();
+      AdjustBaseForVecOffset(GetAssembler(), base, SP, offset);
+      offset = 0;
+    }
+    if (source.IsFpuRegister()) {
+      EmitVecStore(GetAssembler(), source.AsFpuRegister<FRegister>(), base, offset);
+    } else {
+      DCHECK(source.IsSIMDStackSlot());
+      FRegister tmp = srs.AllocateFRegister();
+      MoveLocation(Location::FpuRegisterLocation(tmp), source, DataType::Type::kVoid);
+      EmitVecStore(GetAssembler(), tmp, base, offset);
+    }
   } else {  // The destination is not a register. It must be a stack slot.
     DCHECK(destination.IsStackSlot() || destination.IsDoubleStackSlot());
     if (source.IsRegister() || source.IsFpuRegister()) {
@@ -6249,7 +6513,7 @@ void CodeGeneratorLOONGARCH64::MoveLocation(Location destination, Location sourc
 
 
 void CodeGeneratorLOONGARCH64::AddLocationAsTemp(Location location, LocationSummary* locations) {
-  if (location.IsRegister()) {
+  if (location.IsRegister() || location.IsFpuRegister()) {
     locations->AddTemp(location);
   } else {
     UNIMPLEMENTED(FATAL) << "AddLocationAsTemp not implemented for location " << location;
@@ -6294,9 +6558,16 @@ size_t CodeGeneratorLOONGARCH64::RestoreCoreRegister(size_t stack_index, uint32_
 
 size_t CodeGeneratorLOONGARCH64::SaveFloatingPointRegister(size_t stack_index, uint32_t reg_id) {
   if (GetGraph()->HasSIMD()) {
-    // TODO(loongarch64): LOONGARCH vector extension.
-    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
-    UNREACHABLE();
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister base = SP;
+    int32_t offset = static_cast<int32_t>(stack_index);
+    if (!IsInt<12>(offset)) {
+      base = srs.AllocateXRegister();
+      AdjustBaseForVecOffset(GetAssembler(), base, SP, offset);
+      offset = 0;
+    }
+    EmitVecStore(GetAssembler(), FRegister(reg_id), base, offset);
+    return GetSlowPathFPWidth();
   }
   __ FStore_D(FRegister(reg_id), SP, stack_index);
   return kLoongarch64FloatRegSizeInBytes;
@@ -6304,9 +6575,16 @@ size_t CodeGeneratorLOONGARCH64::SaveFloatingPointRegister(size_t stack_index, u
 
 size_t CodeGeneratorLOONGARCH64::RestoreFloatingPointRegister(size_t stack_index, uint32_t reg_id) {
   if (GetGraph()->HasSIMD()) {
-    // TODO(loongarch64): LOONGARCH vector extension.
-    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
-    UNREACHABLE();
+    ScratchRegisterScope srs(GetAssembler());
+    XRegister base = SP;
+    int32_t offset = static_cast<int32_t>(stack_index);
+    if (!IsInt<12>(offset)) {
+      base = srs.AllocateXRegister();
+      AdjustBaseForVecOffset(GetAssembler(), base, SP, offset);
+      offset = 0;
+    }
+    EmitVecLoad(GetAssembler(), FRegister(reg_id), base, offset);
+    return GetSlowPathFPWidth();
   }
   __ FLoad_D(FRegister(reg_id), SP, stack_index);
   return kLoongarch64FloatRegSizeInBytes;
@@ -7029,10 +7307,6 @@ void CodeGeneratorLOONGARCH64::SwapLocations(Location loc1, Location loc2, DataT
   if ((is_slot1 != is_slot2) ||
       (loc2.IsRegister() && loc1.IsRegister()) ||
       (is_fp_reg2 && is_fp_reg1)) {
-    if ((is_fp_reg2 && is_fp_reg1) && GetGraph()->HasSIMD()) {
-      LOG(FATAL) << "Unsupported";
-      UNREACHABLE();
-    }
     ScratchRegisterScope srs(GetAssembler());
     Location tmp = (is_fp_reg2 || is_fp_reg1)
         ? Location::FpuRegisterLocation(srs.AllocateFRegister())
@@ -7043,11 +7317,17 @@ void CodeGeneratorLOONGARCH64::SwapLocations(Location loc1, Location loc2, DataT
   } else if (is_slot1 && is_slot2) {
     move_resolver_.Exchange(loc1.GetStackIndex(), loc2.GetStackIndex(), loc1.IsDoubleStackSlot());
   } else if (is_simd1 && is_simd2) {
-    // TODO(loongarch64): Add VECTOR/SIMD later.
-    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
+    ScratchRegisterScope srs(GetAssembler());
+    Location tmp = Location::FpuRegisterLocation(srs.AllocateFRegister());
+    MoveLocation(tmp, loc1, DataType::Type::kVoid);
+    MoveLocation(loc1, loc2, DataType::Type::kVoid);
+    MoveLocation(loc2, tmp, DataType::Type::kVoid);
   } else if ((is_fp_reg1 && is_simd2) || (is_fp_reg2 && is_simd1)) {
-    // TODO(loongarch64): Add VECTOR/SIMD later.
-    UNIMPLEMENTED(FATAL) << "Vector extension is unsupported";
+    ScratchRegisterScope srs(GetAssembler());
+    Location tmp = Location::FpuRegisterLocation(srs.AllocateFRegister());
+    MoveLocation(tmp, loc1, DataType::Type::kVoid);
+    MoveLocation(loc1, loc2, DataType::Type::kVoid);
+    MoveLocation(loc2, tmp, DataType::Type::kVoid);
   } else {
     LOG(FATAL) << "Unimplemented swap between locations " << loc1 << " and " << loc2;
   }

@@ -2169,6 +2169,20 @@ bool HLoopOptimization::TrySetVectorType(DataType::Type type, uint64_t* restrict
         }  // switch type
       }
       return false;
+    case InstructionSet::kLoongarch64:
+      // Current LoongArch64 SIMD support is intentionally narrow: only traditional 128-bit
+      // floating point vectorization is enabled for the LSX experiment path.
+      *restrictions |= kNoIfCond | kNoDiv;
+      switch (type) {
+        case DataType::Type::kFloat32:
+          *restrictions |= kNoReduction;
+          return TrySetVectorLength(type, 4);
+        case DataType::Type::kFloat64:
+          *restrictions |= kNoReduction;
+          return TrySetVectorLength(type, 2);
+        default:
+          return false;
+      }
     default:
       return false;
   }  // switch instruction set
