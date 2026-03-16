@@ -1870,6 +1870,9 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
     // TODO: accept right-hand-side induction?
     return false;
   } else if (instruction->IsTypeConversion()) {
+    if (HasVectorRestrictions(restrictions, kNoCnv)) {
+      return false;
+    }
     // Accept particular type conversions.
     HTypeConversion* conversion = instruction->AsTypeConversion();
     HInstruction* opa = conversion->InputAt(0);
@@ -1913,6 +1916,9 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
     }
     return false;
   } else if (instruction->IsNeg() || instruction->IsNot() || instruction->IsBooleanNot()) {
+    if (instruction->IsNeg() && HasVectorRestrictions(restrictions, kNoNeg)) {
+      return false;
+    }
     // Accept unary operator for vectorizable operand.
     HInstruction* opa = instruction->InputAt(0);
     if (VectorizeUse(node, opa, generate_code, type, restrictions)) {
@@ -2172,7 +2178,7 @@ bool HLoopOptimization::TrySetVectorType(DataType::Type type, uint64_t* restrict
     case InstructionSet::kLoongarch64:
       // Current LoongArch64 SIMD support is intentionally narrow: only traditional 128-bit
       // floating point vectorization is enabled for the LSX experiment path.
-      *restrictions |= kNoIfCond | kNoDiv;
+      *restrictions |= kNoIfCond | kNoDiv | kNoAbs | kNoNeg | kNoCnv;
       switch (type) {
         case DataType::Type::kFloat32:
           *restrictions |= kNoReduction;
