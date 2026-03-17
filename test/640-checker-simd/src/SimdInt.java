@@ -20,6 +20,7 @@
 public class SimdInt {
 
   static int[] a;
+  static int[] b;
 
   //
   // Arithmetic operations.
@@ -30,6 +31,11 @@ public class SimdInt {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdInt.add(int) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.add(int) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -46,6 +52,11 @@ public class SimdInt {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.sub(int) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void sub(int x) {
     for (int i = 0; i < 128; i++)
       a[i] -= x;
@@ -56,6 +67,11 @@ public class SimdInt {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdInt.mul(int) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.mul(int) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -86,6 +102,11 @@ public class SimdInt {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.neg() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void neg() {
     for (int i = 0; i < 128; i++)
       a[i] = -a[i];
@@ -99,9 +120,30 @@ public class SimdInt {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNot   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.not() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNot   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void not() {
     for (int i = 0; i < 128; i++)
       a[i] = ~a[i];
+  }
+
+  /// CHECK-START: void SimdInt.andNot() loop_optimization (before)
+  /// CHECK-DAG: ArrayGet loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: Not      loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: And      loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.andNot() loop_optimization (after)
+  /// CHECK-DAG: VecLoad   loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecLoad   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecAndNot loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore  loop:<<Loop>>      outer_loop:none
+  static void andNot() {
+    for (int i = 0; i < 128; i++)
+      a[i] &= ~b[i];
   }
 
   /// CHECK-START: void SimdInt.shl4() loop_optimization (before)
@@ -109,6 +151,11 @@ public class SimdInt {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdInt.shl4() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecShl   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.shl4() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecShl   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -125,6 +172,11 @@ public class SimdInt {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecShr   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.sar2() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecShr   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void sar2() {
     for (int i = 0; i < 128; i++)
       a[i] >>= 2;
@@ -135,6 +187,11 @@ public class SimdInt {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdInt.shr2() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.shr2() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -174,6 +231,10 @@ public class SimdInt {
   ///     CHECK-DAG:              VecStore [{{l\d+}},{{i\d+}},<<Get>>] loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.shr32() loop_optimization (after)
+  /// CHECK-DAG: <<Get:d\d+>> VecLoad                              loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG:              VecStore [{{l\d+}},{{i\d+}},<<Get>>] loop:<<Loop>>      outer_loop:none
   static void shr32() {
     // TODO: remove a[i] = a[i] altogether?
     for (int i = 0; i < 128; i++)
@@ -207,6 +268,12 @@ public class SimdInt {
   ///     CHECK-DAG:               VecStore [{{l\d+}},{{i\d+}},<<UShr>>] loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.shr33() loop_optimization (after)
+  /// CHECK-DAG: <<Dist:i\d+>> IntConstant 1                         loop:none
+  /// CHECK-DAG: <<Get:d\d+>>  VecLoad                               loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<UShr:d\d+>> VecUShr [<<Get>>,<<Dist>>]            loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:               VecStore [{{l\d+}},{{i\d+}},<<UShr>>] loop:<<Loop>>      outer_loop:none
   static void shr33() {
     for (int i = 0; i < 128; i++)
       a[i] >>>= $opt$inline$IntConstant33();  // 1, since & 31
@@ -239,6 +306,12 @@ public class SimdInt {
   ///     CHECK-DAG:               VecStore [{{l\d+}},{{i\d+}},<<UShr>>] loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  //
+  /// CHECK-START-LOONGARCH64: void SimdInt.shrMinus254() loop_optimization (after)
+  /// CHECK-DAG: <<Dist:i\d+>> IntConstant 2                         loop:none
+  /// CHECK-DAG: <<Get:d\d+>>  VecLoad                               loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<UShr:d\d+>> VecUShr [<<Get>>,<<Dist>>]            loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:               VecStore [{{l\d+}},{{i\d+}},<<UShr>>] loop:<<Loop>>      outer_loop:none
   static void shrMinus254() {
     for (int i = 0; i < 128; i++)
       a[i] >>>= $opt$inline$IntConstantMinus254();  // 2, since & 31
@@ -260,8 +333,10 @@ public class SimdInt {
   public static void main() {
     // Set up.
     a = new int[128];
+    b = new int[128];
     for (int i = 0; i < 128; i++) {
       a[i] = i;
+      b[i] = 0;
     }
     // Arithmetic operations.
     add(2);
@@ -323,6 +398,14 @@ public class SimdInt {
     not();
     for (int i = 0; i < 128; i++) {
       expectEquals(0xf8000000, a[i], "not");
+    }
+    for (int i = 0; i < 128; i++) {
+      a[i] = 0x0ff00ff0;
+      b[i] = 0x00ffff00;
+    }
+    andNot();
+    for (int i = 0; i < 128; i++) {
+      expectEquals(0x0f0000f0, a[i], "andNot");
     }
     // Done.
     System.out.println("SimdInt passed");

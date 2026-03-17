@@ -72,7 +72,9 @@ class InstructionSimplifierVisitor final : public HGraphDelegateVisitor {
   bool TryDeMorganNegationFactoring(HBinaryOperation* op);
   bool TryHandleAssociativeAndCommutativeOperation(HBinaryOperation* instruction);
   bool TrySubtractionChainSimplification(HBinaryOperation* instruction);
+  bool TryCombineVecAndNot(HVecAnd* vec_and);
   bool TryCombineVecMultiplyAccumulate(HVecMul* mul);
+  bool TryCombineVecSaturation(HVecBinaryOperation* outer);
   void TryToReuseDiv(HRem* rem);
 
   void VisitShift(HBinaryOperation* shift);
@@ -114,6 +116,9 @@ class InstructionSimplifierVisitor final : public HGraphDelegateVisitor {
   void VisitInstanceOf(HInstanceOf* instruction) override;
   void VisitInvoke(HInvoke* invoke) override;
   void VisitDeoptimize(HDeoptimize* deoptimize) override;
+  void VisitVecAnd(HVecAnd* instruction) override;
+  void VisitVecMax(HVecMax* instruction) override;
+  void VisitVecMin(HVecMin* instruction) override;
   void VisitVecMul(HVecMul* instruction) override;
   void SimplifyBoxUnbox(HInvoke* instruction, ArtField* field, DataType::Type type);
   void SimplifySystemArrayCopy(HInvoke* invoke);
@@ -290,6 +295,11 @@ bool InstructionSimplifierVisitor::TryCombineVecMultiplyAccumulate(HVecMul* mul)
         return false;
       }
       break;
+    case InstructionSet::kLoongarch64:
+      if (type != DataType::Type::kInt32) {
+        return false;
+      }
+      break;
     default:
       return false;
   }
@@ -360,6 +370,221 @@ bool InstructionSimplifierVisitor::TryCombineVecMultiplyAccumulate(HVecMul* mul)
 
   DCHECK(!mul->HasUses());
   mul->GetBlock()->RemoveInstruction(mul);
+  return true;
+}
+
+bool InstructionSimplifierVisitor::TryCombineVecAndNot(HVecAnd* vec_and) {
+  if (codegen_->GetInstructionSet() != InstructionSet::kLoongarch64) {
+    return false;
+  }
+
+  if (!vec_and->HasOnlyOneNonEnvironmentUse() && vec_and->HasEnvironmentUses()) {
+    return false;
+  }
+
+  HInstruction* left = vec_and->GetLeft();
+  HInstruction* right = vec_and->GetRight();
+  if (!(left->IsVecNot() ^ right->IsVecNot())) {
+    return false;
+  }
+
+  HVecNot* not_ins = (left->IsVecNot() ? left : right)->AsVecNot();
+  HInstruction* other = (left->IsVecNot() ? right : left);
+  if (!not_ins->HasOnlyOneNonEnvironmentUse()) {
+    return false;
+  }
+
+  bool predicated_simd = vec_and->IsPredicated();
+  if (predicated_simd && !HVecOperation::HaveSamePredicate(vec_and, not_ins)) {
+    return false;
+  }
+
+  ArenaAllocator* allocator = vec_and->GetBlock()->GetGraph()->GetAllocator();
+  HVecAndNot* and_not =
+      new (allocator) HVecAndNot(allocator,
+                                 not_ins->InputAt(0),
+                                 other,
+                                 vec_and->GetPackedType(),
+                                 vec_and->GetVectorLength(),
+                                 vec_and->GetDexPc());
+  vec_and->GetBlock()->ReplaceAndRemoveInstructionWith(vec_and, and_not);
+  if (predicated_simd) {
+    and_not->SetGoverningPredicate(vec_and->GetGoverningPredicate(),
+                                   vec_and->GetPredicationKind());
+  }
+
+  DCHECK(!not_ins->HasUses());
+  not_ins->GetBlock()->RemoveInstruction(not_ins);
+  return true;
+}
+
+static bool IsSupportedVecSaturationType(DataType::Type packed_type) {
+  switch (packed_type) {
+    case DataType::Type::kInt8:
+    case DataType::Type::kUint8:
+    case DataType::Type::kInt16:
+    case DataType::Type::kUint16:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool GetVecSaturationBounds(DataType::Type packed_type, int64_t* low, int64_t* high) {
+  switch (packed_type) {
+    case DataType::Type::kInt8:
+      *low = INT8_MIN;
+      *high = INT8_MAX;
+      return true;
+    case DataType::Type::kUint8:
+      *low = 0;
+      *high = UINT8_MAX;
+      return true;
+    case DataType::Type::kInt16:
+      *low = INT16_MIN;
+      *high = INT16_MAX;
+      return true;
+    case DataType::Type::kUint16:
+      *low = 0;
+      *high = UINT16_MAX;
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool MatchVecReplicateIntConstant(HInstruction* instruction,
+                                         DataType::Type packed_type,
+                                         int64_t expected) {
+  if (!instruction->IsVecReplicateScalar()) {
+    return false;
+  }
+  HVecReplicateScalar* replicate = instruction->AsVecReplicateScalar();
+  return replicate->GetPackedType() == packed_type &&
+         IsInt64Value(replicate->GetInput(), expected);
+}
+
+static HInstruction* GetOtherInputIfVecConstant(HVecBinaryOperation* instruction, int64_t expected) {
+  DataType::Type packed_type = instruction->GetPackedType();
+  HInstruction* left = instruction->GetLeft();
+  HInstruction* right = instruction->GetRight();
+  if (MatchVecReplicateIntConstant(left, packed_type, expected)) {
+    return right;
+  }
+  if (MatchVecReplicateIntConstant(right, packed_type, expected)) {
+    return left;
+  }
+  return nullptr;
+}
+
+static bool HaveCompatiblePredication(HVecOperation* outer, HVecOperation* inner) {
+  if (outer->IsPredicated() != inner->IsPredicated()) {
+    return false;
+  }
+  return !outer->IsPredicated() || HVecOperation::HaveSamePredicate(outer, inner);
+}
+
+bool InstructionSimplifierVisitor::TryCombineVecSaturation(HVecBinaryOperation* outer) {
+  DCHECK(outer->IsVecMin() || outer->IsVecMax()) << outer->DebugName();
+
+  DataType::Type packed_type = outer->GetPackedType();
+  if (!IsSupportedVecSaturationType(packed_type)) {
+    return false;
+  }
+
+  int64_t low = 0;
+  int64_t high = 0;
+  if (!GetVecSaturationBounds(packed_type, &low, &high)) {
+    return false;
+  }
+
+  auto has_same_shape = [outer, packed_type](HVecOperation* operation) {
+    return operation->GetPackedType() == packed_type &&
+           operation->GetVectorLength() == outer->GetVectorLength() &&
+           HaveCompatiblePredication(outer, operation);
+  };
+
+  HInstruction* clamp = nullptr;
+  HInstruction* arithmetic = nullptr;
+  bool matched_full_clamp = false;
+  if (outer->IsVecMin()) {
+    clamp = GetOtherInputIfVecConstant(outer, high);
+    if (clamp != nullptr && clamp->IsVecOperation()) {
+      HVecOperation* clamp_vec = clamp->AsVecOperation();
+      if (has_same_shape(clamp_vec)) {
+        if (clamp->IsVecMax()) {
+          arithmetic = GetOtherInputIfVecConstant(clamp->AsVecBinaryOperation(), low);
+          matched_full_clamp = (arithmetic != nullptr);
+        } else {
+          arithmetic = clamp;
+        }
+      }
+    }
+  } else {
+    DCHECK(outer->IsVecMax());
+    clamp = GetOtherInputIfVecConstant(outer, low);
+    if (clamp != nullptr && clamp->IsVecOperation()) {
+      HVecOperation* clamp_vec = clamp->AsVecOperation();
+      if (has_same_shape(clamp_vec)) {
+        if (clamp->IsVecMin()) {
+          arithmetic = GetOtherInputIfVecConstant(clamp->AsVecBinaryOperation(), high);
+          matched_full_clamp = (arithmetic != nullptr);
+        } else {
+          arithmetic = clamp;
+        }
+      }
+    }
+  }
+
+  if (arithmetic == nullptr || (!arithmetic->IsVecAdd() && !arithmetic->IsVecSub())) {
+    return false;
+  }
+
+  HVecBinaryOperation* arithmetic_binop = arithmetic->AsVecBinaryOperation();
+  if (!has_same_shape(arithmetic_binop)) {
+    return false;
+  }
+
+  if ((packed_type == DataType::Type::kUint8 || packed_type == DataType::Type::kUint16)) {
+    bool matches_half_clamp =
+        (arithmetic->IsVecAdd() && outer->IsVecMin()) ||
+        (arithmetic->IsVecSub() && outer->IsVecMax());
+    if (!matched_full_clamp && !matches_half_clamp) {
+      return false;
+    }
+  } else if (!matched_full_clamp) {
+    return false;
+  }
+
+  ArenaAllocator* allocator = outer->GetBlock()->GetGraph()->GetAllocator();
+  HInstruction* saturation =
+      arithmetic->IsVecAdd()
+          ? static_cast<HInstruction*>(new (allocator) HVecSaturationAdd(allocator,
+                                                                         arithmetic_binop->GetLeft(),
+                                                                         arithmetic_binop->GetRight(),
+                                                                         packed_type,
+                                                                         outer->GetVectorLength(),
+                                                                         outer->GetDexPc()))
+          : static_cast<HInstruction*>(new (allocator) HVecSaturationSub(allocator,
+                                                                         arithmetic_binop->GetLeft(),
+                                                                         arithmetic_binop->GetRight(),
+                                                                         packed_type,
+                                                                         outer->GetVectorLength(),
+                                                                         outer->GetDexPc()));
+
+  HBasicBlock* block = outer->GetBlock();
+  block->ReplaceAndRemoveInstructionWith(outer, saturation);
+  if (outer->IsPredicated()) {
+    saturation->AsVecOperation()->SetGoverningPredicate(outer->GetGoverningPredicate(),
+                                                        outer->GetPredicationKind());
+  }
+
+  if (arithmetic_binop->IsDeadAndRemovable()) {
+    arithmetic_binop->GetBlock()->RemoveInstruction(arithmetic_binop);
+  }
+  if (matched_full_clamp && clamp != nullptr && clamp->IsDeadAndRemovable()) {
+    clamp->GetBlock()->RemoveInstruction(clamp);
+  }
   return true;
 }
 
@@ -3401,6 +3626,24 @@ bool InstructionSimplifierVisitor::TrySubtractionChainSimplification(
 
 void InstructionSimplifierVisitor::VisitVecMul(HVecMul* instruction) {
   if (TryCombineVecMultiplyAccumulate(instruction)) {
+    RecordSimplification();
+  }
+}
+
+void InstructionSimplifierVisitor::VisitVecAnd(HVecAnd* instruction) {
+  if (TryCombineVecAndNot(instruction)) {
+    RecordSimplification();
+  }
+}
+
+void InstructionSimplifierVisitor::VisitVecMax(HVecMax* instruction) {
+  if (TryCombineVecSaturation(instruction)) {
+    RecordSimplification();
+  }
+}
+
+void InstructionSimplifierVisitor::VisitVecMin(HVecMin* instruction) {
+  if (TryCombineVecSaturation(instruction)) {
     RecordSimplification();
   }
 }

@@ -1,6 +1,7 @@
 SimdByte passed
 SimdShort passed
 SimdChar passed
+SimdMinMaxSmall passed
 SimdInt passed
 SimdLong passed
 SimdDouble passed

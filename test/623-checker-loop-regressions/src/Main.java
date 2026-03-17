@@ -302,6 +302,10 @@ public class Main {
   //
   /// CHECK-FI:
   //
+  /// CHECK-START-LOONGARCH64: void Main.string2Bytes(char[], java.lang.String) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
   // NOTE: should correctly deal with compressed and uncompressed cases.
   private static void string2Bytes(char[] a, String b) {
     int min = Math.min(a.length, b.length());
@@ -325,6 +329,10 @@ public class Main {
   ///     CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  ///
+  /// CHECK-START-LOONGARCH64: void Main.$noinline$stringToShorts(short[], java.lang.String) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   private static void $noinline$stringToShorts(short[] dest, String src) {
     int min = Math.min(dest.length, src.length());
     for (int i = 0; i < min; ++i) {

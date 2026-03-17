@@ -62,6 +62,10 @@ public class Main {
   //
   /// CHECK-FI:
   //
+  /// CHECK-START-LOONGARCH64: void Main.doitByte(byte[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad   loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore  loop:<<Loop>>      outer_loop:none
   private static void doitByte(byte[] x) {
     for (int i = 0; i < x.length; i++) {
       x[i] = (byte) Math.abs(x[i]);
@@ -116,6 +120,10 @@ public class Main {
   ///     CHECK-EVAL: "<<Loop1>>" != "<<Loop2>>"
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: void Main.doitShort(short[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad   loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore  loop:<<Loop>>      outer_loop:none
   private static void doitShort(short[] x) {
     for (int i = 0; i < x.length; i++) {
       x[i] = (short) Math.abs(x[i]);
@@ -148,6 +156,10 @@ public class Main {
   ///     CHECK-EVAL: "<<Loop1>>" != "<<Loop2>>"
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: void Main.doitCastChar(char[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad   loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore  loop:<<Loop>>      outer_loop:none
   private static void doitCastChar(char[] x) {
     for (int i = 0; i < x.length; i++) {
       x[i] = (char) Math.abs((short) x[i]);
@@ -196,6 +208,20 @@ public class Main {
     }
   }
 
+  /// CHECK-START-LOONGARCH64: void Main.doitIntLoongArch64(int[]) loop_optimization (before)
+  /// CHECK-DAG: Abs
+  //
+  /// CHECK-START-LOONGARCH64: void Main.doitIntLoongArch64(int[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad   loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore  loop:<<Loop>>      outer_loop:none
+  private static void doitIntLoongArch64(int[] x) {
+    for (int i = 0; i < x.length; i++) {
+      int value = x[i];
+      x[i] = value < 0 ? -value : value;
+    }
+  }
+
   /// CHECK-START: void Main.doitLong(long[]) loop_optimization (before)
   /// CHECK-DAG: Phi       loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: ArrayGet  loop:<<Loop>>      outer_loop:none
@@ -222,6 +248,10 @@ public class Main {
   ///     CHECK-EVAL: "<<Loop1>>" != "<<Loop2>>"
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: void Main.doitLong(long[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad   loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore  loop:<<Loop>>      outer_loop:none
   private static void doitLong(long[] x) {
     for (int i = 0; i < x.length; i++) {
       x[i] = Math.abs(x[i]);
@@ -344,6 +374,24 @@ public class Main {
     expectEquals32(0, xi[5]);
     expectEquals32(1, xi[6]);
     expectEquals32(999, xi[7]);
+    int[] xiLoongArch64 = new int[8];
+    xiLoongArch64[0] = 0x80000000;
+    xiLoongArch64[1] = 0x7fffffff;
+    xiLoongArch64[2] = 0x80000001;
+    xiLoongArch64[3] = -13;
+    xiLoongArch64[4] = -1;
+    xiLoongArch64[5] = 0;
+    xiLoongArch64[6] = 1;
+    xiLoongArch64[7] = 999;
+    doitIntLoongArch64(xiLoongArch64);
+    expectEquals32(0x80000000, xiLoongArch64[0]);
+    expectEquals32(0x7fffffff, xiLoongArch64[1]);
+    expectEquals32(0x7fffffff, xiLoongArch64[2]);
+    expectEquals32(13, xiLoongArch64[3]);
+    expectEquals32(1, xiLoongArch64[4]);
+    expectEquals32(0, xiLoongArch64[5]);
+    expectEquals32(1, xiLoongArch64[6]);
+    expectEquals32(999, xiLoongArch64[7]);
 
     // Set up minint64, maxint64 and some others.
     long[] xl = new long[8];

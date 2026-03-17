@@ -21,8 +21,8 @@
  */
 public class SimdSadShort2 {
 
-  // TODO: lower precision still coming, b/64091002
-
+  /// CHECK-START-LOONGARCH64: short SimdSadShort2.sadCastChar2Short(char[], char[]) loop_optimization (after)
+  /// CHECK-DAG: VecSADAccumulate
   private static short sadCastChar2Short(char[] s1, char[] s2) {
       int min_length = Math.min(s1.length, s2.length);
       short sad = 0;
