@@ -26,8 +26,12 @@ public class Main {
   // Basic reductions in loops.
   //
 
-  // TODO: vectorize these (second step of b/64091002 plan)
-
+  /// CHECK-START-LOONGARCH64: byte Main.reductionByte(byte[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecAdd
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static byte reductionByte(byte[] x) {
     byte sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -36,6 +40,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: short Main.reductionShort(short[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecAdd
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static short reductionShort(short[] x) {
     short sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -44,6 +54,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: char Main.reductionChar(char[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecAdd
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static char reductionChar(char[] x) {
     char sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -98,6 +114,16 @@ public class Main {
   ///     CHECK-DAG: <<Extr:i\d+>>      VecExtractScalar [<<Red>>]               loop:none
   //
   /// CHECK-FI:
+  //
+  /// CHECK-START-LOONGARCH64: int Main.reductionInt(int[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons:i\d+>>   IntConstant 4                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{i\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecAdd [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons>>]          loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:i\d+>>   VecExtractScalar [<<Red>>]    loop:none
   //
   //  Check that full 128-bit Q-Register are saved across SuspendCheck slow path.
   /// CHECK-START-ARM64: int Main.reductionInt(int[]) disassembly (after)
@@ -304,6 +330,15 @@ public class Main {
   ///     CHECK-DAG: <<Extr:j\d+>>   VecExtractScalar [<<Red>>]    loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: long Main.reductionLong(long[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{j\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecAdd [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons2>>]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:j\d+>>   VecExtractScalar [<<Red>>]    loop:none
   private static long reductionLong(long[] x) {
     long sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -312,6 +347,46 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: float Main.reductionFloat(float[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 4                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{f\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecAdd [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons2>>]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:f\d+>>   VecExtractScalar [<<Red>>]    loop:none
+  private static float reductionFloat(float[] x) {
+    float sum = 0.0f;
+    for (int i = 0; i < x.length; i++) {
+      sum += x[i];
+    }
+    return sum;
+  }
+
+  /// CHECK-START-LOONGARCH64: double Main.reductionDouble(double[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{g\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecAdd [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons2>>]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:g\d+>>   VecExtractScalar [<<Red>>]    loop:none
+  private static double reductionDouble(double[] x) {
+    double sum = 0.0;
+    for (int i = 0; i < x.length; i++) {
+      sum += x[i];
+    }
+    return sum;
+  }
+
+  /// CHECK-START-LOONGARCH64: byte Main.reductionByteM1(byte[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecAdd
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static byte reductionByteM1(byte[] x) {
     byte sum = -1;
     for (int i = 0; i < x.length; i++) {
@@ -320,6 +395,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: short Main.reductionShortM1(short[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecAdd
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static short reductionShortM1(short[] x) {
     short sum = -1;
     for (int i = 0; i < x.length; i++) {
@@ -328,6 +409,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: char Main.reductionCharM1(char[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecAdd
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static char reductionCharM1(char[] x) {
     char sum = 0xffff;
     for (int i = 0; i < x.length; i++) {
@@ -424,6 +511,15 @@ public class Main {
   ///     CHECK-DAG: <<Extr:j\d+>>   VecExtractScalar [<<Red>>]    loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: long Main.reductionLongM1(long[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{j\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecAdd [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons2>>]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:j\d+>>   VecExtractScalar [<<Red>>]    loop:none
   private static long reductionLongM1(long[] x) {
     long sum = -1L;
     for (int i = 0; i < x.length; i++) {
@@ -432,6 +528,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: byte Main.reductionMinusByte(byte[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecSub
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static byte reductionMinusByte(byte[] x) {
     byte sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -440,6 +542,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: short Main.reductionMinusShort(short[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecSub
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static short reductionMinusShort(short[] x) {
     short sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -448,6 +556,12 @@ public class Main {
     return sum;
   }
 
+  /// CHECK-START-LOONGARCH64: char Main.reductionMinusChar(char[]) loop_optimization (after)
+  /// CHECK-DAG: VecSetScalars
+  /// CHECK-DAG: VecLoad
+  /// CHECK-DAG: VecSub
+  /// CHECK-DAG: VecReduce
+  /// CHECK-DAG: VecExtractScalar
   private static char reductionMinusChar(char[] x) {
     char sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -500,6 +614,16 @@ public class Main {
   ///     CHECK-DAG: <<Extr:i\d+>>   VecExtractScalar [<<Red>>]    loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int Main.reductionMinusInt(int[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons:i\d+>>   IntConstant 4                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{i\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecSub [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons>>]          loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:i\d+>>   VecExtractScalar [<<Red>>]    loop:none
+
   private static int reductionMinusInt(int[] x) {
     int sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -543,6 +667,15 @@ public class Main {
   ///     CHECK-DAG: <<Extr:j\d+>>   VecExtractScalar [<<Red>>]    loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: long Main.reductionMinusLong(long[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                 loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [{{j\d+}}]      loop:none
+  /// CHECK-DAG: <<Phi:d\d+>>    Phi [<<Set>>,{{d\d+}}]        loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Load:d\d+>>   VecLoad [{{l\d+}},<<I:i\d+>>] loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 VecSub [<<Phi>>,<<Load>>]     loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                 Add [<<I>>,<<Cons2>>]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Red:d\d+>>    VecReduce [<<Phi>>]           loop:none
+  /// CHECK-DAG: <<Extr:j\d+>>   VecExtractScalar [<<Red>>]    loop:none
   private static long reductionMinusLong(long[] x) {
     long sum = 0;
     for (int i = 0; i < x.length; i++) {
@@ -585,12 +718,16 @@ public class Main {
     char[] xc = new char[N];
     int[] xi = new int[N];
     long[] xl = new long[N];
+    float[] xf = new float[N];
+    double[] xd = new double[N];
     for (int i = 0, k = -17; i < N; i++, k += 3) {
       xb[i] = (byte) k;
       xs[i] = (short) k;
       xc[i] = (char) k;
       xi[i] = k;
       xl[i] = k;
+      xf[i] = k;
+      xd[i] = k;
     }
 
     // Arrays with all positive elements.
@@ -633,6 +770,8 @@ public class Main {
     expectEquals(118, reductionIntToLoop(x2));
     expectEquals(-1310, reductionIntToLoop(xi));
     expectEquals(365750L, reductionLong(xl));
+    expectEquals(365750.0f, reductionFloat(xf));
+    expectEquals(365750.0, reductionDouble(xd));
     expectEquals(-75, reductionByteM1(xb));
     expectEquals(-27467, reductionShortM1(xs));
     expectEquals(38069, reductionCharM1(xc));
@@ -669,6 +808,18 @@ public class Main {
 
   private static void expectEquals(long expected, long result) {
     if (expected != result) {
+      throw new Error("Expected: " + expected + ", found: " + result);
+    }
+  }
+
+  private static void expectEquals(float expected, float result) {
+    if (Float.floatToRawIntBits(expected) != Float.floatToRawIntBits(result)) {
+      throw new Error("Expected: " + expected + ", found: " + result);
+    }
+  }
+
+  private static void expectEquals(double expected, double result) {
+    if (Double.doubleToRawLongBits(expected) != Double.doubleToRawLongBits(result)) {
       throw new Error("Expected: " + expected + ", found: " + result);
     }
   }

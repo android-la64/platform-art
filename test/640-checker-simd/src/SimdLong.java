@@ -33,6 +33,11 @@ public class SimdLong {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.add(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void add(long x) {
     for (int i = 0; i < 128; i++)
       a[i] += x;
@@ -43,6 +48,11 @@ public class SimdLong {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdLong.sub(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.sub(long) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -69,9 +79,50 @@ public class SimdLong {
   ///     CHECK-NOT: VecMul
   //
   /// CHECK-FI:
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.mul(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void mul(long x) {
     for (int i = 0; i < 128; i++)
       a[i] *= x;
+  }
+
+  /// CHECK-START: void SimdLong.min(long) loop_optimization (before)
+  /// CHECK-DAG: ArrayGet loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-ARM64: void SimdLong.min(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMin   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.min(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMin   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  static void min(long x) {
+    for (int i = 0; i < 128; i++)
+      a[i] = Math.min(a[i], x);
+  }
+
+  /// CHECK-START: void SimdLong.max(long) loop_optimization (before)
+  /// CHECK-DAG: ArrayGet loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-ARM64: void SimdLong.max(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMax   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.max(long) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMax   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  static void max(long x) {
+    for (int i = 0; i < 128; i++)
+      a[i] = Math.max(a[i], x);
   }
 
   /// CHECK-START: void SimdLong.div(long) loop_optimization (before)
@@ -96,6 +147,11 @@ public class SimdLong {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.neg() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void neg() {
     for (int i = 0; i < 128; i++)
       a[i] = -a[i];
@@ -106,6 +162,11 @@ public class SimdLong {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdLong.not() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNot   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.not() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNot   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -122,6 +183,11 @@ public class SimdLong {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecShl   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.shl4() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecShl   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void shl4() {
     for (int i = 0; i < 128; i++)
       a[i] <<= 4;
@@ -135,6 +201,11 @@ public class SimdLong {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecShr   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.sar2() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecShr   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void sar2() {
     for (int i = 0; i < 128; i++)
       a[i] >>= 2;
@@ -145,6 +216,11 @@ public class SimdLong {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdLong.shr2() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdLong.shr2() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -285,6 +361,23 @@ public class SimdLong {
     mul(2L);
     for (int i = 0; i < 128; i++) {
       expectEquals(i + i, a[i], "mul");
+    }
+    for (int i = 0; i < 128; i++) {
+      a[i] = i - 64L;
+    }
+    min(-10L);
+    for (int i = 0; i < 128; i++) {
+      expectEquals(Math.min(i - 64L, -10L), a[i], "min");
+    }
+    for (int i = 0; i < 128; i++) {
+      a[i] = i - 64L;
+    }
+    max(10L);
+    for (int i = 0; i < 128; i++) {
+      expectEquals(Math.max(i - 64L, 10L), a[i], "max");
+    }
+    for (int i = 0; i < 128; i++) {
+      a[i] = i + i;
     }
     div(2L);
     for (int i = 0; i < 128; i++) {

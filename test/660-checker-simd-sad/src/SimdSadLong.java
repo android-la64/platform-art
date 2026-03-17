@@ -52,6 +52,15 @@ public class SimdSadLong {
   ///     CHECK-DAG:                 Add [<<Phi1>>,<<Cons2>>]       loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: long SimdSadLong.sadLong2Long(long[], long[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                  loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [<<ConsL:j\d+>>] loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>   Phi [<<Cons0:i\d+>>,{{i\d+}}]  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>   Phi [<<Set>>,{{d\d+}}]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>  VecLoad [{{l\d+}},<<Phi1>>]    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>  VecLoad [{{l\d+}},<<Phi1>>]    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<SAD:d\d+>>    VecSADAccumulate [<<Phi2>>,<<Load1>>,<<Load2>>] loop:<<Loop>> outer_loop:none
+  /// CHECK-DAG:                 Add [<<Phi1>>,<<Cons2>>]       loop:<<Loop>>      outer_loop:none
   private static long sadLong2Long(long[] x, long[] y) {
     int min_length = Math.min(x.length, y.length);
     long sad = 0;
@@ -123,6 +132,15 @@ public class SimdSadLong {
   ///     CHECK-DAG:                 Add [<<Phi1>>,<<Cons2>>]       loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: long SimdSadLong.sadLong2LongAlt2(long[], long[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                  loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [<<ConsL:j\d+>>] loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>   Phi [<<Cons0:i\d+>>,{{i\d+}}]  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>   Phi [<<Set>>,{{d\d+}}]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>  VecLoad [{{l\d+}},<<Phi1>>]    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>  VecLoad [{{l\d+}},<<Phi1>>]    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<SAD:d\d+>>    VecSADAccumulate [<<Phi2>>,<<Load1>>,<<Load2>>] loop:<<Loop>> outer_loop:none
+  /// CHECK-DAG:                 Add [<<Phi1>>,<<Cons2>>]       loop:<<Loop>>      outer_loop:none
   private static long sadLong2LongAlt2(long[] x, long[] y) {
     int min_length = Math.min(x.length, y.length);
     long sad = 0;
@@ -169,6 +187,15 @@ public class SimdSadLong {
   ///     CHECK-DAG:                 Add [<<Phi1>>,<<Cons2>>]       loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: long SimdSadLong.sadLong2LongAt1(long[], long[]) loop_optimization (after)
+  /// CHECK-DAG: <<Cons2:i\d+>>  IntConstant 2                  loop:none
+  /// CHECK-DAG: <<Set:d\d+>>    VecSetScalars [<<ConsL:j\d+>>] loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>   Phi [<<Cons0:i\d+>>,{{i\d+}}]  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>   Phi [<<Set>>,{{d\d+}}]         loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>  VecLoad [{{l\d+}},<<Phi1>>]    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>  VecLoad [{{l\d+}},<<Phi1>>]    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<SAD:d\d+>>    VecSADAccumulate [<<Phi2>>,<<Load1>>,<<Load2>>] loop:<<Loop>> outer_loop:none
+  /// CHECK-DAG:                 Add [<<Phi1>>,<<Cons2>>]       loop:<<Loop>>      outer_loop:none
   private static long sadLong2LongAt1(long[] x, long[] y) {
     int min_length = Math.min(x.length, y.length);
     long sad = 1;  // starts at 1

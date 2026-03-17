@@ -264,6 +264,19 @@ public class TestVarious {
   ///     CHECK-DAG:                  VecExtractScalar [<<Reduce>>]             loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestVarious.testDotProdInt32(int[], int[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                             loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                             loop:none
+  /// CHECK-DAG: <<Const4:i\d+>>  IntConstant 4                             loop:none
+  /// CHECK-DAG: <<Set:d\d+>>     VecSetScalars [<<Const1>>]                loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                 loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set>>,{{d\d+}}]                    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecMultiplyAccumulate [<<Phi2>>,<<Load1>>,<<Load2>>] loop:<<Loop>> outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const4>>]                 loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Reduce:d\d+>>  VecReduce [<<Phi2>>]                      loop:none
+  /// CHECK-DAG:                  VecExtractScalar [<<Reduce>>]             loop:none
   public static final int testDotProdInt32(int[] a, int[] b) {
     int s = 1;
     for (int i = 0;  i < b.length; i++) {
@@ -325,6 +338,21 @@ public class TestVarious {
   ///     CHECK-DAG:                  Add [<<Phi1>>,<<Const16>>]                            loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestVarious.testDotProdBothSignedUnsigned1(byte[], byte[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const2:i\d+>>  IntConstant 2                                         loop:none
+  /// CHECK-DAG: <<Const16:i\d+>> IntConstant 16                                        loop:none
+  /// CHECK-DAG: <<Set1:d\d+>>    VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Set2:d\d+>>    VecSetScalars [<<Const2>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set1>>,{{d\d+}}]                               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Phi3:d\d+>>    Phi [<<Set2>>,{{d\d+}}]                               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<Load1>>,<<Load2>>] type:Int8   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi3>>,<<Load1>>,<<Load2>>] type:Uint8  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const16>>]                            loop:<<Loop>>      outer_loop:none
   public static final int testDotProdBothSignedUnsigned1(byte[] a, byte[] b) {
     int s1 = 1;
     int s2 = 2;
@@ -392,6 +420,23 @@ public class TestVarious {
   ///     CHECK-DAG:                  Add [<<Phi1>>,<<Const16>>]                            loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestVarious.testDotProdBothSignedUnsigned2(byte[], byte[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const2:i\d+>>  IntConstant 2                                         loop:none
+  /// CHECK-DAG: <<Const16:i\d+>> IntConstant 16                                        loop:none
+  /// CHECK-DAG: <<Const42:i\d+>> IntConstant 42                                        loop:none
+  /// CHECK-DAG: <<Repl:d\d+>>    VecReplicateScalar [<<Const42>>]                      loop:none
+  /// CHECK-DAG: <<Set1:d\d+>>    VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Set2:d\d+>>    VecSetScalars [<<Const2>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set1>>,{{d\d+}}]                               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Phi3:d\d+>>    Phi [<<Set2>>,{{d\d+}}]                               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi3>>,<<Load2>>,<<Load1>>] type:Uint8  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<Load1>>,<<Repl>>] type:Int8    loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const16>>]                            loop:<<Loop>>      outer_loop:none
   public static final int testDotProdBothSignedUnsigned2(byte[] a, byte[] b) {
     int s1 = 1;
     int s2 = 2;
@@ -460,6 +505,23 @@ public class TestVarious {
   ///     CHECK-DAG:                  Add [<<Phi1>>,<<Const16>>]                            loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestVarious.testDotProdBothSignedUnsignedDoubleLoad(byte[], byte[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const2:i\d+>>  IntConstant 2                                         loop:none
+  /// CHECK-DAG: <<Const16:i\d+>> IntConstant 16                                        loop:none
+  /// CHECK-DAG: <<Set1:d\d+>>    VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Set2:d\d+>>    VecSetScalars [<<Const2>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set1>>,{{d\d+}}]                               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Phi3:d\d+>>    Phi [<<Set2>>,{{d\d+}}]                               loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<Load1>>,<<Load2>>] type:Int8   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load3:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load4:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi3>>,<<Load3>>,<<Load4>>] type:Uint8  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const16>>]                            loop:<<Loop>>      outer_loop:none
   public static final int testDotProdBothSignedUnsignedDoubleLoad(byte[] a, byte[] b) {
     int s1 = 1;
     int s2 = 2;

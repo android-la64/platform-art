@@ -15,6 +15,7 @@
  */
 
 #include "base/macros.h"
+#include "arch/instruction_set.h"
 #include "code_generator.h"
 #include "driver/compiler_options.h"
 #include "loop_optimization.h"
@@ -98,6 +99,40 @@ class LoopOptimizationTest : public OptimizingUnitTest {
     loop_opt_->Run();
   }
 
+  void BuildLoopAnalysis() {
+    graph_->BuildDominatorTree();
+    iva_->Run();
+  }
+
+  void RecreateLoopOptimizationForInstructionSet(InstructionSet instruction_set) {
+    codegen_.reset();
+    compiler_options_ = CommonCompilerTest::CreateCompilerOptions(instruction_set, "default");
+    DCHECK(compiler_options_ != nullptr);
+    codegen_ = CodeGenerator::Create(graph_, *compiler_options_);
+    DCHECK(codegen_.get() != nullptr);
+    loop_opt_ = new (GetAllocator()) HLoopOptimization(
+        graph_, *codegen_.get(), iva_, /* stats= */ nullptr);
+  }
+
+  HLoopOptimization::LoopNode* CreateLoopNode(HLoopInformation* loop_info) {
+    return new (GetAllocator()) HLoopOptimization::LoopNode(loop_info);
+  }
+
+  bool TrySetVectorTypeForTest(DataType::Type type, uint64_t* restrictions) {
+    return loop_opt_->TrySetVectorType(type, restrictions);
+  }
+
+  bool VectorizeUseForTest(HLoopOptimization::LoopNode* node,
+                           HInstruction* instruction,
+                           DataType::Type type,
+                           uint64_t restrictions) {
+    return loop_opt_->VectorizeUse(node, instruction, /*generate_code*/ false, type, restrictions);
+  }
+
+  static bool HasRestriction(uint64_t restrictions, uint64_t tested) {
+    return (restrictions & tested) != 0u;
+  }
+
   /** Constructs string representation of computed loop hierarchy. */
   std::string LoopStructure() {
     return LoopStructureRecurse(loop_opt_->top_loop_);
@@ -127,6 +162,11 @@ class LoopOptimizationTest : public OptimizingUnitTest {
   HBasicBlock* exit_block_;
 
   HInstruction* parameter_;
+
+  static constexpr uint64_t kNoAbsRestriction = HLoopOptimization::kNoAbs;
+  static constexpr uint64_t kNoNegRestriction = HLoopOptimization::kNoNeg;
+  static constexpr uint64_t kNoDivRestriction = HLoopOptimization::kNoDiv;
+  static constexpr uint64_t kNoCnvRestriction = HLoopOptimization::kNoCnv;
 };
 
 //
@@ -332,6 +372,47 @@ TEST_F(LoopOptimizationTest, SimplifyLoopSinglePreheader) {
   EXPECT_EQ(header_phi->InputCount(), 2u);
   EXPECT_EQ(header_phi->InputAt(0), new_preheader_phi);
   EXPECT_EQ(header_phi->InputAt(1), body_add);
+}
+
+TEST_F(LoopOptimizationTest, LoongArch64SimdRestrictionsMatchSupportedFloatOps) {
+  RecreateLoopOptimizationForInstructionSet(InstructionSet::kLoongarch64);
+
+  HBasicBlock* header = AddLoop(entry_block_, return_block_);
+  HBasicBlock* body = header->GetSuccessors()[0];
+  HInstruction* float_input = graph_->GetFloatConstant(1.0f);
+  HInstruction* float_other = graph_->GetFloatConstant(2.0f);
+  HInstruction* neg = new (GetAllocator()) HNeg(DataType::Type::kFloat32, float_input);
+  HInstruction* abs = new (GetAllocator()) HAbs(DataType::Type::kFloat32, float_input);
+  HInstruction* div =
+      new (GetAllocator()) HDiv(DataType::Type::kFloat32, float_other, float_input, kNoDexPc);
+  HInstruction* min =
+      new (GetAllocator()) HMin(DataType::Type::kFloat32, float_input, float_other, kNoDexPc);
+  HInstruction* max =
+      new (GetAllocator()) HMax(DataType::Type::kFloat32, float_input, float_other, kNoDexPc);
+  HInstruction* cnv =
+      new (GetAllocator()) HTypeConversion(DataType::Type::kFloat32, parameter_);
+  body->AddInstruction(neg);
+  body->AddInstruction(abs);
+  body->AddInstruction(div);
+  body->AddInstruction(min);
+  body->AddInstruction(max);
+  body->AddInstruction(cnv);
+
+  BuildLoopAnalysis();
+  auto* node = CreateLoopNode(header->GetLoopInformation());
+
+  uint64_t restrictions = 0u;
+  ASSERT_TRUE(TrySetVectorTypeForTest(DataType::Type::kFloat32, &restrictions));
+  EXPECT_FALSE(HasRestriction(restrictions, kNoAbsRestriction));
+  EXPECT_FALSE(HasRestriction(restrictions, kNoNegRestriction));
+  EXPECT_FALSE(HasRestriction(restrictions, kNoDivRestriction));
+  EXPECT_TRUE(HasRestriction(restrictions, kNoCnvRestriction));
+  EXPECT_TRUE(VectorizeUseForTest(node, neg, DataType::Type::kFloat32, restrictions));
+  EXPECT_TRUE(VectorizeUseForTest(node, abs, DataType::Type::kFloat32, restrictions));
+  EXPECT_TRUE(VectorizeUseForTest(node, div, DataType::Type::kFloat32, restrictions));
+  EXPECT_TRUE(VectorizeUseForTest(node, min, DataType::Type::kFloat32, restrictions));
+  EXPECT_TRUE(VectorizeUseForTest(node, max, DataType::Type::kFloat32, restrictions));
+  EXPECT_TRUE(VectorizeUseForTest(node, cnv, DataType::Type::kFloat32, restrictions));
 }
 
 }  // namespace art

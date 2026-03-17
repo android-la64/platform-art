@@ -34,6 +34,11 @@ public class SimdDouble {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdDouble.add(double) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void add(double x) {
     for (int i = 0; i < 128; i++)
       a[i] += x;
@@ -44,6 +49,11 @@ public class SimdDouble {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdDouble.sub(double) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdDouble.sub(double) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -60,6 +70,11 @@ public class SimdDouble {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdDouble.mul(double) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void mul(double x) {
     for (int i = 0; i < 128; i++)
       a[i] *= x;
@@ -70,6 +85,11 @@ public class SimdDouble {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdDouble.div(double) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecDiv   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdDouble.div(double) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecDiv   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -86,6 +106,11 @@ public class SimdDouble {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdDouble.neg() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void neg() {
     for (int i = 0; i < 128; i++)
       a[i] = -a[i];
@@ -96,6 +121,11 @@ public class SimdDouble {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdDouble.abs() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdDouble.abs() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAbs   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -112,7 +142,10 @@ public class SimdDouble {
   /// CHECK-NOT: VecLoad
   /// CHECK-NOT: VecStore
   //
-  // TODO: fill in when long2double is supported
+  /// CHECK-START-LOONGARCH64: void SimdDouble.conv(long[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecCnv   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void conv(long[] b) {
     for (int i = 0; i < 128; i++)
       a[i] = b[i];

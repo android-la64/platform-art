@@ -34,6 +34,11 @@ public class SimdFloat {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.add(float) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void add(float x) {
     for (int i = 0; i < 128; i++)
       a[i] += x;
@@ -44,6 +49,11 @@ public class SimdFloat {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdFloat.sub(float) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.sub(float) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -60,6 +70,11 @@ public class SimdFloat {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.mul(float) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void mul(float x) {
     for (int i = 0; i < 128; i++)
       a[i] *= x;
@@ -70,6 +85,11 @@ public class SimdFloat {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdFloat.div(float) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecDiv   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.div(float) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecDiv   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -86,6 +106,11 @@ public class SimdFloat {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.neg() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void neg() {
     for (int i = 0; i < 128; i++)
       a[i] = -a[i];
@@ -99,6 +124,11 @@ public class SimdFloat {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAbs   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.abs() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAbs   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void abs() {
     for (int i = 0; i < 128; i++)
       a[i] = Math.abs(a[i]);
@@ -109,6 +139,11 @@ public class SimdFloat {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-ARM64: void SimdFloat.conv(int[]) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecCnv   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdFloat.conv(int[]) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecCnv   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none

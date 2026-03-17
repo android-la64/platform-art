@@ -407,18 +407,15 @@ class CodeGeneratorLOONGARCH64 : public CodeGenerator {
   // Note: In SIMD graphs this should return SIMD register width as all FP and SIMD registers
   // alias and live SIMD registers are forced to be spilled in full size in the slow paths.
   size_t GetSlowPathFPWidth() const override {
-    // Default implementation.
-    return GetCalleePreservedFPWidth();
+    return GetGraph()->HasSIMD() ? GetSIMDRegisterWidth() : GetCalleePreservedFPWidth();
   }
 
   size_t GetCalleePreservedFPWidth() const override {
-    return kLoongarch64FloatRegSizeInBytes;
+    return GetGraph()->HasSIMD() ? GetSIMDRegisterWidth() : kLoongarch64FloatRegSizeInBytes;
   };
 
   size_t GetSIMDRegisterWidth() const override {
-    // TODO(loongarch64): Implement SIMD with the Vector extension.
-    // Note: HLoopOptimization calls this function even for an ISA without SIMD support.
-    return kLoongarch64FloatRegSizeInBytes;
+    return 2 * kLoongarch64FloatRegSizeInBytes;
   };
 
   uintptr_t GetAddressOf(HBasicBlock* block) override {

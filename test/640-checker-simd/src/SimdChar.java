@@ -33,6 +33,11 @@ public class SimdChar {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.add(int) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecAdd   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void add(int x) {
     for (int i = 0; i < 128; i++)
       a[i] += x;
@@ -46,6 +51,11 @@ public class SimdChar {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.sub(int) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecSub   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void sub(int x) {
     for (int i = 0; i < 128; i++)
       a[i] -= x;
@@ -56,6 +66,11 @@ public class SimdChar {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdChar.mul(int) loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.mul(int) loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecMul   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -86,6 +101,11 @@ public class SimdChar {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.neg() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNeg   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void neg() {
     for (int i = 0; i < 128; i++)
       a[i] = (char) -a[i];
@@ -96,6 +116,11 @@ public class SimdChar {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdChar.not() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecNot   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.not() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecNot   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
@@ -112,6 +137,11 @@ public class SimdChar {
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecShl   loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.shl4() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecShl   loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void shl4() {
     for (int i = 0; i < 128; i++)
       a[i] <<= 4;
@@ -121,9 +151,13 @@ public class SimdChar {
   /// CHECK-DAG: ArrayGet loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
-  // TODO: would need signess flip.
   /// CHECK-START: void SimdChar.sar2() loop_optimization (after)
   /// CHECK-NOT: VecShr
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.sar2() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
   static void sar2() {
     for (int i = 0; i < 128; i++)
       a[i] >>= 2;
@@ -134,6 +168,11 @@ public class SimdChar {
   /// CHECK-DAG: ArraySet loop:<<Loop>>      outer_loop:none
   //
   /// CHECK-START-{ARM,ARM64}: void SimdChar.shr2() loop_optimization (after)
+  /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START-LOONGARCH64: void SimdChar.shr2() loop_optimization (after)
   /// CHECK-DAG: VecLoad  loop:<<Loop:B\d+>> outer_loop:none
   /// CHECK-DAG: VecUShr  loop:<<Loop>>      outer_loop:none
   /// CHECK-DAG: VecStore loop:<<Loop>>      outer_loop:none

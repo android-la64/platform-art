@@ -57,6 +57,19 @@ public class TestCharShort {
   ///     CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestCharShort.testDotProdSimple(short[], short[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const8:i\d+>>  IntConstant 8                                         loop:none
+  /// CHECK-DAG: <<Set:d\d+>>     VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set>>,{{d\d+}}]                                loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<Load1>>,<<Load2>>] type:Int16  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const8>>]                             loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Reduce:d\d+>>  VecReduce [<<Phi2>>]                                  loop:none
+  /// CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   public static final int testDotProdSimple(short[] a, short[] b) {
     int s = 1;
     for (int i = 0; i < b.length; i++) {
@@ -107,6 +120,22 @@ public class TestCharShort {
   ///     CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestCharShort.testDotProdComplex(short[], short[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const8:i\d+>>  IntConstant 8                                         loop:none
+  /// CHECK-DAG: <<Repl:d\d+>>    VecReplicateScalar [<<Const1>>]                       loop:none
+  /// CHECK-DAG: <<Set:d\d+>>     VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set>>,{{d\d+}}]                                loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<VAdd1:d\d+>>   VecAdd [<<Load1>>,<<Repl>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<VAdd2:d\d+>>   VecAdd [<<Load2>>,<<Repl>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<VAdd1>>,<<VAdd2>>] type:Int16  loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const8>>]                             loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Reduce:d\d+>>  VecReduce [<<Phi2>>]                                  loop:none
+  /// CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   public static final int testDotProdComplex(short[] a, short[] b) {
     int s = 1;
     for (int i = 0; i < b.length; i++) {
@@ -150,6 +179,19 @@ public class TestCharShort {
   ///     CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestCharShort.testDotProdSimpleUnsigned(char[], char[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const8:i\d+>>  IntConstant 8                                         loop:none
+  /// CHECK-DAG: <<Set:d\d+>>     VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set>>,{{d\d+}}]                                loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<Load1>>,<<Load2>>] type:Uint16 loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const8>>]                             loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Reduce:d\d+>>  VecReduce [<<Phi2>>]                                  loop:none
+  /// CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   public static final int testDotProdSimpleUnsigned(char[] a, char[] b) {
     int s = 1;
     for (int i = 0; i < b.length; i++) {
@@ -200,6 +242,22 @@ public class TestCharShort {
   ///     CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   //
   /// CHECK-FI:
+  /// CHECK-START-LOONGARCH64: int other.TestCharShort.testDotProdComplexUnsigned(char[], char[]) loop_optimization (after)
+  /// CHECK-DAG: <<Const0:i\d+>>  IntConstant 0                                         loop:none
+  /// CHECK-DAG: <<Const1:i\d+>>  IntConstant 1                                         loop:none
+  /// CHECK-DAG: <<Const8:i\d+>>  IntConstant 8                                         loop:none
+  /// CHECK-DAG: <<Repl:d\d+>>    VecReplicateScalar [<<Const1>>]                       loop:none
+  /// CHECK-DAG: <<Set:d\d+>>     VecSetScalars [<<Const1>>]                            loop:none
+  /// CHECK-DAG: <<Phi1:i\d+>>    Phi [<<Const0>>,{{i\d+}}]                             loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: <<Phi2:d\d+>>    Phi [<<Set>>,{{d\d+}}]                                loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load1:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<VAdd1:d\d+>>   VecAdd [<<Load1>>,<<Repl>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Load2:d\d+>>   VecLoad [{{l\d+}},<<Phi1>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<VAdd2:d\d+>>   VecAdd [<<Load2>>,<<Repl>>]                           loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  VecDotProd [<<Phi2>>,<<VAdd1>>,<<VAdd2>>] type:Uint16 loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG:                  Add [<<Phi1>>,<<Const8>>]                             loop:<<Loop>>      outer_loop:none
+  /// CHECK-DAG: <<Reduce:d\d+>>  VecReduce [<<Phi2>>]                                  loop:none
+  /// CHECK-DAG:                  VecExtractScalar [<<Reduce>>]                         loop:none
   public static final int testDotProdComplexUnsigned(char[] a, char[] b) {
     int s = 1;
     for (int i = 0; i < b.length; i++) {

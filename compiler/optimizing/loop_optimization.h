@@ -96,12 +96,14 @@ class HLoopOptimization : public HOptimization {
     kNoUnsignedHAdd  = 1 << 6,   // no unsigned halving add
     kNoUnroundedHAdd = 1 << 7,   // no unrounded halving add
     kNoAbs           = 1 << 8,   // no absolute value
-    kNoStringCharAt  = 1 << 9,   // no StringCharAt
-    kNoReduction     = 1 << 10,  // no reduction
-    kNoSAD           = 1 << 11,  // no sum of absolute differences (SAD)
-    kNoWideSAD       = 1 << 12,  // no sum of absolute differences (SAD) with operand widening
-    kNoDotProd       = 1 << 13,  // no dot product
-    kNoIfCond        = 1 << 14,  // no if condition conversion
+    kNoNeg           = 1 << 9,   // no negation
+    kNoCnv           = 1 << 10,  // no type conversion
+    kNoStringCharAt  = 1 << 11,  // no StringCharAt
+    kNoReduction     = 1 << 12,  // no reduction
+    kNoSAD           = 1 << 13,  // no sum of absolute differences (SAD)
+    kNoWideSAD       = 1 << 14,  // no sum of absolute differences (SAD) with operand widening
+    kNoDotProd       = 1 << 15,  // no dot product
+    kNoIfCond        = 1 << 16,  // no if condition conversion
   };
 
   /*

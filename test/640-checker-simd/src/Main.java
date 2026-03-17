@@ -19,6 +19,7 @@ public class Main {
     SimdByte.main();
     SimdShort.main();
     SimdChar.main();
+    SimdMinMaxSmall.main();
     SimdInt.main();
     SimdLong.main();
     SimdDouble.main();

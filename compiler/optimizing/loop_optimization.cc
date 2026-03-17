@@ -336,6 +336,56 @@ static bool IsSubConst2(HGraph* graph,
   return false;
 }
 
+static bool MatchConst(HInstruction* instruction, int64_t value) {
+  int64_t actual = 0;
+  return IsInt64AndGet(instruction, &actual) && actual == value;
+}
+
+static bool MatchMinWithConst(HInstruction* instruction,
+                              int64_t value,
+                              /*out*/ HInstruction** other) {
+  if (!instruction->IsMin()) {
+    return false;
+  }
+  if (MatchConst(instruction->InputAt(0), value)) {
+    *other = instruction->InputAt(1);
+    return true;
+  }
+  if (MatchConst(instruction->InputAt(1), value)) {
+    *other = instruction->InputAt(0);
+    return true;
+  }
+  return false;
+}
+
+static bool MatchMaxWithConst(HInstruction* instruction,
+                              int64_t value,
+                              /*out*/ HInstruction** other) {
+  if (!instruction->IsMax()) {
+    return false;
+  }
+  if (MatchConst(instruction->InputAt(0), value)) {
+    *other = instruction->InputAt(1);
+    return true;
+  }
+  if (MatchConst(instruction->InputAt(1), value)) {
+    *other = instruction->InputAt(0);
+    return true;
+  }
+  return false;
+}
+
+static bool MatchClamp(HInstruction* instruction,
+                       int64_t low,
+                       int64_t high,
+                       /*out*/ HInstruction** inner) {
+  HInstruction* candidate = nullptr;
+  return (MatchMaxWithConst(instruction, low, &candidate) &&
+          MatchMinWithConst(candidate, high, inner)) ||
+         (MatchMinWithConst(instruction, high, &candidate) &&
+          MatchMaxWithConst(candidate, low, inner));
+}
+
 // Detect reductions of the following forms,
 //   x = x_phi + ..
 //   x = x_phi - ..
@@ -347,6 +397,29 @@ static bool HasReductionFormat(HInstruction* reduction, HInstruction* phi) {
     return (reduction->InputAt(0) == phi && reduction->InputAt(1) != phi);
   }
   return false;
+}
+
+static bool IsNarrowingIntegralConversion(HInstruction* instruction) {
+  if (!instruction->IsTypeConversion()) {
+    return false;
+  }
+  HTypeConversion* conversion = instruction->AsTypeConversion();
+  return DataType::IsIntegralType(conversion->GetInputType()) &&
+         DataType::IsIntegralType(conversion->GetResultType()) &&
+         DataType::Size(conversion->GetResultType()) < DataType::Size(conversion->GetInputType());
+}
+
+static HInstruction* GetReductionUpdate(HInstruction* back_edge, HInstruction* phi) {
+  if (HasReductionFormat(back_edge, phi)) {
+    return back_edge;
+  }
+  if (IsNarrowingIntegralConversion(back_edge)) {
+    HInstruction* reduction = back_edge->InputAt(0);
+    if (HasReductionFormat(reduction, phi)) {
+      return reduction;
+    }
+  }
+  return nullptr;
 }
 
 // Translates vector operation to reduction kind.
@@ -1688,7 +1761,8 @@ void HLoopOptimization::GenerateNewLoopBodyOnce(LoopNode* node,
 
     for (HInstructionIterator it(cur_block->GetInstructions()); !it.Done(); it.Advance()) {
       bool vectorized_def = VectorizeDef(node, it.Current(), /*generate_code*/ true);
-      DCHECK(vectorized_def);
+      DCHECK(vectorized_def) << "Failed to vectorize def " << *it.Current()
+                             << " in " << graph_->PrettyMethod();
     }
   }
 
@@ -1873,8 +1947,48 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
     // Accept particular type conversions.
     HTypeConversion* conversion = instruction->AsTypeConversion();
     HInstruction* opa = conversion->InputAt(0);
+    for (const HUseListNode<HInstruction*>& use : instruction->GetUses()) {
+      HInstruction* user = use.GetUser();
+      if (!user->IsPhi()) {
+        continue;
+      }
+      HPhi* phi = user->AsPhi();
+      if (reductions_->find(phi) == reductions_->end() || phi->InputAt(1) != instruction) {
+        continue;
+      }
+      HInstruction* reduction = GetReductionUpdate(instruction, phi);
+      if (reduction == nullptr || reduction != opa || reductions_->Get(reduction) != phi) {
+        continue;
+      }
+      if (generate_code) {
+        if (synthesis_mode_ == LoopSynthesisMode::kVector) {
+          vector_map_->Put(instruction, vector_map_->Get(opa));
+        } else {
+          GenerateVecOp(instruction, vector_map_->Get(opa), nullptr, type);
+        }
+      }
+      return true;
+    }
     DataType::Type from = conversion->GetInputType();
     DataType::Type to = conversion->GetResultType();
+    if (VectorizeSaturationIdiom(node, instruction, generate_code, type, restrictions)) {
+      return true;
+    }
+    bool allow_loongarch64_int32_to_float32 =
+        compiler_options_->GetInstructionSet() == InstructionSet::kLoongarch64 &&
+        from == DataType::Type::kInt32 &&
+        to == DataType::Type::kFloat32 &&
+        type == DataType::Type::kFloat32;
+    bool allow_loongarch64_int64_to_float64 =
+        compiler_options_->GetInstructionSet() == InstructionSet::kLoongarch64 &&
+        from == DataType::Type::kInt64 &&
+        to == DataType::Type::kFloat64 &&
+        type == DataType::Type::kFloat64;
+    if (HasVectorRestrictions(restrictions, kNoCnv) &&
+        !allow_loongarch64_int32_to_float32 &&
+        !allow_loongarch64_int64_to_float64) {
+      return false;
+    }
     if (DataType::IsIntegralType(from) && DataType::IsIntegralType(to)) {
       uint32_t size_vec = DataType::Size(type);
       uint32_t size_from = DataType::Size(from);
@@ -1898,13 +2012,43 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
         }
         return true;
       }
-    } else if (to == DataType::Type::kFloat32 && from == DataType::Type::kInt32) {
+    } else if ((to == DataType::Type::kFloat32 && from == DataType::Type::kInt32) ||
+               (to == DataType::Type::kFloat64 && from == DataType::Type::kInt64)) {
       DCHECK_EQ(to, type);
-      // Accept int to float conversion for
-      // (1) supported int,
-      // (2) vectorizable operand.
-      if (TrySetVectorType(from, &restrictions) &&
-          VectorizeUse(node, opa, generate_code, from, restrictions)) {
+      bool vectorizable_operand = false;
+      if (allow_loongarch64_int32_to_float32 || allow_loongarch64_int64_to_float64) {
+        // The LoongArch64 LSX path currently supports direct VecLoad/Replicate -> VecCnv
+        // conversion for int32[] -> float32[] and long[] -> double[].
+        uint32_t lane_count = (from == DataType::Type::kInt32) ? 4u : 2u;
+        if (TrySetVectorLength(from, lane_count)) {
+          if (node->loop_info->IsDefinedOutOfTheLoop(opa)) {
+            if (generate_code) {
+              GenerateVecInv(opa, from);
+            }
+            vectorizable_operand = true;
+          } else if (opa->IsArrayGet()) {
+            HInstruction* base = opa->InputAt(0);
+            HInstruction* index = opa->InputAt(1);
+            HInstruction* offset = nullptr;
+            if (opa->GetType() == from &&
+                node->loop_info->IsDefinedOutOfTheLoop(base) &&
+                induction_range_.IsUnitStride(opa->GetBlock(), index, graph_, &offset)) {
+              if (generate_code) {
+                GenerateVecSub(index, offset);
+                GenerateVecMem(opa, vector_map_->Get(index), nullptr, offset, from);
+              } else {
+                vector_refs_->insert(
+                    ArrayReference(base, offset, from, /*lhs*/ false, /*is_string_char_at*/ false));
+              }
+              vectorizable_operand = true;
+            }
+          }
+        }
+      } else if (TrySetVectorType(from, &restrictions) &&
+                 VectorizeUse(node, opa, generate_code, from, restrictions)) {
+        vectorizable_operand = true;
+      }
+      if (vectorizable_operand) {
         if (generate_code) {
           GenerateVecOp(instruction, vector_map_->Get(opa), nullptr, type);
         }
@@ -1913,6 +2057,9 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
     }
     return false;
   } else if (instruction->IsNeg() || instruction->IsNot() || instruction->IsBooleanNot()) {
+    if (instruction->IsNeg() && HasVectorRestrictions(restrictions, kNoNeg)) {
+      return false;
+    }
     // Accept unary operator for vectorizable operand.
     HInstruction* opa = instruction->InputAt(0);
     if (VectorizeUse(node, opa, generate_code, type, restrictions)) {
@@ -1922,6 +2069,7 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
       return true;
     }
   } else if (instruction->IsAdd() || instruction->IsSub() ||
+             instruction->IsMin() || instruction->IsMax() ||
              instruction->IsMul() || instruction->IsDiv() ||
              instruction->IsAnd() || instruction->IsOr()  || instruction->IsXor()) {
     // Deal with vector restrictions.
@@ -1949,18 +2097,19 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
     HInstruction* opb = instruction->InputAt(1);
     HInstruction* r = opa;
     bool is_unsigned = false;
+    HInstruction::InstructionKind vector_shift_kind = instruction->GetKind();
     if ((HasVectorRestrictions(restrictions, kNoShift)) ||
         (instruction->IsShr() && HasVectorRestrictions(restrictions, kNoShr))) {
       return false;  // unsupported instruction
     } else if (HasVectorRestrictions(restrictions, kNoHiBits)) {
       // Shifts right need extra care to account for higher order bits.
-      // TODO: less likely shr/unsigned and ushr/signed can by flipping signess.
-      if (instruction->IsShr() &&
-          (!IsNarrowerOperand(opa, type, &r, &is_unsigned) || is_unsigned)) {
-        return false;  // reject, unless all operands are sign-extension narrower
-      } else if (instruction->IsUShr() &&
-                 (!IsNarrowerOperand(opa, type, &r, &is_unsigned) || !is_unsigned)) {
-        return false;  // reject, unless all operands are zero-extension narrower
+      if (instruction->IsShr() || instruction->IsUShr()) {
+        if (!IsNarrowerOperand(opa, type, &r, &is_unsigned)) {
+          return false;
+        }
+        // Compound assignments on narrow Java types can swap the shift flavour needed in the
+        // lane width before the final narrowing cast.
+        vector_shift_kind = is_unsigned ? HInstruction::kUShr : HInstruction::kShr;
       }
     }
     // Accept shift operator for vectorizable/invariant operands.
@@ -1976,7 +2125,20 @@ bool HLoopOptimization::VectorizeUse(LoopNode* node,
       int64_t max_distance = DataType::Size(type) * 8;
       if (0 <= distance && distance < max_distance) {
         if (generate_code) {
-          GenerateVecOp(instruction, vector_map_->Get(r), opb, type);
+          if (synthesis_mode_ == LoopSynthesisMode::kVector &&
+              vector_shift_kind != instruction->GetKind()) {
+            HInstruction* vector =
+                (vector_shift_kind == HInstruction::kUShr)
+                    ? static_cast<HInstruction*>(new (global_allocator_) HVecUShr(
+                          global_allocator_, vector_map_->Get(r), opb, type, vector_length_,
+                          instruction->GetDexPc()))
+                    : static_cast<HInstruction*>(new (global_allocator_) HVecShr(
+                          global_allocator_, vector_map_->Get(r), opb, type, vector_length_,
+                          instruction->GetDexPc()));
+            vector_map_->Put(instruction, vector);
+          } else {
+            GenerateVecOp(instruction, vector_map_->Get(r), opb, type);
+          }
         }
         return true;
       }
@@ -2169,6 +2331,36 @@ bool HLoopOptimization::TrySetVectorType(DataType::Type type, uint64_t* restrict
         }  // switch type
       }
       return false;
+    case InstructionSet::kLoongarch64:
+      // LoongArch64 LSX currently supports the floating-point path plus selected integer
+      // arithmetic/shift/halving-add patterns. Keep unsupported integer idioms disabled until
+      // lowering is implemented.
+      *restrictions |= kNoIfCond | kNoCnv;
+      switch (type) {
+        case DataType::Type::kInt8:
+          *restrictions |= kNoDiv;
+          return TrySetVectorLength(type, 16);
+        case DataType::Type::kUint16:
+          *restrictions |= kNoDiv |
+                           kNoAbs |
+                           kNoShr;
+          return TrySetVectorLength(type, 8);
+        case DataType::Type::kInt16:
+          *restrictions |= kNoDiv;
+          return TrySetVectorLength(type, 8);
+        case DataType::Type::kInt32:
+          *restrictions |= kNoDiv;
+          return TrySetVectorLength(type, 4);
+        case DataType::Type::kInt64:
+          *restrictions |= kNoDiv;
+          return TrySetVectorLength(type, 2);
+        case DataType::Type::kFloat32:
+          return TrySetVectorLength(type, 4);
+        case DataType::Type::kFloat64:
+          return TrySetVectorLength(type, 2);
+        default:
+          return false;
+      }
     default:
       return false;
   }  // switch instruction set
@@ -2286,7 +2478,9 @@ void HLoopOptimization::GenerateVecMem(HInstruction* org,
 
 void HLoopOptimization::GenerateVecReductionPhi(HPhi* orig_phi) {
   DCHECK(reductions_->find(orig_phi) != reductions_->end());
-  DCHECK(reductions_->Get(orig_phi->InputAt(1)) == orig_phi);
+  HInstruction* reduction = GetReductionUpdate(orig_phi->InputAt(1), orig_phi);
+  DCHECK(reduction != nullptr);
+  DCHECK(reductions_->Get(reduction) == orig_phi);
   HInstruction* vector = nullptr;
   if (synthesis_mode_ == LoopSynthesisMode::kSequential) {
     HPhi* new_phi = new (global_allocator_) HPhi(
@@ -2433,6 +2627,14 @@ HInstruction* HLoopOptimization::GenerateVecOp(HInstruction* org,
       GENERATE_VEC(
         new (global_allocator_) HVecDiv(global_allocator_, opa, opb, type, vector_length_, dex_pc),
         new (global_allocator_) HDiv(org_type, opa, opb, dex_pc));
+    case HInstruction::kMin:
+      GENERATE_VEC(
+        new (global_allocator_) HVecMin(global_allocator_, opa, opb, type, vector_length_, dex_pc),
+        new (global_allocator_) HMin(org_type, opa, opb, dex_pc));
+    case HInstruction::kMax:
+      GENERATE_VEC(
+        new (global_allocator_) HVecMax(global_allocator_, opa, opb, type, vector_length_, dex_pc),
+        new (global_allocator_) HMax(org_type, opa, opb, dex_pc));
     case HInstruction::kAnd:
       GENERATE_VEC(
         new (global_allocator_) HVecAnd(global_allocator_, opa, opb, type, vector_length_, dex_pc),
@@ -2482,6 +2684,138 @@ HInstruction* HLoopOptimization::GenerateVecOp(HInstruction* org,
 //
 // Vectorization idioms.
 //
+
+// Method recognizes narrowing integral idioms that widen operands to do the scalar arithmetic
+// and then cast the result back to byte/short/char. For LoongArch64 this allows selected
+// patterns to bypass generic kNoCnv restrictions:
+//   (1) min/max on consistently widened narrow operands, and
+//   (2) clamp(add/sub, low, high) that maps to saturating add/sub.
+bool HLoopOptimization::VectorizeSaturationIdiom(LoopNode* node,
+                                                 HInstruction* instruction,
+                                                 bool generate_code,
+                                                 DataType::Type type,
+                                                 uint64_t restrictions) {
+  if (!instruction->IsTypeConversion()) {
+    return false;
+  }
+
+  HTypeConversion* conversion = instruction->AsTypeConversion();
+  DataType::Type from = conversion->GetInputType();
+  DataType::Type to = conversion->GetResultType();
+  if (!DataType::IsIntegralType(from) ||
+      !DataType::IsIntegralType(to) ||
+      to != type ||
+      DataType::Size(to) >= DataType::Size(from)) {
+    return false;
+  }
+
+  int64_t low = 0;
+  int64_t high = 0;
+  switch (type) {
+    case DataType::Type::kInt8:
+      low = -128;
+      high = 127;
+      break;
+    case DataType::Type::kInt16:
+      low = -32768;
+      high = 32767;
+      break;
+    case DataType::Type::kUint16:
+      low = 0;
+      high = 65535;
+      break;
+    default:
+      return false;
+  }
+
+  enum class NarrowOpKind {
+    kMin,
+    kMax,
+    kSaturationAdd,
+    kSaturationSub,
+  };
+
+  NarrowOpKind op_kind = NarrowOpKind::kMin;
+  HInstruction* idiom = conversion->InputAt(0);
+  HInstruction* op_left = nullptr;
+  HInstruction* op_right = nullptr;
+
+  HInstruction* arithmetic = nullptr;
+  if (MatchClamp(idiom, low, high, &arithmetic) ||
+      (type == DataType::Type::kUint16 &&
+       ((MatchMinWithConst(idiom, high, &arithmetic) && arithmetic->IsAdd()) ||
+        (MatchMaxWithConst(idiom, low, &arithmetic) && arithmetic->IsSub())))) {
+    if (arithmetic->IsAdd()) {
+      op_kind = NarrowOpKind::kSaturationAdd;
+    } else if (arithmetic->IsSub()) {
+      op_kind = NarrowOpKind::kSaturationSub;
+    } else {
+      return false;
+    }
+    op_left = arithmetic->InputAt(0);
+    op_right = arithmetic->InputAt(1);
+  } else if (idiom->IsMin() || idiom->IsMax()) {
+    op_kind = idiom->IsMin() ? NarrowOpKind::kMin : NarrowOpKind::kMax;
+    op_left = idiom->InputAt(0);
+    op_right = idiom->InputAt(1);
+  } else {
+    return false;
+  }
+
+  HInstruction* r = nullptr;
+  HInstruction* s = nullptr;
+  bool is_unsigned = false;
+  if (!IsNarrowerOperands(op_left, op_right, type, &r, &s, &is_unsigned) ||
+      HVecOperation::ToProperType(type, is_unsigned) != type) {
+    return false;
+  }
+
+  uint64_t use_restrictions = restrictions;
+  if (generate_code && synthesis_mode_ != LoopSynthesisMode::kVector) {
+    // Sequential cleanup/peeling loops rebuild the original scalar widening chain.
+    use_restrictions &= ~kNoCnv;
+    if (VectorizeUse(node, idiom, generate_code, type, use_restrictions | kNoHiBits)) {
+      GenerateVecOp(instruction, vector_map_->Get(idiom), nullptr, type);
+      return true;
+    }
+    return false;
+  }
+
+  if (VectorizeUse(node, r, generate_code, type, use_restrictions) &&
+      VectorizeUse(node, s, generate_code, type, use_restrictions)) {
+    if (generate_code) {
+      DCHECK_EQ(synthesis_mode_, LoopSynthesisMode::kVector);
+      HInstruction* vector = nullptr;
+      switch (op_kind) {
+        case NarrowOpKind::kMin:
+          vector = new (global_allocator_) HVecMin(
+              global_allocator_, vector_map_->Get(r), vector_map_->Get(s), type, vector_length_,
+              kNoDexPc);
+          break;
+        case NarrowOpKind::kMax:
+          vector = new (global_allocator_) HVecMax(
+              global_allocator_, vector_map_->Get(r), vector_map_->Get(s), type, vector_length_,
+              kNoDexPc);
+          break;
+        case NarrowOpKind::kSaturationAdd:
+          vector = new (global_allocator_) HVecSaturationAdd(
+              global_allocator_, vector_map_->Get(r), vector_map_->Get(s), type, vector_length_,
+              kNoDexPc);
+          break;
+        case NarrowOpKind::kSaturationSub:
+          vector = new (global_allocator_) HVecSaturationSub(
+              global_allocator_, vector_map_->Get(r), vector_map_->Get(s), type, vector_length_,
+              kNoDexPc);
+          break;
+      }
+      vector_map_->Put(instruction, vector);
+      MaybeRecordStat(stats_, MethodCompilationStat::kLoopVectorizedIdiom);
+    }
+    return true;
+  }
+
+  return false;
+}
 
 // Method recognizes the following idioms:
 //   rounding  halving add (a + b + 1) >> 1 for unsigned/signed operands a, b
@@ -2586,7 +2920,7 @@ bool HLoopOptimization::VectorizeSADIdiom(LoopNode* node,
   } else {
     return false;
   }
-  // Accept same-type or consistent sign extension for narrower-type on operands a and b.
+  // Accept same-type or consistent sign/zero extension for narrower-type on operands a and b.
   // The same-type or narrower operands are called r (a or lower) and s (b or lower).
   // We inspect the operands carefully to pick the most suited type.
   HInstruction* r = a;
@@ -2594,7 +2928,7 @@ bool HLoopOptimization::VectorizeSADIdiom(LoopNode* node,
   bool is_unsigned = false;
   DataType::Type sub_type = GetNarrowerType(a, b);
   if (reduction_type != sub_type &&
-      (!IsNarrowerOperands(a, b, sub_type, &r, &s, &is_unsigned) || is_unsigned)) {
+      !IsNarrowerOperands(a, b, sub_type, &r, &s, &is_unsigned)) {
     return false;
   }
   // Try same/narrower type and deal with vector restrictions.
@@ -2606,12 +2940,16 @@ bool HLoopOptimization::VectorizeSADIdiom(LoopNode* node,
   // Accept SAD idiom for vectorizable operands. Vectorized code uses the shorthand
   // idiomatic operation. Sequential code uses the original scalar expressions.
   DCHECK(r != nullptr && s != nullptr);
+  uint64_t use_restrictions = restrictions;
   if (generate_code && synthesis_mode_ != LoopSynthesisMode::kVector) {  // de-idiom
     r = s = abs->InputAt(0);
+    // Sequential cleanup/peeling loops rebuild the original scalar widening chain,
+    // so scalar TypeConversion nodes must not be rejected by vector-only kNoCnv.
+    use_restrictions &= ~kNoCnv;
   }
-  if (VectorizeUse(node, acc, generate_code, sub_type, restrictions) &&
-      VectorizeUse(node, r, generate_code, sub_type, restrictions) &&
-      VectorizeUse(node, s, generate_code, sub_type, restrictions)) {
+  if (VectorizeUse(node, acc, generate_code, sub_type, use_restrictions) &&
+      VectorizeUse(node, r, generate_code, sub_type, use_restrictions) &&
+      VectorizeUse(node, s, generate_code, sub_type, use_restrictions)) {
     if (generate_code) {
       if (synthesis_mode_ == LoopSynthesisMode::kVector) {
         vector_map_->Put(instruction, new (global_allocator_) HVecSADAccumulate(
@@ -2679,13 +3017,16 @@ bool HLoopOptimization::VectorizeDotProdIdiom(LoopNode* node,
   DCHECK(r != nullptr && s != nullptr);
   // Accept dot product idiom for vectorizable operands. Vectorized code uses the shorthand
   // idiomatic operation. Sequential code uses the original scalar expressions.
+  uint64_t use_restrictions = restrictions;
   if (generate_code && synthesis_mode_ != LoopSynthesisMode::kVector) {  // de-idiom
     r = mul_left;
     s = mul_right;
+    // Sequential cleanup/peeling loops rebuild the original scalar widening chain.
+    use_restrictions &= ~kNoCnv;
   }
-  if (VectorizeUse(node, acc, generate_code, op_type, restrictions) &&
-      VectorizeUse(node, r, generate_code, op_type, restrictions) &&
-      VectorizeUse(node, s, generate_code, op_type, restrictions)) {
+  if (VectorizeUse(node, acc, generate_code, op_type, use_restrictions) &&
+      VectorizeUse(node, r, generate_code, op_type, use_restrictions) &&
+      VectorizeUse(node, s, generate_code, op_type, use_restrictions)) {
     if (generate_code) {
       if (synthesis_mode_ == LoopSynthesisMode::kVector) {
         vector_map_->Put(instruction, new (global_allocator_) HVecDotProd(
@@ -2904,14 +3245,21 @@ bool HLoopOptimization::TrySetPhiReduction(HPhi* phi) {
   // used exactly once inside the loop, and by each other.
   HInputsRef inputs = phi->GetInputs();
   if (inputs.size() == 2) {
-    HInstruction* reduction = inputs[1];
-    if (HasReductionFormat(reduction, phi)) {
+    HInstruction* back_edge = inputs[1];
+    HInstruction* reduction = GetReductionUpdate(back_edge, phi);
+    if (reduction != nullptr) {
       HLoopInformation* loop_info = phi->GetBlock()->GetLoopInformation();
       DCHECK(loop_info->Contains(*reduction->GetBlock()));
       const bool single_use_inside_loop =
-          // Reduction update only used by phi.
+          // Reduction update is only used by the back edge into the phi.
           reduction->GetUses().HasExactlyOneElement() &&
           !reduction->HasEnvironmentUses() &&
+          reduction->GetUses().begin()->GetUser() == back_edge &&
+          // An optional narrowing back edge must only bridge the reduction to the phi.
+          (back_edge == reduction ||
+           (back_edge->GetUses().HasExactlyOneElement() &&
+            !back_edge->HasEnvironmentUses() &&
+            back_edge->GetUses().begin()->GetUser() == phi)) &&
           // Reduction update is only use of phi inside the loop.
           std::none_of(phi->GetUses().begin(),
                        phi->GetUses().end(),
